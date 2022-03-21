@@ -1,15 +1,15 @@
-#[derive(Debug)]
+use std::fmt;
+
+#[derive(Debug, Clone, Copy)]
 pub enum TokenKind {
-    LeftParen, RightParen,
-    LeftBracket, RightBracket,
-    LeftAngle, RightAngle,
-    Semicolon, Colon,
-    Bang, BangEqual, EqualEqual,
+    LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
+    Questionmark, Semicolon, Colon, Plus, Minus, Bang, BangEqual, EqualEqual,
+    GreaterEqual, LessEqual, Equal,
     True, False,
     Let, Var,
     This, If, Else, Break, Continue,
     Switch, Case, For, While,
-    Func, Struct, Interface,
+    Func, Struct, Interface, Literal,
     Identifier,
     Error, End
 }
@@ -18,6 +18,24 @@ pub struct Token {
     pub kind: TokenKind,
     pub value: String,
     pub line: usize,
+}
+
+impl Clone for Token {
+    fn clone(&self) -> Self {
+        Token {
+            kind: self.kind,
+            value: self.value.clone(),
+            line: self.line
+        }
+    }
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Kind {:?}\nValue {}\nLine {}\n", self.kind,
+                                                    self.value,
+                                                    self.line)
+    }
 }
 
 pub struct Scanner {
@@ -52,19 +70,31 @@ impl Scanner {
 
         let c = self.advance();
 
+        if c.is_numeric() {
+            return self.literal()
+        }
+
         if c.is_alphabetic() {
             return self.identifier()
         }
 
         match c {
-            '('  => { self.emit(TokenKind::LeftParen) }
-            ')'  => { self.emit(TokenKind::RightParen) }
-            '{'  => { self.emit(TokenKind::LeftBracket) }
-            '}'  => { self.emit(TokenKind::RightBracket) }
-            ':'  => { self.emit(TokenKind::Colon) }
-            ';'  => { self.emit(TokenKind::Semicolon) }
-            '\0' => { self.emit(TokenKind::End) }
-            _    => { self.identifier() }
+            '('  => self.emit(TokenKind::LeftParen),
+            ')'  => self.emit(TokenKind::RightParen),
+            '{'  => self.emit(TokenKind::LeftBracket),
+            '}'  => self.emit(TokenKind::RightBracket),
+            '+'  => self.emit(TokenKind::Plus),
+            ':'  => self.emit(TokenKind::Colon),
+            ';'  => self.emit(TokenKind::Semicolon),
+            '='  => {
+                if self.peek_next() == '=' {
+                    return self.emit(TokenKind::EqualEqual)
+                }
+
+                self.emit(TokenKind::Equal)
+            },
+            '\0' => self.emit(TokenKind::End),
+            _    => self.identifier()
         }
     }
 
@@ -80,10 +110,14 @@ impl Scanner {
         let identifier_first_char = self.source.chars().nth(self.start).unwrap();
 
         match identifier_first_char {
-            'f' => { return self.check_keyword(1, 3, "unc", TokenKind::Func) }
-            'l' => { return self.check_keyword(1, 2, "et", TokenKind::Let) }
-            _   => { return TokenKind::Identifier }
+            'f' => self.check_keyword(1, 3, "unc", TokenKind::Func),
+            'l' => self.check_keyword(1, 2, "et", TokenKind::Let),
+            _   => TokenKind::Identifier,
         }
+    }
+
+    fn literal(&mut self) -> Token {
+        self.emit(TokenKind::Literal)
     }
 
     fn check_keyword
