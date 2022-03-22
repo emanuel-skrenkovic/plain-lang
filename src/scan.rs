@@ -83,10 +83,32 @@ impl Scanner {
             ')'  => self.emit(TokenKind::RightParen),
             '{'  => self.emit(TokenKind::LeftBracket),
             '}'  => self.emit(TokenKind::RightBracket),
-            '+'  => self.emit(TokenKind::Plus),
-            '-'  => self.emit(TokenKind::Minus),
+            '<'  => {
+                if self.peek_next() == '=' {
+                    return self.emit(TokenKind::LessEqual)
+                }
+
+                self.emit(TokenKind::LeftAngle)
+            },
+            '>'  => {
+                if self.peek_next() == '=' {
+                    return self.emit(TokenKind::GreaterEqual)
+                }
+
+                self.emit(TokenKind::RightAngle)
+            },
+            '?'  => self.emit(TokenKind::Questionmark),
             ':'  => self.emit(TokenKind::Colon),
             ';'  => self.emit(TokenKind::Semicolon),
+            '+'  => self.emit(TokenKind::Plus),
+            '-'  => self.emit(TokenKind::Minus),
+            '!' => {
+                if self.peek_next() == '=' {
+                    return self.emit(TokenKind::BangEqual)
+                }
+
+                self.emit(TokenKind::Bang)
+            }
             '='  => {
                 if self.peek_next() == '=' {
                     return self.emit(TokenKind::EqualEqual)
@@ -111,8 +133,40 @@ impl Scanner {
         let identifier_first_char = self.source.chars().nth(self.start).unwrap();
 
         match identifier_first_char {
-            'f' => self.check_keyword(1, 3, "unc", TokenKind::Func),
+            'b' => self.check_keyword(1, 4, "reak", TokenKind::Break),
+            'c' => {
+                if self.source.chars().nth(self.start + 1).unwrap() == 'a' { // TODO: fix
+                    return self.check_keyword(2, 2, "se", TokenKind::Case)
+                }
+
+                self.check_keyword(2, 6, "ntinue", TokenKind::Continue)
+            },
+            'e' => self.check_keyword(1, 3, "lse", TokenKind::Else),
+            'f' => {
+                if self.source.chars().nth(self.start + 1).unwrap() == 'o' { // TODO: fix
+                    return self.check_keyword(2, 1, "r", TokenKind::For)
+                }
+
+                self.check_keyword(2, 2, "nc", TokenKind::Func)
+            },
+            'i' => {
+                if self.source.chars().nth(self.start + 1).unwrap() == 'f' { // TODO: fix
+                    return TokenKind::If
+                }
+
+                self.check_keyword(1, 8, "nterface", TokenKind::If)
+            },
             'l' => self.check_keyword(1, 2, "et", TokenKind::Let),
+            's' => {
+                if self.source.chars().nth(self.start + 1).unwrap() == 't' { // TODO: fix
+                    return self.check_keyword(2, 4, "ruct", TokenKind::Struct)
+                }
+
+                self.check_keyword(2, 4, "itch", TokenKind::Switch)
+            },
+            't' => self.check_keyword(1, 3, "his", TokenKind::This),
+            'v' => self.check_keyword(1, 2, "ar", TokenKind::Var),
+            'w' => self.check_keyword(1, 4, "hile", TokenKind::While),
             _   => TokenKind::Identifier,
         }
     }
