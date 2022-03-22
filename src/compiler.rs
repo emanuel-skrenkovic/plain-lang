@@ -67,7 +67,7 @@ static RULES: [ParseRule; 37] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Semicolon
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Colon
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Plus
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Minus
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Minus
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Bang
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // BandEqual
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // EqualEqual

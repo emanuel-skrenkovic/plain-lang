@@ -84,6 +84,7 @@ impl Scanner {
             '{'  => self.emit(TokenKind::LeftBracket),
             '}'  => self.emit(TokenKind::RightBracket),
             '+'  => self.emit(TokenKind::Plus),
+            '-'  => self.emit(TokenKind::Minus),
             ':'  => self.emit(TokenKind::Colon),
             ';'  => self.emit(TokenKind::Semicolon),
             '='  => {
@@ -117,6 +118,10 @@ impl Scanner {
     }
 
     fn literal(&mut self) -> Token {
+        while self.peek().is_alphanumeric() {
+            self.advance();
+        }
+
         self.emit(TokenKind::Literal)
     }
 

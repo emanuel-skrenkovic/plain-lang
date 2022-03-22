@@ -1,5 +1,6 @@
+#[derive(Clone, Copy, Debug)]
 pub enum Value {
-    String { val: String },
+    // String { val: String },
     Number { val: i32 }
 }
 
