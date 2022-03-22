@@ -84,14 +84,14 @@ impl Scanner {
             '{' => self.emit(TokenKind::LeftBracket),
             '}' => self.emit(TokenKind::RightBracket),
             '<' => {
-                if self.peek_next() == '=' {
+                if self.match_char('=') {
                     return self.emit(TokenKind::LessEqual)
                 }
 
                 self.emit(TokenKind::LeftAngle)
             },
             '>' => {
-                if self.peek_next() == '=' {
+                if self.match_char('=') {
                     return self.emit(TokenKind::GreaterEqual)
                 }
 
@@ -105,14 +105,14 @@ impl Scanner {
             '*' => self.emit(TokenKind::Star),
             '/' => self.emit(TokenKind::Slash), // TODO: comments
             '!' => {
-                if self.peek_next() == '=' {
+                if self.match_char('=') {
                     return self.emit(TokenKind::BangEqual)
                 }
 
                 self.emit(TokenKind::Bang)
             }
             '='  => {
-                if self.peek_next() == '=' {
+                if self.match_char('=') {
                     return self.emit(TokenKind::EqualEqual)
                 }
 
@@ -209,6 +209,15 @@ impl Scanner {
 
     fn peek(&self) -> char {
         self.source_char_at(self.current)
+    }
+
+    fn match_char(&mut self, c: char) -> bool {
+        if self.peek() == c {
+            self.advance();
+            return true
+        }
+
+        false
     }
 
     fn peek_next(&self) -> char {

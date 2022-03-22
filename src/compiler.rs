@@ -71,10 +71,10 @@ static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Star
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Slash
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Bang
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // BandEqual
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // EqualEqual
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // GreaterEqual
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // LessEqual
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Equality }, // BandEqual
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Equality }, // EqualEqual
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // GreaterEqual
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // LessEqual
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Equal
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // True
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // False

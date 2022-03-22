@@ -31,8 +31,8 @@ impl VM {
 
             match self.ip.try_into().unwrap() {
                 Op::Pop => {
-                    println!("    {:?}\n", self.pop());
-                    self.i += 1;
+                    let value = self.pop();
+                    println!("    {:?}\n", value);
                 }
                 Op::Add => {
                     let (a, b) = self.binary_op();
@@ -82,17 +82,72 @@ impl VM {
                 Op::Divide => {
                     let (a, b) = self.binary_op();
 
-                    let first = match a {
+                    let second = match a {
                         Value::Number { val } => val,
                         _ => { panic!("TODO: Not supported") }
                     };
 
-                    let second = match b {
+                    let first = match b {
                         Value::Number { val } => val,
                         _ => { panic!("TODO: Not supported") }
                     };
 
                     self.push(Value::Number { val: first / second });
+                }
+                Op::Equal => {
+                    let (a, b) = self.binary_op();
+
+                    let second = match a {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    let first = match b {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    self.push(Value::Bool { val: first == second });
+                }
+                Op::GreaterEqual => {
+                    let (a, b) = self.binary_op();
+
+                    let second = match a {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    let first = match b {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    self.push(Value::Bool { val: first >= second });
+                }
+                Op::LessEqual => {
+                    let (a, b) = self.binary_op();
+
+                    let second = match a {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    let first = match b {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    self.push(Value::Bool { val: first <= second });
+                }
+                Op::Not => {
+                    let value = self.pop();
+
+                    let boolean = match value {
+                        Value::Bool { val } => val,
+                        _ => panic!("TODO: Not supported")
+                    };
+
+                    self.push(Value::Bool { val: !boolean });
                 }
                 Op::Constant => { // Constant
                     let value = self.read_constant();
@@ -129,6 +184,7 @@ impl VM {
         (*self.block).borrow().values[index]
     }
 
+    // TODO: how to handle differring types
     fn binary_op(&mut self) -> (Value, Value) {
         let a = self.pop();
         let b = self.pop();
@@ -144,14 +200,17 @@ impl VM {
 
     fn disassemble_instruction(&self, instruction: u8) {
         print!("OP ");
-        match instruction {
-            0 => print!("POP"),
-            1 => println!("TRUE"),
-            2 => println!("FALSE"),
-            3 => println!("NOT"),
-            4 => println!("ADD"),
-            5 => println!("SUBTRACT"),
-            6 => print!("CONSTANT"),
+        match instruction.try_into().unwrap() {
+            Op::Pop      => print!("POP"),
+            Op::True     => println!("TRUE"),
+            Op::False    => println!("FALSE"),
+            Op::Not      => println!("NOT"),
+            Op::Add      => println!("ADD"),
+            Op::Subtract => println!("SUBTRACT"),
+            Op::Multiply => println!("MULTIPLY"),
+            Op::Divide   => println!("DIVIDE"),
+            Op::Constant => print!("CONSTANT"),
+            Op::Equal    => println!("EQUAL"),
             _ => { }
         }
     }
