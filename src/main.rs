@@ -15,7 +15,6 @@ use crate::compiler::Compiler;
 
 fn main() {
     let mut args: Vec<String> = env::args().collect();
-    // let args: Vec<String> = vec!["".to_owned(), "tests/add.sg".to_owned()];
 
     if args.len() <= 1 {
         loop {

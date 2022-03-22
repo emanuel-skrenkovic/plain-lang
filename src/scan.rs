@@ -3,8 +3,8 @@ use std::fmt;
 #[derive(Debug, Clone, Copy)]
 pub enum TokenKind {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
-    Questionmark, Semicolon, Colon, Plus, Minus, Bang, BangEqual, EqualEqual,
-    GreaterEqual, LessEqual, Equal,
+    Questionmark, Semicolon, Colon, Plus, Minus, Star, Slash,
+    Bang, BangEqual, EqualEqual, GreaterEqual, LessEqual, Equal,
     True, False,
     Let, Var,
     This, If, Else, Break, Continue,
@@ -79,29 +79,31 @@ impl Scanner {
         }
 
         match c {
-            '('  => self.emit(TokenKind::LeftParen),
-            ')'  => self.emit(TokenKind::RightParen),
-            '{'  => self.emit(TokenKind::LeftBracket),
-            '}'  => self.emit(TokenKind::RightBracket),
-            '<'  => {
+            '(' => self.emit(TokenKind::LeftParen),
+            ')' => self.emit(TokenKind::RightParen),
+            '{' => self.emit(TokenKind::LeftBracket),
+            '}' => self.emit(TokenKind::RightBracket),
+            '<' => {
                 if self.peek_next() == '=' {
                     return self.emit(TokenKind::LessEqual)
                 }
 
                 self.emit(TokenKind::LeftAngle)
             },
-            '>'  => {
+            '>' => {
                 if self.peek_next() == '=' {
                     return self.emit(TokenKind::GreaterEqual)
                 }
 
                 self.emit(TokenKind::RightAngle)
             },
-            '?'  => self.emit(TokenKind::Questionmark),
-            ':'  => self.emit(TokenKind::Colon),
-            ';'  => self.emit(TokenKind::Semicolon),
-            '+'  => self.emit(TokenKind::Plus),
-            '-'  => self.emit(TokenKind::Minus),
+            '?' => self.emit(TokenKind::Questionmark),
+            ':' => self.emit(TokenKind::Colon),
+            ';' => self.emit(TokenKind::Semicolon),
+            '+' => self.emit(TokenKind::Plus),
+            '-' => self.emit(TokenKind::Minus),
+            '*' => self.emit(TokenKind::Star),
+            '/' => self.emit(TokenKind::Slash), // TODO: comments
             '!' => {
                 if self.peek_next() == '=' {
                     return self.emit(TokenKind::BangEqual)

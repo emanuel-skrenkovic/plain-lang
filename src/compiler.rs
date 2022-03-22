@@ -56,7 +56,7 @@ struct ParseRule {
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 37] = [
+static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // LeftBracket
@@ -68,6 +68,8 @@ static RULES: [ParseRule; 37] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Colon
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Plus
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Minus
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Star
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Slash
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Bang
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // BandEqual
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // EqualEqual
@@ -159,6 +161,8 @@ impl Compiler {
         loop {
             self.parser.current = self.scanner.scan_token();
 
+            println!("Token: {}", self.parser.current);
+
             if !matches!(self.parser.current.kind, TokenKind::Error) {
                 break;
             }
@@ -214,6 +218,8 @@ impl Compiler {
             TokenKind::LessEqual    => self.emit_byte(Op::LessEqual),
             TokenKind::Plus         => self.emit_byte(Op::Add),
             TokenKind::Minus        => self.emit_byte(Op::Subtract),
+            TokenKind::Star         => self.emit_byte(Op::Multiply),
+            TokenKind::Slash        => self.emit_byte(Op::Divide),
             _ => {}
         }
     }
