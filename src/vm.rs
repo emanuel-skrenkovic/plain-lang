@@ -109,6 +109,36 @@ impl VM {
 
                     self.push(Value::Bool { val: first == second });
                 }
+                Op::Less => {
+                    let (a, b) = self.binary_op();
+
+                    let second = match a {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    let first = match b {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    self.push(Value::Bool { val: first < second });
+                }
+                Op::Greater => {
+                    let (a, b) = self.binary_op();
+
+                    let second = match a {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    let first = match b {
+                        Value::Number { val } => val,
+                        _ => { panic!("TODO: Not supported") }
+                    };
+
+                    self.push(Value::Bool { val: first > second });
+                }
                 Op::GreaterEqual => {
                     let (a, b) = self.binary_op();
 
@@ -211,6 +241,8 @@ impl VM {
             Op::Divide   => println!("DIVIDE"),
             Op::Constant => print!("CONSTANT"),
             Op::Equal    => println!("EQUAL"),
+            Op::Less     => println!("LESS"),
+            Op::Greater  => println!("GREATER"),
             _ => { }
         }
     }

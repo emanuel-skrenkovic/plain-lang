@@ -61,8 +61,8 @@ static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // LeftBracket
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightBracket
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // LeftAngle
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightAngle
+    ParseRule { prefix: None, infix: Some(Compiler::left_angle), precedence: Precedence::Comparison }, // LeftAngle
+    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // RightAngle
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Questionmark
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Semicolon
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Colon
@@ -161,7 +161,7 @@ impl Compiler {
         loop {
             self.parser.current = self.scanner.scan_token();
 
-            println!("Token: {}", self.parser.current);
+            println!("{}", self.parser.current);
 
             if !matches!(self.parser.current.kind, TokenKind::Error) {
                 break;
@@ -212,6 +212,8 @@ impl Compiler {
         );
 
         match operator {
+            TokenKind::LeftAngle    => self.emit_byte(Op::Less),
+            TokenKind::RightAngle   => self.emit_byte(Op::Greater),
             TokenKind::BangEqual    => self.emit_bytes(Op::Equal, Op::Not),
             TokenKind::EqualEqual   => self.emit_byte(Op::Equal),
             TokenKind::GreaterEqual => self.emit_byte(Op::GreaterEqual),
@@ -221,6 +223,16 @@ impl Compiler {
             TokenKind::Star         => self.emit_byte(Op::Multiply),
             TokenKind::Slash        => self.emit_byte(Op::Divide),
             _ => {}
+        }
+    }
+
+    fn left_angle(&mut self) {
+        if matches!(self.parser.current.kind, TokenKind::Identifier) {
+            self.advance();
+            self.match_token(TokenKind::RightAngle);
+            // TODO
+        } else {
+            self.binary();
         }
     }
 

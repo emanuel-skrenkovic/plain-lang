@@ -15,7 +15,8 @@ pub enum Op {
     Not,
     Add, Subtract, Multiply, Divide,
     Constant,
-    Equal, GreaterEqual, LessEqual
+    Equal, Less, Greater,
+    GreaterEqual, LessEqual
 }
 
 impl TryFrom<u8> for Op {
@@ -33,6 +34,8 @@ impl TryFrom<u8> for Op {
             x if x == Op::Divide as u8       => Ok(Op::Divide),
             x if x == Op::Constant as u8     => Ok(Op::Constant),
             x if x == Op::Equal as u8        => Ok(Op::Equal),
+            x if x == Op::Less as u8         => Ok(Op::Less),
+            x if x == Op::Greater as u8      => Ok(Op::Greater),
             x if x == Op::GreaterEqual as u8 => Ok(Op::GreaterEqual),
             x if x == Op::LessEqual as u8    => Ok(Op::LessEqual),
             _ => Err(()),
