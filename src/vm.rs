@@ -2,6 +2,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::mem::discriminant;
 use std::collections::VecDeque;
+use std::collections::HashMap;
 
 use crate::block::{Block, Op, Value};
 
@@ -9,7 +10,9 @@ pub struct VM {
     block: Rc<RefCell<Block>>,
     stack: VecDeque<Value>,
     ip: u8,
-    i: usize
+    i: usize,
+
+    globals: HashMap<u8, Value>
 }
 
 impl VM {
@@ -17,15 +20,15 @@ impl VM {
         let ip = (*block).borrow().code[0];
         VM {
             block,
-            stack: VecDeque::new(),
+            stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
             ip,
-            i: 0
+            i: 0,
+            globals: HashMap::new()
         }
     }
 
     pub fn interpret(&mut self) {
         loop {
-            // self.ip = (*self.block).borrow().code[self.i];
             self.ip = self.read_byte();
             self.disassemble_instruction(self.ip);
 
@@ -36,6 +39,9 @@ impl VM {
                 }
                 Op::Add => {
                     let (a, b) = self.binary_op();
+
+                    print!("A: "); println!("{:?}", a);
+                    print!("B: "); println!("{:?}", b);
 
                     let first = match a {
                         Value::Number { val } => val,
@@ -181,10 +187,19 @@ impl VM {
                 }
                 Op::Constant => { // Constant
                     let value = self.read_constant();
-                    print!("    {:?}\n", value);
-
                     self.push(value);
                 },
+                Op::GetVariable => {
+                    let index = self.read_byte();
+                    let value = *self.globals.get(&index).unwrap();
+                    self.push(value);
+                }
+                Op::SetVariable => {
+                    let index = self.read_byte();
+                    let value = self.pop();
+
+                    self.set_or_add_global(index, value);
+                }
                 _ => { self.i += 1; }
             }
 
@@ -195,7 +210,7 @@ impl VM {
     }
 
     fn pop(&mut self) -> Value {
-        self.stack.pop_front().unwrap()
+        self.stack.pop_front().expect("Could not pop empty stack.")
     }
 
     fn push(&mut self, value: Value) {
@@ -214,6 +229,18 @@ impl VM {
         (*self.block).borrow().values[index]
     }
 
+    fn peek(&self, index: usize) -> Value { // TODO: Option<Value> ?
+        (*self.block).borrow().values[index]
+    }
+
+    fn set_or_add_global(&mut self, index: u8, value: Value) {
+        if self.globals.contains_key(&index) {
+            *self.globals.get_mut(&index).unwrap() = value;
+        } else {
+            self.globals.insert(index, value);
+        }
+    }
+
     // TODO: how to handle differring types
     fn binary_op(&mut self) -> (Value, Value) {
         let a = self.pop();
@@ -230,20 +257,35 @@ impl VM {
 
     fn disassemble_instruction(&self, instruction: u8) {
         print!("OP ");
-        match instruction.try_into().unwrap() {
-            Op::Pop      => print!("POP"),
-            Op::True     => println!("TRUE"),
-            Op::False    => println!("FALSE"),
-            Op::Not      => println!("NOT"),
-            Op::Add      => println!("ADD"),
-            Op::Subtract => println!("SUBTRACT"),
-            Op::Multiply => println!("MULTIPLY"),
-            Op::Divide   => println!("DIVIDE"),
-            Op::Constant => print!("CONSTANT"),
-            Op::Equal    => println!("EQUAL"),
-            Op::Less     => println!("LESS"),
-            Op::Greater  => println!("GREATER"),
-            _ => { }
+
+        if let Ok(i) = instruction.try_into() {
+            match i {
+                Op::Pop         => print!("POP"),
+                Op::True        => println!("TRUE"),
+                Op::False       => println!("FALSE"),
+                Op::Not         => println!("NOT"),
+                Op::Add         => println!("ADD"),
+                Op::Subtract    => println!("SUBTRACT"),
+                Op::Multiply    => println!("MULTIPLY"),
+                Op::Divide      => println!("DIVIDE"),
+                Op::Constant    => {
+                    let index = (*self.block).borrow().code[self.i] as usize;
+                    let value = (*self.block).borrow().values[index];
+
+                    print!("CONSTANT: {:?}", value);
+                },
+                Op::Equal       => println!("EQUAL"),
+                Op::Less        => println!("LESS"),
+                Op::Greater     => println!("GREATER"),
+                Op::GetVariable => println!("GET_VARIABLE"),
+                Op::SetVariable => {
+                    let index = (*self.block).borrow().code[self.i] as usize;
+                    let value = self.peek(index);
+
+                    println!("SET_VARIABLE: {:?}", value);
+                },
+                _ => { }
+            }
         }
     }
 }

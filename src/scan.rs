@@ -14,6 +14,7 @@ pub enum TokenKind {
     Error, End
 }
 
+#[derive(Debug)]
 pub struct Token {
     pub kind: TokenKind,
     pub value: String,
@@ -189,7 +190,14 @@ impl Scanner {
         rest: &str,
         token_kind: TokenKind
     ) -> TokenKind {
-        let keyword = &self.source[self.start + start..self.start + start + length];
+        let from = self.start + start;
+        let to   = from + length;
+
+        if from > self.source.len() || to > self.source.len() {
+            return TokenKind::Identifier;
+        }
+
+        let keyword = &self.source[from..to];
 
         if keyword == rest {
             return token_kind
