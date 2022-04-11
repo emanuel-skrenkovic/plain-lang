@@ -135,7 +135,8 @@ pub struct Global {
     name: Token,
     mutable: bool,
     global_type: String,
-    scope: usize
+    scope: usize,
+    defined: bool
 }
 
 pub struct Compiler {
@@ -259,10 +260,14 @@ impl Compiler {
     }
 
     fn variable(&mut self) {
-        if matches!(self.parser.previous.kind, TokenKind::Var) {
-            self.var_declaration();
-        } else {
-            self.let_declaration();
+        let var_discrim = discriminant(&TokenKind::Var);
+        let let_discrim = discriminant(&TokenKind::Let);
+
+        match discriminant(&self.parser.previous.kind) {
+            var_discrim => self.var_declaration(),
+            let_discrim => self.let_declaration(),
+            _           => panic!("'{}' is an invalid variable declaration",
+                                         self.parser.previous.value)
         }
     }
 
@@ -285,7 +290,8 @@ impl Compiler {
             name:         global_name,
             mutable:      false,
             global_type: "string".to_owned(),
-            scope:        0 // TODO
+            scope:        0, // TODO
+            defined:      true
         });
 
         self.expression();
@@ -295,7 +301,34 @@ impl Compiler {
     }
 
     fn var_declaration(&mut self) {
-        todo!("Implement var declaration.")
+        let global_name = self.parser.previous.clone();
+
+        let variable_key = self.parse_variable(&global_name);
+        if let Some(key) = variable_key {
+            self.emit_byte(Op::GetVariable);
+            self.emit(key as u8);
+
+            return;
+        }
+
+        let mut global = Global {
+            name:         global_name,
+            mutable:      false,
+            global_type: "string".to_owned(),
+            scope:        0, // TODO
+            defined:     false
+        };
+
+        if self.match_token(TokenKind::Equal) {
+            self.expression();
+            self.match_token(TokenKind::Semicolon);
+
+            global.defined = true;
+
+            self.variable_definition((self.globals.len()) as u8);
+        }
+
+        self.globals.push(global);
     }
 
     fn variable_definition(&mut self, variable_key: u8) {
