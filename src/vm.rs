@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::mem::discriminant;
 use std::collections::VecDeque;
 use std::collections::HashMap;
+use std::collections::hash_map::{Entry};
 
 use crate::block::{Block, Op, Value};
 
@@ -35,13 +36,9 @@ impl VM {
             match self.ip.try_into().unwrap() {
                 Op::Pop => {
                     let value = self.pop();
-                    println!("    {:?}\n", value);
                 }
                 Op::Add => {
                     let (a, b) = self.binary_op();
-
-                    print!("A: "); println!("{:?}", a);
-                    print!("B: "); println!("{:?}", b);
 
                     let first = match a {
                         Value::Number { val } => val,
@@ -234,10 +231,10 @@ impl VM {
     }
 
     fn set_or_add_global(&mut self, index: u8, value: Value) {
-        if self.globals.contains_key(&index) {
-            *self.globals.get_mut(&index).unwrap() = value;
+        if let Entry::Vacant(e) = self.globals.entry(index) {
+            e.insert(value);
         } else {
-            self.globals.insert(index, value);
+            *self.globals.get_mut(&index).unwrap() = value;
         }
     }
 
@@ -260,32 +257,53 @@ impl VM {
 
         if let Ok(i) = instruction.try_into() {
             match i {
-                Op::Pop         => print!("POP"),
-                Op::True        => println!("TRUE"),
-                Op::False       => println!("FALSE"),
-                Op::Not         => println!("NOT"),
-                Op::Add         => println!("ADD"),
-                Op::Subtract    => println!("SUBTRACT"),
-                Op::Multiply    => println!("MULTIPLY"),
-                Op::Divide      => println!("DIVIDE"),
+                Op::Pop         => {
+                    let value = self.peek(0);
+                    self.print_constant_op("POP", value);
+                },
+                Op::True        => self.print_simple_op("TRUE"),
+                Op::False       => self.print_simple_op("FALSE"),
+                Op::Not         => self.print_simple_op("NOT"),
+                Op::Add         => self.print_simple_op("ADD"),
+                Op::Subtract    => self.print_simple_op("SUBTRACT"),
+                Op::Multiply    => self.print_simple_op("MULTIPLY"),
+                Op::Divide      => self.print_simple_op("DIVIDE"),
                 Op::Constant    => {
                     let index = (*self.block).borrow().code[self.i] as usize;
-                    let value = (*self.block).borrow().values[index];
+                    let value = self.peek(index);
 
-                    print!("CONSTANT: {:?}", value);
+                    // println!("CONSTANT: {} {:?}", self.i, value);
+                    self.print_constant_op("CONSTANT", value);
                 },
-                Op::Equal       => println!("EQUAL"),
-                Op::Less        => println!("LESS"),
-                Op::Greater     => println!("GREATER"),
-                Op::GetVariable => println!("GET_VARIABLE"),
+                Op::Equal       => self.print_simple_op("EQUAL"),
+                Op::Less        => self.print_simple_op("LESS"),
+                Op::Greater     => self.print_simple_op("GREATER"),
+                Op::GetVariable => self.print_byte_op("GET_VARIABLE"),//println!("GET_VARIABLE"),
                 Op::SetVariable => {
                     let index = (*self.block).borrow().code[self.i] as usize;
                     let value = self.peek(index);
 
-                    println!("SET_VARIABLE: {:?}", value);
+                    // println!("SET_VARIABLE: {} {:?}", self.i, value);
+                    self.print_constant_op("SET_VARIABLE", value);
                 },
                 _ => { }
             }
         }
+    }
+
+    fn print_simple_op(&self, name: &str) {
+        println!("{}", name);
+    }
+
+    fn print_byte_op(&self, name: &str) {
+        println!("{name:<width$} {slot}", name=name, slot=self.i, width=20);
+    }
+
+    fn print_constant_op(&self, name: &str, value: Value) {
+        println!("{name:<width$} {slot:<slot_width$} {value:?}", name=name,
+                                                                 width=20,
+                                                                 slot=self.i,
+                                                                 slot_width=5,
+                                                                 value=value);
     }
 }
