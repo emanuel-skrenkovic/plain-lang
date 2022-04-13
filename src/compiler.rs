@@ -345,8 +345,6 @@ impl Compiler {
 
     fn unit(&mut self) {
         self.emit_byte(Op::Pop);
-        self.emit_constant(Value::Unit);
-        self.emit_byte(Op::Pop);
     }
 
     fn emit_byte(&mut self, op: Op) {

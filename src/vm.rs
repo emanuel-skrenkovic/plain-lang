@@ -231,6 +231,10 @@ impl VM {
         (*self.block).borrow().values[index]
     }
 
+    fn peek_op(&self, index: usize) -> u8 {
+        (*self.block).borrow().code[index]
+    }
+
     fn set_or_add_global(&mut self, index: u8, value: Value) {
         if let Entry::Vacant(e) = self.globals.entry(index) {
             e.insert(value);
@@ -266,21 +270,19 @@ impl VM {
                 Op::Multiply    => self.print_simple_op("MULTIPLY"),
                 Op::Divide      => self.print_simple_op("DIVIDE"),
                 Op::Constant    => {
-                    let index = (*self.block).borrow().code[self.i] as usize;
+                    let index = self.peek_op(self.i) as usize;
                     let value = self.peek(index);
 
-                    // println!("CONSTANT: {} {:?}", self.i, value);
                     self.print_constant_op("CONSTANT", value);
                 },
                 Op::Equal       => self.print_simple_op("EQUAL"),
                 Op::Less        => self.print_simple_op("LESS"),
                 Op::Greater     => self.print_simple_op("GREATER"),
-                Op::GetVariable => self.print_byte_op("GET_VARIABLE"),//println!("GET_VARIABLE"),
+                Op::GetVariable => self.print_byte_op("GET_VARIABLE"),
                 Op::SetVariable => {
-                    let index = (*self.block).borrow().code[self.i] as usize;
+                    let index = self.peek_op(self.i) as usize;
                     let value = self.peek(index);
 
-                    // println!("SET_VARIABLE: {} {:?}", self.i, value);
                     self.print_constant_op("SET_VARIABLE", value);
                 },
                 _ => { }
@@ -289,7 +291,7 @@ impl VM {
     }
 
     fn print_simple_op(&self, name: &str) {
-        println!("{}", name);
+        println!("{name:<width$} {slot}", name=name, slot='|', width=20);
     }
 
     fn print_byte_op(&self, name: &str) {
