@@ -162,7 +162,7 @@ impl Compiler {
         loop {
             match self.parser.current.kind {
                 TokenKind::End => { break; }
-                _              => { self.expression(); }
+                _              => { self.declaration(); }
             }
         }
     }
@@ -195,8 +195,7 @@ impl Compiler {
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
 
-        let parse_rule = get_rule(self.parser.previous.kind);
-        let prefix_rule = parse_rule.prefix;
+        let prefix_rule  = get_rule(self.parser.previous.kind).prefix;
 
         if let Some(prefix) = prefix_rule {
             prefix(self);
@@ -220,7 +219,7 @@ impl Compiler {
     }
 
     fn binary(&mut self) {
-        let operator = self.parser.previous.kind;
+        let operator   = self.parser.previous.kind;
         let parse_rule = get_rule(operator);
 
         self.parse_precedence(
@@ -259,28 +258,28 @@ impl Compiler {
         self.emit_constant(value);
     }
 
-    fn variable(&mut self) {
-        let var_discrim = discriminant(&TokenKind::Var);
-        let let_discrim = discriminant(&TokenKind::Let);
-
-        match discriminant(&self.parser.previous.kind) {
-            var_discrim => self.var_declaration(),
-            let_discrim => self.let_declaration(),
-            _           => panic!("'{}' is an invalid variable declaration",
-                                         self.parser.previous.value)
+    fn declaration(&mut self) {
+        match self.parser.current.kind {
+            TokenKind::Var => {
+                self.advance();
+                self.var_declaration();
+            },
+            TokenKind::Let => {
+                self.advance();
+                self.let_declaration();
+            },
+            _ => self.expression()
         }
     }
 
+    fn variable(&mut self) {
+        self.parse_variable();
+    }
+
     fn let_declaration(&mut self) {
+        self.match_token(TokenKind::Identifier);
+
         let global_name = self.parser.previous.clone();
-
-        let variable_key = self.parse_variable(&global_name);
-        if let Some(key) = variable_key {
-            self.emit_byte(Op::GetVariable);
-            self.emit(key as u8);
-
-            return;
-        }
 
         if !self.match_token(TokenKind::Equal) {
             self.parser.error_at_current("Expect definition as a part of let declaration.");
@@ -301,23 +300,23 @@ impl Compiler {
     }
 
     fn var_declaration(&mut self) {
-        let global_name = self.parser.previous.clone();
+        self.match_token(TokenKind::Identifier);
 
-        let variable_key = self.parse_variable(&global_name);
-        if let Some(key) = variable_key {
-            self.emit_byte(Op::GetVariable);
-            self.emit(key as u8);
-
-            return;
+        if self.parse_variable().is_some() {
+            return
         }
+
+        let global_name = self.parser.previous.clone();
 
         let mut global = Global {
             name:         global_name,
-            mutable:      false,
+            mutable:      true,
             global_type: "string".to_owned(),
             scope:        0, // TODO
-            defined:     false
+            defined:      false
         };
+
+        let global_index = (self.globals.len()) as u8; // TODO: becomes a mess later on.
 
         if self.match_token(TokenKind::Equal) {
             self.expression();
@@ -325,22 +324,43 @@ impl Compiler {
 
             global.defined = true;
 
-            self.variable_definition((self.globals.len()) as u8);
+            self.variable_definition(global_index);
+        } else {
+            self.emit_constant(Value::Unit);
+            self.variable_definition(global_index);
         }
 
         self.globals.push(global);
     }
 
+    fn parse_variable(&mut self) -> Option<u8> {
+        let variable_index = self.globals
+                                 .iter()
+                                 .position(|v| v.name.value == self.parser.previous.value);
+
+        if let Some(index) = variable_index {
+            if self.match_token(TokenKind::Equal) {
+                if !self.globals[index].mutable {
+                    panic!("Cannot reassign value of an immutable variable.");
+                }
+
+                self.expression();
+                self.emit_byte(Op::SetVariable);
+            } else {
+                self.emit_byte(Op::GetVariable);
+            }
+
+            self.emit(index as u8);
+
+            return Some(index as u8)
+        }
+
+        None
+    }
+
     fn variable_definition(&mut self, variable_key: u8) {
         self.emit_byte(Op::SetVariable);
         self.emit(variable_key);
-    }
-
-    fn parse_variable(&self, name: &Token) -> Option<usize> {
-        self.globals
-            .iter()
-            .position(|g| g.name.value == name.value)
-
     }
 
     fn unit(&mut self) {

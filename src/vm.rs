@@ -190,6 +190,11 @@ impl VM {
                 Op::GetVariable => {
                     let index = self.read_byte();
                     let value = *self.globals.get(&index).unwrap();
+
+                    if discriminant(&value) == discriminant(&Value::Unit) {
+                        panic!("Cannot access an undefined variable.");
+                    }
+
                     self.push(value);
                 }
                 Op::SetVariable => {
@@ -249,9 +254,7 @@ impl VM {
         let b = self.pop();
 
         if discriminant(&a) != discriminant(&b) {
-            panic!(
-                "Binary operation with two different types is not supported."
-            );
+            panic!("Binary operation with two different types is not supported.");
         }
 
         (a, b)

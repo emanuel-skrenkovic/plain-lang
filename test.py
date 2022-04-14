@@ -40,20 +40,50 @@ def get_tests():
 
 
 @test
-def test_add():
+def add():
     result = run_test("add.sg")
     assert result.exit_code == 0, result.stderr
 
 
 @test
-def test_let():
+def let():
     result = run_test("let.sg")
     assert result.exit_code == 0, result.stderr
 
 
 @test
-def test_let_add():
+def let_add():
     result = run_test("let_add.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def let_redefinition():
+    result = run_test("let_redefinition.sg")
+    assert result.exit_code != 0, result.stderr
+
+
+@test
+def var_without_definition():
+    result = run_test("var_without_definition.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def var_with_definition():
+    result = run_test("var_with_definition.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def var_redefinition():
+    result = run_test("var_redefinition.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def var_postponed_definition():
+    result = run_test("var_postponed_definition.sg")
     assert result.exit_code == 0, result.stderr
 
 
