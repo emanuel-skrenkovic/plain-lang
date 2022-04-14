@@ -131,10 +131,10 @@ impl Parser {
     }
 }
 
-pub struct Global {
+pub struct Variable {
     name: Token,
     mutable: bool,
-    global_type: String,
+    variable_type: String,
     scope: usize,
     defined: bool
 }
@@ -143,7 +143,7 @@ pub struct Compiler {
     scanner: Scanner,
     parser: Parser,
     block: Rc<RefCell<Block>>,
-    globals: Vec<Global>
+    variables: Vec<Variable>
 }
 
 impl Compiler {
@@ -152,7 +152,7 @@ impl Compiler {
             scanner: Scanner::new(source),
             parser: Parser::new(),
             block,
-            globals: vec![]
+            variables: vec![]
         }
     }
 
@@ -215,7 +215,6 @@ impl Compiler {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
-        // self.emit_byte(Op::Pop);
     }
 
     fn binary(&mut self) {
@@ -223,8 +222,9 @@ impl Compiler {
         let parse_rule = get_rule(operator);
 
         self.parse_precedence(
-            Precedence::try_from(parse_rule.precedence.discriminator() + 1)
-                .unwrap()
+            Precedence::try_from(
+                parse_rule.precedence.discriminator() + 1
+            ).unwrap()
         );
 
         match operator {
@@ -279,16 +279,16 @@ impl Compiler {
     fn let_declaration(&mut self) {
         self.match_token(TokenKind::Identifier);
 
-        let global_name = self.parser.previous.clone();
+        let variable_name = self.parser.previous.clone();
 
         if !self.match_token(TokenKind::Equal) {
             self.parser.error_at_current("Expect definition as a part of let declaration.");
         }
 
-        self.globals.push(Global {
-            name:         global_name,
+        self.variables.push(Variable {
+            name:         variable_name,
             mutable:      false,
-            global_type: "string".to_owned(),
+            variable_type: "string".to_owned(),
             scope:        0, // TODO
             defined:      true
         });
@@ -296,7 +296,7 @@ impl Compiler {
         self.expression();
         self.match_token(TokenKind::Semicolon);
 
-        self.variable_definition((self.globals.len() - 1) as u8);
+        self.variable_definition((self.variables.len() - 1) as u8);
     }
 
     fn var_declaration(&mut self) {
@@ -306,41 +306,41 @@ impl Compiler {
             return
         }
 
-        let global_name = self.parser.previous.clone();
+        let variable_name = self.parser.previous.clone();
 
-        let mut global = Global {
-            name:         global_name,
+        let mut variable = Variable {
+            name:         variable_name,
             mutable:      true,
-            global_type: "string".to_owned(),
+            variable_type: "string".to_owned(),
             scope:        0, // TODO
             defined:      false
         };
 
-        let global_index = (self.globals.len()) as u8; // TODO: becomes a mess later on.
+        let variable_index = (self.variables.len()) as u8; // TODO: becomes a mess later on.
 
         if self.match_token(TokenKind::Equal) {
             self.expression();
             self.match_token(TokenKind::Semicolon);
 
-            global.defined = true;
+            variable.defined = true;
 
-            self.variable_definition(global_index);
+            self.variable_definition(variable_index);
         } else {
             self.emit_constant(Value::Unit);
-            self.variable_definition(global_index);
+            self.variable_definition(variable_index);
         }
 
-        self.globals.push(global);
+        self.variables.push(variable);
     }
 
     fn parse_variable(&mut self) -> Option<u8> {
-        let variable_index = self.globals
+        let variable_index = self.variables
                                  .iter()
                                  .position(|v| v.name.value == self.parser.previous.value);
 
         if let Some(index) = variable_index {
             if self.match_token(TokenKind::Equal) {
-                if !self.globals[index].mutable {
+                if !self.variables[index].mutable {
                     panic!("Cannot reassign value of an immutable variable.");
                 }
 

@@ -13,7 +13,7 @@ pub struct VM {
     ip: u8,
     i: usize,
 
-    globals: HashMap<u8, Value>
+    variables: HashMap<u8, Value>
 }
 
 impl VM {
@@ -24,7 +24,7 @@ impl VM {
             stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
             ip,
             i: 0,
-            globals: HashMap::new()
+            variables: HashMap::new()
         }
     }
 
@@ -189,7 +189,7 @@ impl VM {
                 },
                 Op::GetVariable => {
                     let index = self.read_byte();
-                    let value = *self.globals.get(&index).unwrap();
+                    let value = *self.variables.get(&index).unwrap();
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -201,7 +201,7 @@ impl VM {
                     let index = self.read_byte();
                     let value = self.pop();
 
-                    self.set_or_add_global(index, value);
+                    self.set_or_add_variable(index, value);
                 }
                 _ => { self.i += 1; }
             }
@@ -240,11 +240,11 @@ impl VM {
         (*self.block).borrow().code[index]
     }
 
-    fn set_or_add_global(&mut self, index: u8, value: Value) {
-        if let Entry::Vacant(e) = self.globals.entry(index) {
+    fn set_or_add_variable(&mut self, index: u8, value: Value) {
+        if let Entry::Vacant(e) = self.variables.entry(index) {
             e.insert(value);
         } else {
-            *self.globals.get_mut(&index).unwrap() = value;
+            *self.variables.get_mut(&index).unwrap() = value;
         }
     }
 
