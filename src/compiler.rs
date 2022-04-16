@@ -60,7 +60,7 @@ struct ParseRule {
 static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // LeftBracket
+    ParseRule { prefix: Some(Compiler::block_expression), infix: None, precedence: Precedence::None }, // LeftBracket
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightBracket
     ParseRule { prefix: None, infix: Some(Compiler::left_angle), precedence: Precedence::Comparison }, // LeftAngle
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // RightAngle
@@ -143,7 +143,8 @@ pub struct Compiler {
     scanner: Scanner,
     parser: Parser,
     block: Rc<RefCell<Block>>,
-    variables: Vec<Variable>
+    variables: Vec<Variable>,
+    scope_depth: usize
 }
 
 impl Compiler {
@@ -152,7 +153,8 @@ impl Compiler {
             scanner: Scanner::new(source),
             parser: Parser::new(),
             block,
-            variables: vec![]
+            variables: vec![],
+            scope_depth: 0
         }
     }
 
@@ -192,6 +194,10 @@ impl Compiler {
         true
     }
 
+    fn check_token(&self, token_kind: TokenKind) -> bool {
+        discriminant(&self.parser.current.kind) == discriminant(&token_kind)
+    }
+
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
 
@@ -215,6 +221,27 @@ impl Compiler {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn block_expression(&mut self) {
+        self.scope_depth += 1;
+
+        while !self.check_token(TokenKind::RightBracket) && !self.check_token(TokenKind::End) {
+            self.declaration();
+        }
+
+        self.match_token(TokenKind::RightBracket);
+        self.match_token(TokenKind::Semicolon);
+
+        self.scope_depth -= 1;
+        /*
+        let block_count = self.variables.iter()
+                                        .filter(|v| v.scope > self.scope_depth)
+                                        .count();
+        for _ in 0..block_count - 1 {
+            self.emit_byte(Op::Pop) ;
+        }
+        */
     }
 
     fn binary(&mut self) {
@@ -279,24 +306,28 @@ impl Compiler {
     fn let_declaration(&mut self) {
         self.match_token(TokenKind::Identifier);
 
-        let variable_name = self.parser.previous.clone();
+        let variable_token = self.parser.previous.clone();
+        let variable_name  = variable_token.value.clone();
 
         if !self.match_token(TokenKind::Equal) {
             self.parser.error_at_current("Expect definition as a part of let declaration.");
         }
 
         self.variables.push(Variable {
-            name:         variable_name,
+            name:         variable_token,
             mutable:      false,
             variable_type: "string".to_owned(),
-            scope:        0, // TODO
+            scope:        self.scope_depth, // TODO
             defined:      true
         });
+        let variable_index = self.variables
+                                 .iter()
+                                 .position(|v| v.name.value == variable_name);
 
         self.expression();
         self.match_token(TokenKind::Semicolon);
 
-        self.variable_definition((self.variables.len() - 1) as u8);
+        self.variable_definition(variable_index.unwrap() as u8);
     }
 
     fn var_declaration(&mut self) {
@@ -306,13 +337,13 @@ impl Compiler {
             return
         }
 
-        let variable_name = self.parser.previous.clone();
+        let variable_token = self.parser.previous.clone();
 
         let mut variable = Variable {
-            name:         variable_name,
+            name:         variable_token,
             mutable:      true,
             variable_type: "string".to_owned(),
-            scope:        0, // TODO
+            scope:        self.scope_depth, // TODO
             defined:      false
         };
 

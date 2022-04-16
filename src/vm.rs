@@ -192,6 +192,8 @@ impl VM {
                     let value = *self.variables.get(&index).unwrap();
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
+                        // TODO: store Variable struct instead do
+                        // have better info runtime.
                         panic!("Cannot access an undefined variable.");
                     }
 

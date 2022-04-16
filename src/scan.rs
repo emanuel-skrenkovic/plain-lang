@@ -228,10 +228,6 @@ impl Scanner {
         false
     }
 
-    fn peek_next(&self) -> char {
-        self.source_char_at(self.current + 1)
-    }
-
     fn source_char_at(&self, i: usize) -> char {
         self.source.chars().nth(i).unwrap_or('\0')
     }
