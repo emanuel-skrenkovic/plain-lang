@@ -2,18 +2,15 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::mem::discriminant;
 use std::collections::VecDeque;
-use std::collections::HashMap;
-use std::collections::hash_map::{Entry};
 
 use crate::block::{Block, Op, Value};
 
 pub struct VM {
     block: Rc<RefCell<Block>>,
     stack: VecDeque<Value>,
+    stack_top: usize,
     ip: u8,
     i: usize,
-
-    variables: HashMap<u8, Value>
 }
 
 impl VM {
@@ -22,9 +19,9 @@ impl VM {
         VM {
             block,
             stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+            stack_top: 0,
             ip,
-            i: 0,
-            variables: HashMap::new()
+            i: 0
         }
     }
 
@@ -188,22 +185,20 @@ impl VM {
                     self.push(value);
                 },
                 Op::GetVariable => {
-                    let index = self.read_byte();
-                    let value = *self.variables.get(&index).unwrap();
+                    let index = self.read_byte() as usize;
+                    let value = self.stack[index];
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
-                        // TODO: store Variable struct instead do
-                        // have better info runtime.
                         panic!("Cannot access an undefined variable.");
                     }
 
                     self.push(value);
                 }
                 Op::SetVariable => {
-                    let index = self.read_byte();
-                    let value = self.pop();
+                    let index = self.read_byte() as usize;
+                    let value = self.peek(index);
 
-                    self.set_or_add_variable(index, value);
+                    self.stack[index] = value;
                 }
                 _ => { self.i += 1; }
             }
@@ -215,11 +210,17 @@ impl VM {
     }
 
     fn pop(&mut self) -> Value {
-        self.stack.pop_front().expect("Could not pop empty stack.")
+        self.stack_top -= 1;
+        let value = self.stack[self.stack_top];
+
+        self.stack[self.stack_top] = Value::Unit;
+
+        value
     }
 
     fn push(&mut self, value: Value) {
-        self.stack.push_front(value);
+        self.stack[self.stack_top] = value;
+        self.stack_top += 1;
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -240,14 +241,6 @@ impl VM {
 
     fn peek_op(&self, index: usize) -> u8 {
         (*self.block).borrow().code[index]
-    }
-
-    fn set_or_add_variable(&mut self, index: u8, value: Value) {
-        if let Entry::Vacant(e) = self.variables.entry(index) {
-            e.insert(value);
-        } else {
-            *self.variables.get_mut(&index).unwrap() = value;
-        }
     }
 
     // TODO: how to handle differring types
@@ -296,7 +289,7 @@ impl VM {
     }
 
     fn print_simple_op(&self, name: &str) {
-        println!("{name:<width$} {slot}", name=name, slot='|', width=20);
+        println!("{name:<width$} |", name=name, width=20);
     }
 
     fn print_byte_op(&self, name: &str) {

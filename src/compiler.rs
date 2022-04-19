@@ -111,6 +111,12 @@ pub struct Parser {
     error: bool
 }
 
+impl std::default::Default for Parser {
+    fn default() -> Self {
+        Parser::new()
+    }
+}
+
 impl Parser {
     pub fn new() -> Parser {
         Parser {
@@ -151,7 +157,7 @@ impl Compiler {
     pub fn new(source: String, block: Rc<RefCell<Block>>) -> Compiler {
         Compiler {
             scanner: Scanner::new(source),
-            parser: Parser::new(),
+            parser: Default::default(),
             block,
             variables: vec![],
             scope_depth: 0
