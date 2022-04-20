@@ -240,7 +240,7 @@ impl VM {
                 }
                 Op::Jump => {
                     let jump = self.read_byte() as usize;
-                    self.i += jump - 1;
+                    self.i += jump;
 
                 }
                 Op::CondJump => {
@@ -253,7 +253,7 @@ impl VM {
                     };
 
                     if !boolean {
-                        self.i += jump - 1;
+                        self.i += jump;
                     }
                 }
                 _ => { self.i += 1; }

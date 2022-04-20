@@ -418,13 +418,17 @@ impl Compiler {
         self.expression();
         self.match_token(TokenKind::RightParen);
 
-        let then_jump = self.emit_byte(Op::CondJump);
-        self.emit(0);
-
+        let then_jump = self.emit_jump(Op::CondJump);
         self.declaration();
 
-        let code_len = (*self.block).borrow_mut().code.len();
-        self.patch(then_jump + 1, (code_len - 1 - then_jump) as u8);
+        let else_jump = self.emit_jump(Op::Jump);
+        self.patch_jump(then_jump);
+
+        if self.match_token(TokenKind::Else) {
+            self.declaration();
+        }
+
+        self.patch_jump(else_jump);
     }
 
     fn unit(&mut self) {
@@ -433,6 +437,16 @@ impl Compiler {
 
     fn patch(&mut self, index: usize, byte: u8) {
         (*self.block).borrow_mut().write_at(index, byte);
+    }
+
+    fn patch_jump(&mut self, index: usize) {
+        let code_len = (*self.block).borrow_mut().code.len();
+        self.patch(index, (code_len - 1 - index) as u8);
+    }
+
+    fn emit_jump(&mut self, op: Op) -> usize {
+        self.emit_byte(op);
+        self.emit(0)
     }
 
     fn emit_byte(&mut self, op: Op) -> usize {
