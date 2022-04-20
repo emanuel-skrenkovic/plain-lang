@@ -425,6 +425,10 @@ impl Compiler {
         self.patch_jump(then_jump);
 
         if self.match_token(TokenKind::Else) {
+            if self.match_token(TokenKind::If) {
+                self._if();
+            }
+
             self.declaration();
         }
 
