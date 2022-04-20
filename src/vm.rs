@@ -18,8 +18,6 @@ pub struct VM {
     stack: VecDeque<Value>,
     stack_top: usize,
 
-    frames: Vec<CallFrame>,
-
     ip: u8,
     i: usize,
 }
@@ -27,22 +25,11 @@ pub struct VM {
 impl VM {
     pub fn new(block: Rc<RefCell<Block>>) -> VM {
         let ip = (*block).borrow().code[0];
-
-        let frames = vec![
-            CallFrame{
-                ip: 0,
-                i: 0,
-                frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>()
-            }
-        ];
-
         VM {
             block,
 
             stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
             stack_top: 0,
-
-            frames,
 
             ip,
             i: 0
@@ -50,12 +37,22 @@ impl VM {
     }
 
     pub fn interpret(&mut self) {
-        let frame_index = self.frames.len() - 1;
-        let mut frame = self.frames[frame_index].clone();
+        let mut frames = VecDeque::new();
+        frames.push_front(
+            CallFrame {
+                ip: 0,
+                i: 0,
+                frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+            }
+        );
 
         loop {
+
             self.ip = self.read_byte();
             self.disassemble_instruction(self.ip);
+
+            let frame_index = frames.len() - 1;
+            let frame       = frames.get_mut(frame_index).unwrap();
 
             match self.ip.try_into().unwrap() {
                 Op::Pop => {
@@ -227,10 +224,19 @@ impl VM {
 
                     frame.frame[index] = value;
                 }
+                Op::Frame => {
+                    frames.push_back(CallFrame {
+                        i: self.i,
+                        ip: self.ip,
+                        frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+                    });
+                }
                 Op::Return => {
-                    if self.frames.len() == 0 {
+                    if frames.len() == 0 {
                         break;
                     }
+
+                    frames.pop_back();
                 }
                 _ => { self.i += 1; }
             }
@@ -316,6 +322,7 @@ impl VM {
 
                     self.print_constant_op("SET_VARIABLE", value);
                 },
+                Op::Frame       => self.print_simple_op("FRAME"),
                 Op::Return      => self.print_simple_op("RETURN"),
                 _ => { }
             }

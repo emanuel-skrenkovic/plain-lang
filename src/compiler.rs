@@ -234,6 +234,8 @@ impl Compiler {
     fn block_expression(&mut self) {
         self.scope_depth += 1;
 
+        self.emit_byte(Op::Frame);
+
         while !self.check_token(TokenKind::RightBracket) && !self.check_token(TokenKind::End) {
             self.declaration();
         }
@@ -244,14 +246,6 @@ impl Compiler {
         self.scope_depth -= 1;
 
         self.emit_byte(Op::Return);
-        /*
-        let block_count = self.variables.iter()
-                                        .filter(|v| v.scope > self.scope_depth)
-                                        .count();
-        for _ in 0..block_count - 1 {
-            self.emit_byte(Op::Pop) ;
-        }
-        */
     }
 
     fn binary(&mut self) {

@@ -93,6 +93,12 @@ def block_assignment():
     assert result.exit_code == 0, result.stderr
 
 
+@test
+def block_scope():
+    result = run_test("block_scope.sg")
+    assert result.exit_code != 0, result.stderr
+
+
 if __name__ == "__main__":
     for test in get_tests():
         test_name = test[0]
