@@ -5,10 +5,21 @@ use std::collections::VecDeque;
 
 use crate::block::{Block, Op, Value};
 
+#[derive(Clone)]
+pub struct CallFrame {
+    pub frame: VecDeque<Value>,
+    pub ip: u8,
+    pub i: usize
+}
+
 pub struct VM {
     block: Rc<RefCell<Block>>,
+
     stack: VecDeque<Value>,
     stack_top: usize,
+
+    frames: Vec<CallFrame>,
+
     ip: u8,
     i: usize,
 }
@@ -16,16 +27,32 @@ pub struct VM {
 impl VM {
     pub fn new(block: Rc<RefCell<Block>>) -> VM {
         let ip = (*block).borrow().code[0];
+
+        let frames = vec![
+            CallFrame{
+                ip: 0,
+                i: 0,
+                frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+            }
+        ];
+
         VM {
             block,
+
             stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
             stack_top: 0,
+
+            frames,
+
             ip,
             i: 0
         }
     }
 
     pub fn interpret(&mut self) {
+        let frame_index = self.frames.len() - 1;
+        let mut frame = self.frames[frame_index].clone();
+
         loop {
             self.ip = self.read_byte();
             self.disassemble_instruction(self.ip);
@@ -186,7 +213,7 @@ impl VM {
                 },
                 Op::GetVariable => {
                     let index = self.read_byte() as usize;
-                    let value = self.stack[index];
+                    let value = frame.frame[index];// self.stack[index];
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -196,9 +223,14 @@ impl VM {
                 }
                 Op::SetVariable => {
                     let index = self.read_byte() as usize;
-                    let value = self.peek(index);
+                    let value = self.peek(self.stack_top - 1);
 
-                    self.stack[index] = value;
+                    frame.frame[index] = value;
+                }
+                Op::Return => {
+                    if self.frames.len() == 0 {
+                        break;
+                    }
                 }
                 _ => { self.i += 1; }
             }
@@ -235,8 +267,9 @@ impl VM {
         (*self.block).borrow().values[index]
     }
 
-    fn peek(&self, index: usize) -> Value { // TODO: Option<Value> ?
-        (*self.block).borrow().values[index]
+    fn peek(&self, index: usize) -> Value {
+        self.stack[index]
+        // self.stack[self.stack_top - distance]
     }
 
     fn peek_op(&self, index: usize) -> u8 {
@@ -283,6 +316,7 @@ impl VM {
 
                     self.print_constant_op("SET_VARIABLE", value);
                 },
+                Op::Return      => self.print_simple_op("RETURN"),
                 _ => { }
             }
         }

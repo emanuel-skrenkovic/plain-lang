@@ -173,6 +173,8 @@ impl Compiler {
                 _              => { self.declaration(); }
             }
         }
+
+        self.emit_byte(Op::Return);
     }
 
     fn advance(&mut self) {
@@ -240,6 +242,8 @@ impl Compiler {
         self.match_token(TokenKind::Semicolon);
 
         self.scope_depth -= 1;
+
+        self.emit_byte(Op::Return);
         /*
         let block_count = self.variables.iter()
                                         .filter(|v| v.scope > self.scope_depth)
@@ -388,7 +392,6 @@ impl Compiler {
             }
 
             self.emit(index as u8);
-
             return Some(index as u8)
         }
 
