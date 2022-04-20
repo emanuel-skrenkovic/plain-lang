@@ -232,11 +232,29 @@ impl VM {
                     });
                 }
                 Op::Return => {
-                    if frames.len() == 0 {
+                    if frames.is_empty() {
                         break;
                     }
 
                     frames.pop_back();
+                }
+                Op::Jump => {
+                    let jump = self.read_byte() as usize;
+                    self.i += jump - 1;
+
+                }
+                Op::CondJump => {
+                    let jump = self.read_byte() as usize;
+                    let value = self.pop();
+
+                    let boolean = match value {
+                        Value::Bool { val } => val,
+                        _ => panic!("TODO: Not supported")
+                    };
+
+                    if !boolean {
+                        self.i += jump - 1;
+                    }
                 }
                 _ => { self.i += 1; }
             }
@@ -324,6 +342,26 @@ impl VM {
                 },
                 Op::Frame       => self.print_simple_op("FRAME"),
                 Op::Return      => self.print_simple_op("RETURN"),
+                Op::Jump        => {
+                    let jump = self.peek_op(self.i);
+                    println!("{name:<width$} {slot:<slot_width$} {value}",
+                             name="JUMP",
+                             width=20,
+                             slot=self.i,
+                             slot_width=5,
+                             value=jump);
+
+                },
+                Op::CondJump        => {
+                    let jump = self.peek_op(self.i);
+                    println!("{name:<width$} {slot:<slot_width$} {value}",
+                             name="COND_JUMP",
+                             width=20,
+                             slot=self.i,
+                             slot_width=5,
+                             value=jump);
+
+                },
                 _ => { }
             }
         }

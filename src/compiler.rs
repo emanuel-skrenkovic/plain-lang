@@ -140,7 +140,6 @@ impl Parser {
 pub struct Variable {
     name: Token,
     mutable: bool,
-    variable_type: String,
     scope: usize,
     defined: bool
 }
@@ -259,17 +258,17 @@ impl Compiler {
         );
 
         match operator {
-            TokenKind::LeftAngle    => self.emit_byte(Op::Less),
-            TokenKind::RightAngle   => self.emit_byte(Op::Greater),
-            TokenKind::BangEqual    => self.emit_bytes(Op::Equal, Op::Not),
-            TokenKind::EqualEqual   => self.emit_byte(Op::Equal),
-            TokenKind::GreaterEqual => self.emit_byte(Op::GreaterEqual),
-            TokenKind::LessEqual    => self.emit_byte(Op::LessEqual),
-            TokenKind::Plus         => self.emit_byte(Op::Add),
-            TokenKind::Minus        => self.emit_byte(Op::Subtract),
-            TokenKind::Star         => self.emit_byte(Op::Multiply),
-            TokenKind::Slash        => self.emit_byte(Op::Divide),
-            _ => {}
+            TokenKind::LeftAngle    => { self.emit_byte(Op::Less); }
+            TokenKind::RightAngle   => { self.emit_byte(Op::Greater); }
+            TokenKind::BangEqual    => { self.emit_bytes(Op::Equal, Op::Not); }
+            TokenKind::EqualEqual   => { self.emit_byte(Op::Equal); }
+            TokenKind::GreaterEqual => { self.emit_byte(Op::GreaterEqual); }
+            TokenKind::LessEqual    => { self.emit_byte(Op::LessEqual); }
+            TokenKind::Plus         => { self.emit_byte(Op::Add); }
+            TokenKind::Minus        => { self.emit_byte(Op::Subtract); }
+            TokenKind::Star         => { self.emit_byte(Op::Multiply); }
+            TokenKind::Slash        => { self.emit_byte(Op::Divide); }
+            _ => { }
         }
     }
 
@@ -299,6 +298,10 @@ impl Compiler {
                 self.advance();
                 self.let_declaration();
             },
+            TokenKind::If => {
+                self.advance();
+                self._if();
+            }
             _ => self.expression()
         }
     }
@@ -327,7 +330,6 @@ impl Compiler {
         self.variables.push(Variable {
             name:         variable_token,
             mutable:      false,
-            variable_type: "string".to_owned(),
             scope:        self.scope_depth, // TODO
             defined:      true
         });
@@ -354,7 +356,6 @@ impl Compiler {
             self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
         }
 
-
         if self.parse_variable().is_some() {
             return
         }
@@ -362,7 +363,6 @@ impl Compiler {
         let mut variable = Variable {
             name:         variable_token,
             mutable:      true,
-            variable_type: "string".to_owned(),
             scope:        self.scope_depth, // TODO
             defined:      false
         };
@@ -413,21 +413,39 @@ impl Compiler {
         self.emit(variable_key);
     }
 
+    fn _if(&mut self) {
+        self.match_token(TokenKind::LeftParen);
+        self.expression();
+        self.match_token(TokenKind::RightParen);
+
+        let then_jump = self.emit_byte(Op::CondJump);
+        self.emit(0);
+
+        self.declaration();
+
+        let code_len = (*self.block).borrow_mut().code.len();
+        self.patch(then_jump + 1, (code_len - 1 - then_jump) as u8);
+    }
+
     fn unit(&mut self) {
         self.emit_byte(Op::Pop);
     }
 
-    fn emit_byte(&mut self, op: Op) {
-        (*self.block).borrow_mut().write_op(op);
+    fn patch(&mut self, index: usize, byte: u8) {
+        (*self.block).borrow_mut().write_at(index, byte);
     }
 
-    fn emit(&mut self, byte: u8) {
-        (*self.block).borrow_mut().write(byte as u8);
+    fn emit_byte(&mut self, op: Op) -> usize {
+        (*self.block).borrow_mut().write_op(op)
     }
 
-    fn emit_bytes(&mut self, a: Op, b: Op) {
+    fn emit(&mut self, byte: u8) -> usize {
+        (*self.block).borrow_mut().write(byte as u8)
+    }
+
+    fn emit_bytes(&mut self, a: Op, b: Op) -> usize {
         (*self.block).borrow_mut().write_op(a);
-        (*self.block).borrow_mut().write_op(b);
+        (*self.block).borrow_mut().write_op(b)
     }
 
     fn emit_constant(&mut self, value: Value) {
