@@ -82,7 +82,7 @@ static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Let
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Var
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // This
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // If
+    ParseRule { prefix: Some(Compiler::_if), infix: None, precedence: Precedence::None }, // If
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Else
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Break
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Continue
@@ -165,6 +165,9 @@ impl Compiler {
 
     pub fn compile(&mut self) {
         self.advance();
+
+        // TODO: check if correct
+        self.emit_byte(Op::Frame);
 
         loop {
             match self.parser.current.kind {
@@ -289,6 +292,8 @@ impl Compiler {
     }
 
     fn declaration(&mut self) {
+        // self.emit_byte(Op::Frame); // TODO find way in VM for this to work.
+
         match self.parser.current.kind {
             TokenKind::Var => {
                 self.advance();
@@ -298,10 +303,6 @@ impl Compiler {
                 self.advance();
                 self.let_declaration();
             },
-            TokenKind::If => {
-                self.advance();
-                self._if();
-            }
             _ => self.expression()
         }
     }
@@ -423,10 +424,6 @@ impl Compiler {
         self.patch_jump(then_jump);
 
         if self.match_token(TokenKind::Else) {
-            if self.match_token(TokenKind::If) {
-                self._if();
-            }
-
             self.declaration();
         }
 

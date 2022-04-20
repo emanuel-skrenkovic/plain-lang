@@ -47,7 +47,6 @@ impl VM {
         );
 
         loop {
-
             self.ip = self.read_byte();
             self.disassemble_instruction(self.ip);
 
