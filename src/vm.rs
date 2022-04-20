@@ -5,6 +5,12 @@ use std::collections::VecDeque;
 
 use crate::block::{Block, Op, Value};
 
+const STACK_SIZE: usize = 1024;
+
+fn init_stack() -> VecDeque<Value> {
+    (0..STACK_SIZE).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+}
+
 #[derive(Clone)]
 pub struct CallFrame {
     pub frame: VecDeque<Value>,
@@ -28,7 +34,7 @@ impl VM {
         VM {
             block,
 
-            stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+            stack: init_stack(),
             stack_top: 0,
 
             ip,
@@ -42,7 +48,7 @@ impl VM {
             CallFrame {
                 ip: 0,
                 i: 0,
-                frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+                frame: init_stack()
             }
         );
 
@@ -227,7 +233,7 @@ impl VM {
                     frames.push_back(CallFrame {
                         i: self.i,
                         ip: self.ip,
-                        frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+                        frame: init_stack()
                     });
                 }
                 Op::Return => {
@@ -296,7 +302,6 @@ impl VM {
 
     fn peek(&self, index: usize) -> Value {
         self.stack[index]
-        // self.stack[self.stack_top - distance]
     }
 
     fn peek_op(&self, index: usize) -> u8 {
