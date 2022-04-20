@@ -292,8 +292,6 @@ impl Compiler {
     }
 
     fn declaration(&mut self) {
-        // self.emit_byte(Op::Frame); // TODO find way in VM for this to work.
-
         match self.parser.current.kind {
             TokenKind::Var => {
                 self.advance();
@@ -302,6 +300,10 @@ impl Compiler {
             TokenKind::Let => {
                 self.advance();
                 self.let_declaration();
+            },
+            TokenKind::While => {
+                self.advance();
+                self._while();
             },
             _ => self.expression()
         }
@@ -430,6 +432,17 @@ impl Compiler {
         self.patch_jump(else_jump);
     }
 
+    fn _while(&mut self) {
+        let loop_start = (*self.block).borrow_mut().code.len();
+        self.expression();
+
+        let break_jump = self.emit_jump(Op::CondJump);
+        self.declaration();
+        self.emit_loop(loop_start);
+
+        self.patch_jump(break_jump);
+}
+
     fn unit(&mut self) {
         self.emit_byte(Op::Pop);
     }
@@ -441,6 +454,12 @@ impl Compiler {
     fn patch_jump(&mut self, index: usize) {
         let code_len = (*self.block).borrow_mut().code.len();
         self.patch(index, (code_len - 1 - index) as u8);
+    }
+
+    fn emit_loop(&mut self, loop_start: usize) {
+        let loop_end = (*self.block).borrow_mut().code.len();
+        self.emit_byte(Op::LoopJump);
+        self.emit((loop_end - loop_start + 2) as u8);
     }
 
     fn emit_jump(&mut self, op: Op) -> usize {

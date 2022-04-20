@@ -255,6 +255,10 @@ impl VM {
                         self.i += jump;
                     }
                 }
+                Op::LoopJump => {
+                    let jump = self.read_byte() as usize;
+                    self.i -= jump;
+                },
                 _ => { self.i += 1; }
             }
 
@@ -355,6 +359,16 @@ impl VM {
                     let jump = self.peek_op(self.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="COND_JUMP",
+                             width=20,
+                             slot=self.i,
+                             slot_width=5,
+                             value=jump);
+
+                },
+                Op::LoopJump        => {
+                    let jump = self.peek_op(self.i);
+                    println!("{name:<width$} {slot:<slot_width$} {value}",
+                             name="LOOP_JUMP",
                              width=20,
                              slot=self.i,
                              slot_width=5,

@@ -19,7 +19,7 @@ pub enum Op {
     GreaterEqual, LessEqual,
     SetVariable, GetVariable,
     Frame, Return,
-    Jump, CondJump
+    Jump, CondJump, LoopJump
 }
 
 impl TryFrom<u8> for Op {
@@ -47,7 +47,7 @@ impl TryFrom<u8> for Op {
             x if x == Op::Return as u8       => Ok(Op::Return),
             x if x == Op::Jump as u8         => Ok(Op::Jump),
             x if x == Op::CondJump as u8     => Ok(Op::CondJump),
-
+            x if x == Op::LoopJump as u8     => Ok(Op::LoopJump),
             _ => Err(()),
         }
     }
