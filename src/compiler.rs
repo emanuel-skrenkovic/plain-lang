@@ -414,9 +414,7 @@ impl Compiler {
     }
 
     fn _if(&mut self) {
-        self.match_token(TokenKind::LeftParen);
         self.expression();
-        self.match_token(TokenKind::RightParen);
 
         let then_jump = self.emit_jump(Op::CondJump);
         self.declaration();
