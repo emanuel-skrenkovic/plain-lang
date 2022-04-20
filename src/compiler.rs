@@ -60,7 +60,7 @@ struct ParseRule {
 static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // LeftBracket
+    ParseRule { prefix: Some(Compiler::block_expression), infix: None, precedence: Precedence::None }, // LeftBracket
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightBracket
     ParseRule { prefix: None, infix: Some(Compiler::left_angle), precedence: Precedence::Comparison }, // LeftAngle
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // RightAngle
@@ -111,6 +111,12 @@ pub struct Parser {
     error: bool
 }
 
+impl std::default::Default for Parser {
+    fn default() -> Self {
+        Parser::new()
+    }
+}
+
 impl Parser {
     pub fn new() -> Parser {
         Parser {
@@ -131,10 +137,10 @@ impl Parser {
     }
 }
 
-pub struct Global {
+pub struct Variable {
     name: Token,
     mutable: bool,
-    global_type: String,
+    variable_type: String,
     scope: usize,
     defined: bool
 }
@@ -143,16 +149,18 @@ pub struct Compiler {
     scanner: Scanner,
     parser: Parser,
     block: Rc<RefCell<Block>>,
-    globals: Vec<Global>
+    variables: Vec<Variable>,
+    scope_depth: usize
 }
 
 impl Compiler {
     pub fn new(source: String, block: Rc<RefCell<Block>>) -> Compiler {
         Compiler {
             scanner: Scanner::new(source),
-            parser: Parser::new(),
+            parser: Default::default(),
             block,
-            globals: vec![]
+            variables: vec![],
+            scope_depth: 0
         }
     }
 
@@ -162,9 +170,11 @@ impl Compiler {
         loop {
             match self.parser.current.kind {
                 TokenKind::End => { break; }
-                _              => { self.expression(); }
+                _              => { self.declaration(); }
             }
         }
+
+        self.emit_byte(Op::Return);
     }
 
     fn advance(&mut self) {
@@ -192,11 +202,14 @@ impl Compiler {
         true
     }
 
+    fn check_token(&self, token_kind: TokenKind) -> bool {
+        discriminant(&self.parser.current.kind) == discriminant(&token_kind)
+    }
+
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
 
-        let parse_rule = get_rule(self.parser.previous.kind);
-        let prefix_rule = parse_rule.prefix;
+        let prefix_rule  = get_rule(self.parser.previous.kind).prefix;
 
         if let Some(prefix) = prefix_rule {
             prefix(self);
@@ -216,16 +229,33 @@ impl Compiler {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
-        // self.emit_byte(Op::Pop);
+    }
+
+    fn block_expression(&mut self) {
+        self.scope_depth += 1;
+
+        self.emit_byte(Op::Frame);
+
+        while !self.check_token(TokenKind::RightBracket) && !self.check_token(TokenKind::End) {
+            self.declaration();
+        }
+
+        self.match_token(TokenKind::RightBracket);
+        self.match_token(TokenKind::Semicolon);
+
+        self.scope_depth -= 1;
+
+        self.emit_byte(Op::Return);
     }
 
     fn binary(&mut self) {
-        let operator = self.parser.previous.kind;
+        let operator   = self.parser.previous.kind;
         let parse_rule = get_rule(operator);
 
         self.parse_precedence(
-            Precedence::try_from(parse_rule.precedence.discriminator() + 1)
-                .unwrap()
+            Precedence::try_from(
+                parse_rule.precedence.discriminator() + 1
+            ).unwrap()
         );
 
         match operator {
@@ -259,76 +289,123 @@ impl Compiler {
         self.emit_constant(value);
     }
 
-    fn variable(&mut self) {
-        let var_discrim = discriminant(&TokenKind::Var);
-        let let_discrim = discriminant(&TokenKind::Let);
-
-        match discriminant(&self.parser.previous.kind) {
-            var_discrim => self.var_declaration(),
-            let_discrim => self.let_declaration(),
-            _           => panic!("'{}' is an invalid variable declaration",
-                                         self.parser.previous.value)
+    fn declaration(&mut self) {
+        match self.parser.current.kind {
+            TokenKind::Var => {
+                self.advance();
+                self.var_declaration();
+            },
+            TokenKind::Let => {
+                self.advance();
+                self.let_declaration();
+            },
+            _ => self.expression()
         }
     }
 
+    fn variable(&mut self) {
+        self.parse_variable();
+    }
+
     fn let_declaration(&mut self) {
-        let global_name = self.parser.previous.clone();
+        self.match_token(TokenKind::Identifier);
 
-        let variable_key = self.parse_variable(&global_name);
-        if let Some(key) = variable_key {
-            self.emit_byte(Op::GetVariable);
-            self.emit(key as u8);
+        let variable_token = self.parser.previous.clone();
+        let variable_name  = variable_token.value.clone();
 
-            return;
+        let variable_exists = self.variables
+                                  .iter()
+                                  .any(|v| v.name.value == variable_name && v.scope <= self.scope_depth);
+        if variable_exists {
+            self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
         }
 
         if !self.match_token(TokenKind::Equal) {
             self.parser.error_at_current("Expect definition as a part of let declaration.");
         }
 
-        self.globals.push(Global {
-            name:         global_name,
+        self.variables.push(Variable {
+            name:         variable_token,
             mutable:      false,
-            global_type: "string".to_owned(),
-            scope:        0, // TODO
+            variable_type: "string".to_owned(),
+            scope:        self.scope_depth, // TODO
             defined:      true
         });
+        let variable_index = self.variables
+                                 .iter()
+                                 .position(|v| v.name.value == variable_name);
 
         self.expression();
         self.match_token(TokenKind::Semicolon);
 
-        self.variable_definition((self.globals.len() - 1) as u8);
+        self.variable_definition(variable_index.unwrap() as u8);
     }
 
     fn var_declaration(&mut self) {
-        let global_name = self.parser.previous.clone();
+        self.match_token(TokenKind::Identifier);
 
-        let variable_key = self.parse_variable(&global_name);
-        if let Some(key) = variable_key {
-            self.emit_byte(Op::GetVariable);
-            self.emit(key as u8);
+        let variable_token = self.parser.previous.clone();
+        let variable_name  = variable_token.value.clone();
 
-            return;
+        let variable_exists = self.variables
+                                  .iter()
+                                  .any(|v| v.name.value == variable_name && v.scope <= self.scope_depth);
+        if variable_exists {
+            self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
         }
 
-        let mut global = Global {
-            name:         global_name,
-            mutable:      false,
-            global_type: "string".to_owned(),
-            scope:        0, // TODO
-            defined:     false
+
+        if self.parse_variable().is_some() {
+            return
+        }
+
+        let mut variable = Variable {
+            name:         variable_token,
+            mutable:      true,
+            variable_type: "string".to_owned(),
+            scope:        self.scope_depth, // TODO
+            defined:      false
         };
+
+        let variable_index = (self.variables.len()) as u8; // TODO: becomes a mess later on.
 
         if self.match_token(TokenKind::Equal) {
             self.expression();
             self.match_token(TokenKind::Semicolon);
 
-            global.defined = true;
+            variable.defined = true;
 
-            self.variable_definition((self.globals.len()) as u8);
+            self.variable_definition(variable_index);
+        } else {
+            self.emit_constant(Value::Unit);
+            self.variable_definition(variable_index);
         }
 
-        self.globals.push(global);
+        self.variables.push(variable);
+    }
+
+    fn parse_variable(&mut self) -> Option<u8> {
+        let variable_index = self.variables
+                                 .iter()
+                                 .position(|v| v.name.value == self.parser.previous.value);
+
+        if let Some(index) = variable_index {
+            if self.match_token(TokenKind::Equal) {
+                if !self.variables[index].mutable {
+                    panic!("Cannot reassign value of an immutable variable.");
+                }
+
+                self.expression();
+                self.emit_byte(Op::SetVariable);
+            } else {
+                self.emit_byte(Op::GetVariable);
+            }
+
+            self.emit(index as u8);
+            return Some(index as u8)
+        }
+
+        None
     }
 
     fn variable_definition(&mut self, variable_key: u8) {
@@ -336,16 +413,7 @@ impl Compiler {
         self.emit(variable_key);
     }
 
-    fn parse_variable(&self, name: &Token) -> Option<usize> {
-        self.globals
-            .iter()
-            .position(|g| g.name.value == name.value)
-
-    }
-
     fn unit(&mut self) {
-        self.emit_byte(Op::Pop);
-        self.emit_constant(Value::Unit);
         self.emit_byte(Op::Pop);
     }
 

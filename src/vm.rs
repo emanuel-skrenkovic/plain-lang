@@ -2,18 +2,24 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::mem::discriminant;
 use std::collections::VecDeque;
-use std::collections::HashMap;
-use std::collections::hash_map::{Entry};
 
 use crate::block::{Block, Op, Value};
 
+#[derive(Clone)]
+pub struct CallFrame {
+    pub frame: VecDeque<Value>,
+    pub ip: u8,
+    pub i: usize
+}
+
 pub struct VM {
     block: Rc<RefCell<Block>>,
+
     stack: VecDeque<Value>,
+    stack_top: usize,
+
     ip: u8,
     i: usize,
-
-    globals: HashMap<u8, Value>
 }
 
 impl VM {
@@ -21,21 +27,37 @@ impl VM {
         let ip = (*block).borrow().code[0];
         VM {
             block,
+
             stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+            stack_top: 0,
+
             ip,
-            i: 0,
-            globals: HashMap::new()
+            i: 0
         }
     }
 
     pub fn interpret(&mut self) {
+        let mut frames = VecDeque::new();
+        frames.push_front(
+            CallFrame {
+                ip: 0,
+                i: 0,
+                frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+            }
+        );
+
         loop {
+
             self.ip = self.read_byte();
             self.disassemble_instruction(self.ip);
+
+            let frame_index = frames.len() - 1;
+            let frame       = frames.get_mut(frame_index).unwrap();
 
             match self.ip.try_into().unwrap() {
                 Op::Pop => {
                     let value = self.pop();
+                    println!("POP {space:<width$} {:?} ", value, space=" ", width=22);
                 }
                 Op::Add => {
                     let (a, b) = self.binary_op();
@@ -187,15 +209,34 @@ impl VM {
                     self.push(value);
                 },
                 Op::GetVariable => {
-                    let index = self.read_byte();
-                    let value = *self.globals.get(&index).unwrap();
+                    let index = self.read_byte() as usize;
+                    let value = frame.frame[index];// self.stack[index];
+
+                    if discriminant(&value) == discriminant(&Value::Unit) {
+                        panic!("Cannot access an undefined variable.");
+                    }
+
                     self.push(value);
                 }
                 Op::SetVariable => {
-                    let index = self.read_byte();
-                    let value = self.pop();
+                    let index = self.read_byte() as usize;
+                    let value = self.peek(self.stack_top - 1);
 
-                    self.set_or_add_global(index, value);
+                    frame.frame[index] = value;
+                }
+                Op::Frame => {
+                    frames.push_back(CallFrame {
+                        i: self.i,
+                        ip: self.ip,
+                        frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+                    });
+                }
+                Op::Return => {
+                    if frames.len() == 0 {
+                        break;
+                    }
+
+                    frames.pop_back();
                 }
                 _ => { self.i += 1; }
             }
@@ -207,11 +248,17 @@ impl VM {
     }
 
     fn pop(&mut self) -> Value {
-        self.stack.pop_front().expect("Could not pop empty stack.")
+        self.stack_top -= 1;
+        let value = self.stack[self.stack_top];
+
+        self.stack[self.stack_top] = Value::Unit;
+
+        value
     }
 
     fn push(&mut self, value: Value) {
-        self.stack.push_front(value);
+        self.stack[self.stack_top] = value;
+        self.stack_top += 1;
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -226,16 +273,13 @@ impl VM {
         (*self.block).borrow().values[index]
     }
 
-    fn peek(&self, index: usize) -> Value { // TODO: Option<Value> ?
-        (*self.block).borrow().values[index]
+    fn peek(&self, index: usize) -> Value {
+        self.stack[index]
+        // self.stack[self.stack_top - distance]
     }
 
-    fn set_or_add_global(&mut self, index: u8, value: Value) {
-        if let Entry::Vacant(e) = self.globals.entry(index) {
-            e.insert(value);
-        } else {
-            *self.globals.get_mut(&index).unwrap() = value;
-        }
+    fn peek_op(&self, index: usize) -> u8 {
+        (*self.block).borrow().code[index]
     }
 
     // TODO: how to handle differring types
@@ -244,9 +288,7 @@ impl VM {
         let b = self.pop();
 
         if discriminant(&a) != discriminant(&b) {
-            panic!(
-                "Binary operation with two different types is not supported."
-            );
+            panic!("Binary operation with two different types is not supported.");
         }
 
         (a, b)
@@ -257,10 +299,6 @@ impl VM {
 
         if let Ok(i) = instruction.try_into() {
             match i {
-                Op::Pop         => {
-                    let value = self.peek(0);
-                    self.print_constant_op("POP", value);
-                },
                 Op::True        => self.print_simple_op("TRUE"),
                 Op::False       => self.print_simple_op("FALSE"),
                 Op::Not         => self.print_simple_op("NOT"),
@@ -269,30 +307,30 @@ impl VM {
                 Op::Multiply    => self.print_simple_op("MULTIPLY"),
                 Op::Divide      => self.print_simple_op("DIVIDE"),
                 Op::Constant    => {
-                    let index = (*self.block).borrow().code[self.i] as usize;
+                    let index = self.peek_op(self.i) as usize;
                     let value = self.peek(index);
 
-                    // println!("CONSTANT: {} {:?}", self.i, value);
                     self.print_constant_op("CONSTANT", value);
                 },
                 Op::Equal       => self.print_simple_op("EQUAL"),
                 Op::Less        => self.print_simple_op("LESS"),
                 Op::Greater     => self.print_simple_op("GREATER"),
-                Op::GetVariable => self.print_byte_op("GET_VARIABLE"),//println!("GET_VARIABLE"),
+                Op::GetVariable => self.print_byte_op("GET_VARIABLE"),
                 Op::SetVariable => {
-                    let index = (*self.block).borrow().code[self.i] as usize;
+                    let index = self.peek_op(self.i) as usize;
                     let value = self.peek(index);
 
-                    // println!("SET_VARIABLE: {} {:?}", self.i, value);
                     self.print_constant_op("SET_VARIABLE", value);
                 },
+                Op::Frame       => self.print_simple_op("FRAME"),
+                Op::Return      => self.print_simple_op("RETURN"),
                 _ => { }
             }
         }
     }
 
     fn print_simple_op(&self, name: &str) {
-        println!("{}", name);
+        println!("{name:<width$} |", name=name, width=20);
     }
 
     fn print_byte_op(&self, name: &str) {
