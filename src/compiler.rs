@@ -313,6 +313,13 @@ impl Compiler {
         let variable_token = self.parser.previous.clone();
         let variable_name  = variable_token.value.clone();
 
+        let variable_exists = self.variables
+                                  .iter()
+                                  .any(|v| v.name.value == variable_name && v.scope <= self.scope_depth);
+        if variable_exists {
+            self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
+        }
+
         if !self.match_token(TokenKind::Equal) {
             self.parser.error_at_current("Expect definition as a part of let declaration.");
         }
@@ -337,11 +344,20 @@ impl Compiler {
     fn var_declaration(&mut self) {
         self.match_token(TokenKind::Identifier);
 
+        let variable_token = self.parser.previous.clone();
+        let variable_name  = variable_token.value.clone();
+
+        let variable_exists = self.variables
+                                  .iter()
+                                  .any(|v| v.name.value == variable_name && v.scope <= self.scope_depth);
+        if variable_exists {
+            self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
+        }
+
+
         if self.parse_variable().is_some() {
             return
         }
-
-        let variable_token = self.parser.previous.clone();
 
         let mut variable = Variable {
             name:         variable_token,
