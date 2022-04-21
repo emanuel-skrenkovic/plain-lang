@@ -18,7 +18,8 @@ pub enum Op {
     Equal, Less, Greater,
     GreaterEqual, LessEqual,
     SetVariable, GetVariable,
-    Frame, Return
+    Frame, Return,
+    Jump, CondJump, LoopJump
 }
 
 impl TryFrom<u8> for Op {
@@ -44,6 +45,9 @@ impl TryFrom<u8> for Op {
             x if x == Op::GetVariable as u8  => Ok(Op::GetVariable),
             x if x == Op::Frame as u8        => Ok(Op::Frame),
             x if x == Op::Return as u8       => Ok(Op::Return),
+            x if x == Op::Jump as u8         => Ok(Op::Jump),
+            x if x == Op::CondJump as u8     => Ok(Op::CondJump),
+            x if x == Op::LoopJump as u8     => Ok(Op::LoopJump),
             _ => Err(()),
         }
     }
@@ -62,12 +66,18 @@ impl Block {
         }
     }
 
-    pub fn write_op(&mut self, op: Op) {
+    pub fn write_op(&mut self, op: Op) -> usize {
         self.code.push(op as u8);
+        self.code.len() - 1
     }
 
-    pub fn write(&mut self, val: u8) {
+    pub fn write(&mut self, val: u8) -> usize {
         self.code.push(val);
+        self.code.len() - 1
+    }
+
+    pub fn write_at(&mut self, index: usize, val: u8) {
+        self.code[index] = val;
     }
 
     pub fn write_constant(&mut self, constant: Value) -> u8 {

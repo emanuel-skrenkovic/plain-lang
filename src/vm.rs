@@ -5,6 +5,12 @@ use std::collections::VecDeque;
 
 use crate::block::{Block, Op, Value};
 
+const STACK_SIZE: usize = 1024;
+
+fn init_stack() -> VecDeque<Value> {
+    (0..STACK_SIZE).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+}
+
 #[derive(Clone)]
 pub struct CallFrame {
     pub frame: VecDeque<Value>,
@@ -28,7 +34,7 @@ impl VM {
         VM {
             block,
 
-            stack: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+            stack: init_stack(),
             stack_top: 0,
 
             ip,
@@ -42,12 +48,11 @@ impl VM {
             CallFrame {
                 ip: 0,
                 i: 0,
-                frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+                frame: init_stack()
             }
         );
 
         loop {
-
             self.ip = self.read_byte();
             self.disassemble_instruction(self.ip);
 
@@ -228,16 +233,38 @@ impl VM {
                     frames.push_back(CallFrame {
                         i: self.i,
                         ip: self.ip,
-                        frame: (0..1024).map(|_| Value::Unit).collect::<VecDeque<Value>>(),
+                        frame: init_stack()
                     });
                 }
                 Op::Return => {
-                    if frames.len() == 0 {
+                    if frames.is_empty() {
                         break;
                     }
 
                     frames.pop_back();
                 }
+                Op::Jump => {
+                    let jump = self.read_byte() as usize;
+                    self.i += jump;
+
+                }
+                Op::CondJump => {
+                    let jump = self.read_byte() as usize;
+                    let value = self.pop();
+
+                    let boolean = match value {
+                        Value::Bool { val } => val,
+                        _ => panic!("TODO: Not supported")
+                    };
+
+                    if !boolean {
+                        self.i += jump;
+                    }
+                }
+                Op::LoopJump => {
+                    let jump = self.read_byte() as usize;
+                    self.i -= jump;
+                },
                 _ => { self.i += 1; }
             }
 
@@ -275,7 +302,6 @@ impl VM {
 
     fn peek(&self, index: usize) -> Value {
         self.stack[index]
-        // self.stack[self.stack_top - distance]
     }
 
     fn peek_op(&self, index: usize) -> u8 {
@@ -324,6 +350,36 @@ impl VM {
                 },
                 Op::Frame       => self.print_simple_op("FRAME"),
                 Op::Return      => self.print_simple_op("RETURN"),
+                Op::Jump        => {
+                    let jump = self.peek_op(self.i);
+                    println!("{name:<width$} {slot:<slot_width$} {value}",
+                             name="JUMP",
+                             width=20,
+                             slot=self.i,
+                             slot_width=5,
+                             value=jump);
+
+                },
+                Op::CondJump        => {
+                    let jump = self.peek_op(self.i);
+                    println!("{name:<width$} {slot:<slot_width$} {value}",
+                             name="COND_JUMP",
+                             width=20,
+                             slot=self.i,
+                             slot_width=5,
+                             value=jump);
+
+                },
+                Op::LoopJump        => {
+                    let jump = self.peek_op(self.i);
+                    println!("{name:<width$} {slot:<slot_width$} {value}",
+                             name="LOOP_JUMP",
+                             width=20,
+                             slot=self.i,
+                             slot_width=5,
+                             value=jump);
+
+                },
                 _ => { }
             }
         }

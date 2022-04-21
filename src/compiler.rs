@@ -82,7 +82,7 @@ static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Let
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Var
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // This
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // If
+    ParseRule { prefix: Some(Compiler::_if), infix: None, precedence: Precedence::None }, // If
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Else
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Break
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Continue
@@ -140,7 +140,6 @@ impl Parser {
 pub struct Variable {
     name: Token,
     mutable: bool,
-    variable_type: String,
     scope: usize,
     defined: bool
 }
@@ -167,6 +166,9 @@ impl Compiler {
     pub fn compile(&mut self) {
         self.advance();
 
+        // TODO: check if correct
+        self.emit_byte(Op::Frame);
+
         loop {
             match self.parser.current.kind {
                 TokenKind::End => { break; }
@@ -183,8 +185,6 @@ impl Compiler {
         loop {
             self.parser.current = self.scanner.scan_token();
 
-            println!("{}", self.parser.current);
-
             if !matches!(self.parser.current.kind, TokenKind::Error) {
                 break;
             }
@@ -200,6 +200,12 @@ impl Compiler {
 
         self.advance();
         true
+    }
+
+    fn consume(&mut self, token_kind: TokenKind, error_message: &str) {
+        if !self.match_token(token_kind) {
+            self.parser.error_at_current(error_message)
+        }
     }
 
     fn check_token(&self, token_kind: TokenKind) -> bool {
@@ -240,8 +246,8 @@ impl Compiler {
             self.declaration();
         }
 
-        self.match_token(TokenKind::RightBracket);
-        self.match_token(TokenKind::Semicolon);
+        self.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.match_token(TokenKind::Semicolon); // Only eat the semicolon if present.
 
         self.scope_depth -= 1;
 
@@ -259,17 +265,17 @@ impl Compiler {
         );
 
         match operator {
-            TokenKind::LeftAngle    => self.emit_byte(Op::Less),
-            TokenKind::RightAngle   => self.emit_byte(Op::Greater),
-            TokenKind::BangEqual    => self.emit_bytes(Op::Equal, Op::Not),
-            TokenKind::EqualEqual   => self.emit_byte(Op::Equal),
-            TokenKind::GreaterEqual => self.emit_byte(Op::GreaterEqual),
-            TokenKind::LessEqual    => self.emit_byte(Op::LessEqual),
-            TokenKind::Plus         => self.emit_byte(Op::Add),
-            TokenKind::Minus        => self.emit_byte(Op::Subtract),
-            TokenKind::Star         => self.emit_byte(Op::Multiply),
-            TokenKind::Slash        => self.emit_byte(Op::Divide),
-            _ => {}
+            TokenKind::LeftAngle    => { self.emit_byte(Op::Less); }
+            TokenKind::RightAngle   => { self.emit_byte(Op::Greater); }
+            TokenKind::BangEqual    => { self.emit_bytes(Op::Equal, Op::Not); }
+            TokenKind::EqualEqual   => { self.emit_byte(Op::Equal); }
+            TokenKind::GreaterEqual => { self.emit_byte(Op::GreaterEqual); }
+            TokenKind::LessEqual    => { self.emit_byte(Op::LessEqual); }
+            TokenKind::Plus         => { self.emit_byte(Op::Add); }
+            TokenKind::Minus        => { self.emit_byte(Op::Subtract); }
+            TokenKind::Star         => { self.emit_byte(Op::Multiply); }
+            TokenKind::Slash        => { self.emit_byte(Op::Divide); }
+            _ => { }
         }
     }
 
@@ -299,6 +305,14 @@ impl Compiler {
                 self.advance();
                 self.let_declaration();
             },
+            TokenKind::While => {
+                self.advance();
+                self._while();
+            },
+            TokenKind::For => {
+                self.advance();
+                self._for();
+            }
             _ => self.expression()
         }
     }
@@ -327,7 +341,6 @@ impl Compiler {
         self.variables.push(Variable {
             name:         variable_token,
             mutable:      false,
-            variable_type: "string".to_owned(),
             scope:        self.scope_depth, // TODO
             defined:      true
         });
@@ -354,17 +367,15 @@ impl Compiler {
             self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
         }
 
-
         if self.parse_variable().is_some() {
             return
         }
 
         let mut variable = Variable {
-            name:         variable_token,
-            mutable:      true,
-            variable_type: "string".to_owned(),
-            scope:        self.scope_depth, // TODO
-            defined:      false
+            name:    variable_token,
+            mutable: true,
+            scope:   self.scope_depth, // TODO
+            defined: false
         };
 
         let variable_index = (self.variables.len()) as u8; // TODO: becomes a mess later on.
@@ -413,21 +424,101 @@ impl Compiler {
         self.emit(variable_key);
     }
 
+    fn _if(&mut self) {
+        self.expression();
+
+        let then_jump = self.emit_jump(Op::CondJump);
+        self.declaration();
+
+        let else_jump = self.emit_jump(Op::Jump);
+        self.patch_jump(then_jump);
+
+        if self.match_token(TokenKind::Else) {
+            self.declaration();
+        }
+
+        self.patch_jump(else_jump);
+    }
+
+    fn _while(&mut self) {
+        let loop_start = self.position();
+        self.expression();
+
+        let break_jump = self.emit_jump(Op::CondJump);
+        self.declaration();
+        self.emit_loop(loop_start);
+
+        self.patch_jump(break_jump);
+    }
+
+    // In this implementation, all the parts of a for
+    // loop declaration are required. While and iterators (when I get to that)
+    // will make up for everything.
+    fn _for(&mut self) {
+        if self.match_token(TokenKind::Var) {
+            self.var_declaration();
+        } else if self.match_token(TokenKind::Let) {
+            self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.")
+        } else {
+            self.expression();
+        }
+
+        let mut loop_start = self.position();
+        // condition
+        self.expression();
+
+        let exit_jump = self.emit_jump(Op::CondJump);
+        // advancement statement
+        let body_jump = self.emit_jump(Op::Jump);
+        let advancement_start = self.position();
+        self.expression();
+
+        self.emit_loop(loop_start);
+
+        loop_start = advancement_start;
+        self.patch_jump(body_jump);
+
+        // body
+        self.block_expression();
+        self.emit_loop(loop_start);
+        self.patch_jump(exit_jump);
+    }
+
     fn unit(&mut self) {
         self.emit_byte(Op::Pop);
     }
 
-    fn emit_byte(&mut self, op: Op) {
-        (*self.block).borrow_mut().write_op(op);
+    fn patch(&mut self, index: usize, byte: u8) {
+        (*self.block).borrow_mut().write_at(index, byte);
     }
 
-    fn emit(&mut self, byte: u8) {
-        (*self.block).borrow_mut().write(byte as u8);
+    fn patch_jump(&mut self, index: usize) {
+        let code_len = (*self.block).borrow_mut().code.len();
+        self.patch(index, (code_len - 1 - index) as u8);
     }
 
-    fn emit_bytes(&mut self, a: Op, b: Op) {
+    fn emit_loop(&mut self, loop_start: usize) {
+        let loop_end = (*self.block).borrow_mut().code.len();
+        self.emit_byte(Op::LoopJump);
+        self.emit((loop_end - loop_start + 2) as u8);
+    }
+
+    fn emit_jump(&mut self, op: Op) -> usize {
+        self.emit_byte(op);
+        self.emit(0)
+    }
+
+    fn emit_byte(&mut self, op: Op) -> usize {
+        (*self.block).borrow_mut().write_op(op)
+    }
+
+    fn emit(&mut self, byte: u8) -> usize {
+        (*self.block).borrow_mut().write(byte as u8)
+    }
+
+    fn emit_bytes(&mut self, a: Op, b: Op) -> usize {
         (*self.block).borrow_mut().write_op(a);
-        (*self.block).borrow_mut().write_op(b);
+        (*self.block).borrow_mut().write_op(b)
     }
 
     fn emit_constant(&mut self, value: Value) {
@@ -435,5 +526,9 @@ impl Compiler {
 
         (*self.block).borrow_mut().write_op(Op::Constant);
         (*self.block).borrow_mut().write(i as u8);
+    }
+
+    fn position(&self) -> usize {
+        (*self.block).borrow().code.len()
     }
 }

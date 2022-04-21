@@ -99,6 +99,30 @@ def block_scope():
     assert result.exit_code != 0, result.stderr
 
 
+@test
+def if_true():
+    result = run_test("if_true.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def if_false():
+    result = run_test("if_false.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def if_else_if_else_assignment():
+    result = run_test("if_else_if_else_expr_assignment.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def if_else_assignment():
+    result = run_test("if_else_expr_assignment.sg")
+    assert result.exit_code == 0, result.stderr
+
+
 if __name__ == "__main__":
     for test in get_tests():
         test_name = test[0]
