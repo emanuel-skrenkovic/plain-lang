@@ -185,8 +185,6 @@ impl Compiler {
         loop {
             self.parser.current = self.scanner.scan_token();
 
-            println!("{}", self.parser.current);
-
             if !matches!(self.parser.current.kind, TokenKind::Error) {
                 break;
             }
@@ -202,6 +200,12 @@ impl Compiler {
 
         self.advance();
         true
+    }
+
+    fn consume(&mut self, token_kind: TokenKind, error_message: &str) {
+        if !self.match_token(token_kind) {
+            self.parser.error_at_current(error_message)
+        }
     }
 
     fn check_token(&self, token_kind: TokenKind) -> bool {
@@ -242,8 +246,8 @@ impl Compiler {
             self.declaration();
         }
 
-        self.match_token(TokenKind::RightBracket);
-        self.match_token(TokenKind::Semicolon);
+        self.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.match_token(TokenKind::Semicolon); // Only eat the semicolon if present.
 
         self.scope_depth -= 1;
 
@@ -305,6 +309,10 @@ impl Compiler {
                 self.advance();
                 self._while();
             },
+            TokenKind::For => {
+                self.advance();
+                self._for();
+            }
             _ => self.expression()
         }
     }
@@ -364,10 +372,10 @@ impl Compiler {
         }
 
         let mut variable = Variable {
-            name:         variable_token,
-            mutable:      true,
-            scope:        self.scope_depth, // TODO
-            defined:      false
+            name:    variable_token,
+            mutable: true,
+            scope:   self.scope_depth, // TODO
+            defined: false
         };
 
         let variable_index = (self.variables.len()) as u8; // TODO: becomes a mess later on.
@@ -433,7 +441,7 @@ impl Compiler {
     }
 
     fn _while(&mut self) {
-        let loop_start = (*self.block).borrow_mut().code.len();
+        let loop_start = self.position();
         self.expression();
 
         let break_jump = self.emit_jump(Op::CondJump);
@@ -441,7 +449,40 @@ impl Compiler {
         self.emit_loop(loop_start);
 
         self.patch_jump(break_jump);
-}
+    }
+
+    // In this implementation, all the parts of a for
+    // loop declaration are required. While and iterators (when I get to that)
+    // will make up for everything.
+    fn _for(&mut self) {
+        if self.match_token(TokenKind::Var) {
+            self.var_declaration();
+        } else if self.match_token(TokenKind::Let) {
+            self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.")
+        } else {
+            self.expression();
+        }
+
+        let mut loop_start = self.position();
+        // condition
+        self.expression();
+
+        let exit_jump = self.emit_jump(Op::CondJump);
+        // advancement statement
+        let body_jump = self.emit_jump(Op::Jump);
+        let advancement_start = self.position();
+        self.expression();
+
+        self.emit_loop(loop_start);
+
+        loop_start = advancement_start;
+        self.patch_jump(body_jump);
+
+        // body
+        self.block_expression();
+        self.emit_loop(loop_start);
+        self.patch_jump(exit_jump);
+    }
 
     fn unit(&mut self) {
         self.emit_byte(Op::Pop);
@@ -485,5 +526,9 @@ impl Compiler {
 
         (*self.block).borrow_mut().write_op(Op::Constant);
         (*self.block).borrow_mut().write(i as u8);
+    }
+
+    fn position(&self) -> usize {
+        (*self.block).borrow().code.len()
     }
 }
