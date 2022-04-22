@@ -246,10 +246,23 @@ impl Compiler {
             self.declaration();
         }
 
+        let has_value = !matches!(self.parser.previous.kind, TokenKind::Semicolon);
+
         self.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
         self.match_token(TokenKind::Semicolon); // Only eat the semicolon if present.
 
         self.scope_depth -= 1;
+
+        let count = self.variables
+                        .iter()
+                        .filter(|v| v.scope > self.scope_depth)
+                        .count();
+
+        if !has_value {
+            for _ in 0..count {
+                self.emit_byte(Op::Pop);
+            }
+        }
 
         self.emit_byte(Op::Return);
     }
@@ -401,15 +414,27 @@ impl Compiler {
                                  .position(|v| v.name.value == self.parser.previous.value);
 
         if let Some(index) = variable_index {
+            let set_op = if self.variables[index].scope < self.scope_depth {
+                Op::SetUpvalue
+            } else {
+                Op::SetVariable
+            };
+
+            let get_op = if self.variables[index].scope < self.scope_depth {
+                Op::GetUpvalue
+            } else {
+                Op::GetVariable
+            };
+
             if self.match_token(TokenKind::Equal) {
                 if !self.variables[index].mutable {
                     panic!("Cannot reassign value of an immutable variable.");
                 }
 
                 self.expression();
-                self.emit_byte(Op::SetVariable);
+                self.emit_byte(set_op);
             } else {
-                self.emit_byte(Op::GetVariable);
+                self.emit_byte(get_op);
             }
 
             self.emit(index as u8);

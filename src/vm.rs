@@ -11,11 +11,32 @@ fn init_stack() -> VecDeque<Value> {
     (0..STACK_SIZE).map(|_| Value::Unit).collect::<VecDeque<Value>>()
 }
 
-#[derive(Clone)]
-pub struct CallFrame {
-    pub frame: VecDeque<Value>,
-    pub ip: u8,
-    pub i: usize
+#[derive(Copy, Clone)]
+struct Upvalue {
+    closed: Value
+}
+
+struct CallFrame {
+    ip: u8,
+    i: usize
+}
+
+impl CallFrame {
+    fn get_value(&self, stack: &VecDeque<Value>, index: usize) -> Value {
+        stack[index + self.i]
+    }
+
+    fn set_value(&self, stack: &mut VecDeque<Value>, index: usize, value: Value) {
+        stack[index + self.i] = value;
+    }
+
+    fn get_upvalue(&self, stack: &VecDeque<Value>, index: usize) -> Upvalue {
+        Upvalue { closed: stack[index] }
+    }
+
+    fn set_upvalue(&mut self, stack: &mut VecDeque<Value>, index: usize, upvalue: Upvalue) {
+        stack[index] = upvalue.closed;
+    }
 }
 
 pub struct VM {
@@ -48,7 +69,6 @@ impl VM {
             CallFrame {
                 ip: 0,
                 i: 0,
-                frame: init_stack()
             }
         );
 
@@ -215,7 +235,7 @@ impl VM {
                 },
                 Op::GetVariable => {
                     let index = self.read_byte() as usize;
-                    let value = frame.frame[index];// self.stack[index];
+                    let value = frame.get_value(&self.stack, index);// self.stack[index];
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -227,13 +247,29 @@ impl VM {
                     let index = self.read_byte() as usize;
                     let value = self.peek(self.stack_top - 1);
 
-                    frame.frame[index] = value;
+                    // frame.frame[index] = value;
+                    frame.set_value(&mut self.stack, index, value);
                 }
+                Op::GetUpvalue => {
+                    let index = self.read_byte() as usize;
+                    let upvalue = frame.get_upvalue(&self.stack, index);
+
+                    if discriminant(&upvalue.closed) == discriminant(&Value::Unit) {
+                        panic!("Cannot access an undefined variable.");
+                    }
+
+                    self.push(upvalue.closed);
+                },
+                Op::SetUpvalue => {
+                    let index = self.read_byte() as usize;
+                    let value = self.peek(self.stack_top - 1);
+
+                    frame.set_upvalue(&mut self.stack, index, Upvalue{ closed: value });
+                },
                 Op::Frame => {
                     frames.push_back(CallFrame {
-                        i: self.i,
-                        ip: self.ip,
-                        frame: init_stack()
+                        i: self.stack_top,
+                        ip: self.ip
                     });
                 }
                 Op::Return => {
@@ -347,6 +383,13 @@ impl VM {
                     let value = self.peek(index);
 
                     self.print_constant_op("SET_VARIABLE", value);
+                },
+                Op::GetUpvalue => self.print_byte_op("GET_UPVALUE"),
+                Op::SetUpvalue => {
+                    let index = self.peek_op(self.i) as usize;
+                    let value = self.peek(index);
+
+                    self.print_constant_op("SET_UPVALUE", value);
                 },
                 Op::Frame       => self.print_simple_op("FRAME"),
                 Op::Return      => self.print_simple_op("RETURN"),
