@@ -18,8 +18,9 @@ pub enum Op {
     Equal, Less, Greater,
     GreaterEqual, LessEqual,
     SetVariable, GetVariable,
+    SetUpvalue, GetUpvalue,
     Frame, Return,
-    Jump, CondJump, LoopJump
+    Jump, CondJump, LoopJump,
 }
 
 impl TryFrom<u8> for Op {
@@ -43,6 +44,8 @@ impl TryFrom<u8> for Op {
             x if x == Op::LessEqual as u8    => Ok(Op::LessEqual),
             x if x == Op::SetVariable as u8  => Ok(Op::SetVariable),
             x if x == Op::GetVariable as u8  => Ok(Op::GetVariable),
+            x if x == Op::SetUpvalue as u8   => Ok(Op::SetUpvalue),
+            x if x == Op::GetUpvalue as u8   => Ok(Op::GetUpvalue),
             x if x == Op::Frame as u8        => Ok(Op::Frame),
             x if x == Op::Return as u8       => Ok(Op::Return),
             x if x == Op::Jump as u8         => Ok(Op::Jump),
