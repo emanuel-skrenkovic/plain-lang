@@ -11,11 +11,6 @@ fn init_stack() -> VecDeque<Value> {
     (0..STACK_SIZE).map(|_| Value::Unit).collect::<VecDeque<Value>>()
 }
 
-#[derive(Copy, Clone)]
-struct Upvalue {
-    closed: Value
-}
-
 struct CallFrame {
     ip: u8,
     i: usize
@@ -30,12 +25,12 @@ impl CallFrame {
         stack[index + self.i] = value;
     }
 
-    fn get_upvalue(&self, stack: &VecDeque<Value>, index: usize) -> Upvalue {
-        Upvalue { closed: stack[index] }
+    fn get_upvalue(&self, stack: &VecDeque<Value>, index: usize) -> Value {
+        stack[index]
     }
 
-    fn set_upvalue(&mut self, stack: &mut VecDeque<Value>, index: usize, upvalue: Upvalue) {
-        stack[index] = upvalue.closed;
+    fn set_upvalue(&mut self, stack: &mut VecDeque<Value>, index: usize, value: Value) {
+        stack[index] = value
     }
 }
 
@@ -81,8 +76,7 @@ impl VM {
 
             match self.ip.try_into().unwrap() {
                 Op::Pop => {
-                    let value = self.pop();
-                    println!("POP {space:<width$} {:?} ", value, space=" ", width=22);
+                    self.pop();
                 }
                 Op::Add => {
                     let (a, b) = self.binary_op();
@@ -252,19 +246,19 @@ impl VM {
                 }
                 Op::GetUpvalue => {
                     let index = self.read_byte() as usize;
-                    let upvalue = frame.get_upvalue(&self.stack, index);
+                    let value = frame.get_upvalue(&self.stack, index);
 
-                    if discriminant(&upvalue.closed) == discriminant(&Value::Unit) {
+                    if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
                     }
 
-                    self.push(upvalue.closed);
+                    self.push(value);
                 },
                 Op::SetUpvalue => {
                     let index = self.read_byte() as usize;
                     let value = self.peek(self.stack_top - 1);
 
-                    frame.set_upvalue(&mut self.stack, index, Upvalue{ closed: value });
+                    frame.set_upvalue(&mut self.stack, index, value);
                 },
                 Op::Frame => {
                     frames.push_back(CallFrame {
@@ -361,6 +355,10 @@ impl VM {
 
         if let Ok(i) = instruction.try_into() {
             match i {
+                Op::Pop => {
+                    let value = self.peek(0);
+                    self.print_constant_op("POP", value);
+                },
                 Op::True        => self.print_simple_op("TRUE"),
                 Op::False       => self.print_simple_op("FALSE"),
                 Op::Not         => self.print_simple_op("NOT"),
