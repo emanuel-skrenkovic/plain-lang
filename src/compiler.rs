@@ -4,6 +4,7 @@ use std::mem::discriminant;
 
 use crate::block::{Block, Op, Value};
 use crate::scan::{Scanner, Token, TokenKind};
+use crate::vm::VM;
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
@@ -58,7 +59,7 @@ struct ParseRule {
 }
 
 static RULES: [ParseRule; 39] = [
-    ParseRule { prefix: None, infix: None, precedence: Precedence::Call }, // LeftParen
+    ParseRule { prefix: None, infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
     ParseRule { prefix: Some(Compiler::block_expression), infix: None, precedence: Precedence::None }, // LeftBracket
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightBracket
@@ -145,6 +146,7 @@ pub struct Variable {
 }
 
 pub struct Compiler {
+    source: String,
     scanner: Scanner,
     parser: Parser,
     block: Rc<RefCell<Block>>,
@@ -155,6 +157,7 @@ pub struct Compiler {
 impl Compiler {
     pub fn new(source: String, block: Rc<RefCell<Block>>) -> Compiler {
         Compiler {
+            source: source.clone(),
             scanner: Scanner::new(source),
             parser: Default::default(),
             block,
@@ -310,6 +313,10 @@ impl Compiler {
 
     fn declaration(&mut self) {
         match self.parser.current.kind {
+            TokenKind::Func => {
+                self.advance();
+                self.function_declaration();
+            }
             TokenKind::Var => {
                 self.advance();
                 self.var_declaration();
@@ -334,6 +341,34 @@ impl Compiler {
         self.parse_variable();
     }
 
+    fn function_declaration(&mut self) {
+        self.consume(TokenKind::Identifier, "Cannot declare function without name.");
+
+        let function_token = self.parser.previous.clone();
+        let function_name = function_token.value.clone();
+
+        self.consume(TokenKind::LeftParen, "Expected '(' after function name.");
+
+        while self.match_token(TokenKind::Identifier) {
+            // self.match_token(TokenKind::Comma);
+        }
+
+        self.consume(TokenKind::RightParen, "Expected ')' after function parameters.");
+
+        self.variables.push(Variable {
+            name:         function_token,
+            mutable:      false,
+            scope:        self.scope_depth, // TODO
+            defined:      true
+        });
+        let function_variable_index = self.variables
+                                 .iter()
+                                 .position(|v| v.name.value == function_name);
+
+        self.block_expression();
+        self.variable_definition(function_variable_index.unwrap() as u8);
+    }
+
     fn let_declaration(&mut self) {
         self.match_token(TokenKind::Identifier);
 
@@ -347,9 +382,7 @@ impl Compiler {
             self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
         }
 
-        if !self.match_token(TokenKind::Equal) {
-            self.parser.error_at_current("Expect definition as a part of let declaration.");
-        }
+        self.consume(TokenKind::Equal, "Expect definition as a part of let declaration.");
 
         self.variables.push(Variable {
             name:         variable_token,
@@ -507,6 +540,22 @@ impl Compiler {
         self.block_expression();
         self.emit_loop(loop_start);
         self.patch_jump(exit_jump);
+    }
+
+    fn function_invocation(&mut self) {
+        /*
+        let block = Rc::new(RefCell::new(Block::new(256)));
+        let mut compiler = Compiler::new(
+            self.source.clone(),
+            block.clone()
+        );
+
+        compiler.compile();
+
+        let mut vm = VM::new(block);
+        vm.interpret();
+        */
+        self.emit_byte(Op::Call);
     }
 
     fn unit(&mut self) {

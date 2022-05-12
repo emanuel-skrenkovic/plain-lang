@@ -21,6 +21,7 @@ pub enum Op {
     SetUpvalue, GetUpvalue,
     Frame, Return,
     Jump, CondJump, LoopJump,
+    Call
 }
 
 impl TryFrom<u8> for Op {
@@ -51,6 +52,7 @@ impl TryFrom<u8> for Op {
             x if x == Op::Jump as u8         => Ok(Op::Jump),
             x if x == Op::CondJump as u8     => Ok(Op::CondJump),
             x if x == Op::LoopJump as u8     => Ok(Op::LoopJump),
+            x if x == Op::Call as u8         => Ok(Op::Call),
             _ => Err(()),
         }
     }

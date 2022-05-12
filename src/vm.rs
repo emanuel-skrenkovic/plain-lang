@@ -359,22 +359,22 @@ impl VM {
                     let value = self.peek(0);
                     self.print_constant_op("POP", value);
                 },
-                Op::True        => self.print_simple_op("TRUE"),
-                Op::False       => self.print_simple_op("FALSE"),
-                Op::Not         => self.print_simple_op("NOT"),
-                Op::Add         => self.print_simple_op("ADD"),
-                Op::Subtract    => self.print_simple_op("SUBTRACT"),
-                Op::Multiply    => self.print_simple_op("MULTIPLY"),
-                Op::Divide      => self.print_simple_op("DIVIDE"),
-                Op::Constant    => {
+                Op::True => self.print_simple_op("TRUE"),
+                Op::False => self.print_simple_op("FALSE"),
+                Op::Not => self.print_simple_op("NOT"),
+                Op::Add => self.print_simple_op("ADD"),
+                Op::Subtract => self.print_simple_op("SUBTRACT"),
+                Op::Multiply => self.print_simple_op("MULTIPLY"),
+                Op::Divide => self.print_simple_op("DIVIDE"),
+                Op::Constant => {
                     let index = self.peek_op(self.i) as usize;
                     let value = self.peek(index);
 
                     self.print_constant_op("CONSTANT", value);
                 },
-                Op::Equal       => self.print_simple_op("EQUAL"),
-                Op::Less        => self.print_simple_op("LESS"),
-                Op::Greater     => self.print_simple_op("GREATER"),
+                Op::Equal => self.print_simple_op("EQUAL"),
+                Op::Less => self.print_simple_op("LESS"),
+                Op::Greater => self.print_simple_op("GREATER"),
                 Op::GetVariable => self.print_byte_op("GET_VARIABLE"),
                 Op::SetVariable => {
                     let index = self.peek_op(self.i) as usize;
@@ -389,9 +389,9 @@ impl VM {
 
                     self.print_constant_op("SET_UPVALUE", value);
                 },
-                Op::Frame       => self.print_simple_op("FRAME"),
-                Op::Return      => self.print_simple_op("RETURN"),
-                Op::Jump        => {
+                Op::Frame => self.print_simple_op("FRAME"),
+                Op::Return => self.print_simple_op("RETURN"),
+                Op::Jump => {
                     let jump = self.peek_op(self.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="JUMP",
@@ -401,7 +401,7 @@ impl VM {
                              value=jump);
 
                 },
-                Op::CondJump        => {
+                Op::CondJump => {
                     let jump = self.peek_op(self.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="COND_JUMP",
@@ -411,7 +411,7 @@ impl VM {
                              value=jump);
 
                 },
-                Op::LoopJump        => {
+                Op::LoopJump => {
                     let jump = self.peek_op(self.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="LOOP_JUMP",
@@ -421,6 +421,9 @@ impl VM {
                              value=jump);
 
                 },
+                Op::Call => {
+                    self.print_simple_op("CALL");
+                }
                 _ => { }
             }
         }
