@@ -12,7 +12,6 @@ fn init_stack() -> VecDeque<Value> {
 }
 
 struct CallFrame {
-    ip: u8,
     i: usize
 }
 
@@ -62,7 +61,6 @@ impl VM {
         let mut frames = VecDeque::new();
         frames.push_front(
             CallFrame {
-                ip: 0,
                 i: 0,
             }
         );
@@ -263,7 +261,6 @@ impl VM {
                 Op::Frame => {
                     frames.push_back(CallFrame {
                         i: self.stack_top,
-                        ip: self.ip
                     });
                 }
                 Op::Return => {

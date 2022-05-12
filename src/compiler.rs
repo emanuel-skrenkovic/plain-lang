@@ -4,7 +4,6 @@ use std::mem::discriminant;
 
 use crate::block::{Block, Op, Value};
 use crate::scan::{Scanner, Token, TokenKind};
-use crate::vm::VM;
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
@@ -121,8 +120,8 @@ impl std::default::Default for Parser {
 impl Parser {
     pub fn new() -> Parser {
         Parser {
-            current:  Token { kind: TokenKind::Error, value: "".to_owned(), line: 0 },
-            previous: Token { kind: TokenKind::Error, value: "".to_owned(), line: 0 },
+            current: Token::default(),
+            previous: Token::default(),
             panic: false,
             error: false
         }
@@ -146,7 +145,6 @@ pub struct Variable {
 }
 
 pub struct Compiler {
-    source: String,
     scanner: Scanner,
     parser: Parser,
     block: Rc<RefCell<Block>>,
@@ -157,7 +155,6 @@ pub struct Compiler {
 impl Compiler {
     pub fn new(source: String, block: Rc<RefCell<Block>>) -> Compiler {
         Compiler {
-            source: source.clone(),
             scanner: Scanner::new(source),
             parser: Default::default(),
             block,
@@ -347,6 +344,12 @@ impl Compiler {
         let function_token = self.parser.previous.clone();
         let function_name = function_token.value.clone();
 
+        if self.variable_exists(&function_name) {
+            self.parser.error_at_current(
+                &format!("Cannot redeclare function with name '{}'", function_name)
+            );
+        }
+
         self.consume(TokenKind::LeftParen, "Expected '(' after function name.");
 
         while self.match_token(TokenKind::Identifier) {
@@ -355,18 +358,10 @@ impl Compiler {
 
         self.consume(TokenKind::RightParen, "Expected ')' after function parameters.");
 
-        self.variables.push(Variable {
-            name:         function_token,
-            mutable:      false,
-            scope:        self.scope_depth, // TODO
-            defined:      true
-        });
-        let function_variable_index = self.variables
-                                 .iter()
-                                 .position(|v| v.name.value == function_name);
+        let index = self.declare_variable(function_token, false);
 
         self.block_expression();
-        self.variable_definition(function_variable_index.unwrap() as u8);
+        self.variable_definition(index);
     }
 
     fn let_declaration(&mut self) {
@@ -375,29 +370,20 @@ impl Compiler {
         let variable_token = self.parser.previous.clone();
         let variable_name  = variable_token.value.clone();
 
-        let variable_exists = self.variables
-                                  .iter()
-                                  .any(|v| v.name.value == variable_name && v.scope <= self.scope_depth);
-        if variable_exists {
-            self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
+        if self.variable_exists(&variable_name) {
+            self.parser.error_at_current(
+                &format!("Cannot redeclare variable with name '{}'.", variable_name)
+            );
         }
 
         self.consume(TokenKind::Equal, "Expect definition as a part of let declaration.");
 
-        self.variables.push(Variable {
-            name:         variable_token,
-            mutable:      false,
-            scope:        self.scope_depth, // TODO
-            defined:      true
-        });
-        let variable_index = self.variables
-                                 .iter()
-                                 .position(|v| v.name.value == variable_name);
+        let index = self.declare_variable(variable_token, false);
 
         self.expression();
         self.match_token(TokenKind::Semicolon);
 
-        self.variable_definition(variable_index.unwrap() as u8);
+        self.variable_definition(index);
     }
 
     fn var_declaration(&mut self) {
@@ -406,39 +392,44 @@ impl Compiler {
         let variable_token = self.parser.previous.clone();
         let variable_name  = variable_token.value.clone();
 
-        let variable_exists = self.variables
-                                  .iter()
-                                  .any(|v| v.name.value == variable_name && v.scope <= self.scope_depth);
-        if variable_exists {
-            self.parser.error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
+        if self.variable_exists(&variable_name) {
+            self.parser.error_at_current(
+                &format!("Cannot redeclare variable with name '{}'.", variable_name)
+            );
         }
 
         if self.parse_variable().is_some() {
             return
         }
 
-        let mut variable = Variable {
-            name:    variable_token,
-            mutable: true,
-            scope:   self.scope_depth, // TODO
-            defined: false
-        };
-
-        let variable_index = (self.variables.len()) as u8; // TODO: becomes a mess later on.
+        let index = self.declare_variable(variable_token, true);
 
         if self.match_token(TokenKind::Equal) {
             self.expression();
             self.match_token(TokenKind::Semicolon);
-
-            variable.defined = true;
-
-            self.variable_definition(variable_index);
         } else {
             self.emit_constant(Value::Unit);
-            self.variable_definition(variable_index);
         }
 
-        self.variables.push(variable);
+        self.variable_definition(index);
+    }
+
+    fn declare_variable(&mut self, token: Token, mutable: bool) -> u8 {
+        let variable_name = token.value.clone();
+
+        self.variables.push(Variable {
+            name:         token,
+            mutable,
+            scope:        self.scope_depth, // TODO
+            defined:      true
+        });
+
+        let variable_index = self.variables
+                                 .iter()
+                                 .position(|v| v.name.value == variable_name)
+                                 .unwrap();
+
+        variable_index as u8
     }
 
     fn parse_variable(&mut self) -> Option<u8> {
@@ -447,26 +438,26 @@ impl Compiler {
                                  .position(|v| v.name.value == self.parser.previous.value);
 
         if let Some(index) = variable_index {
-            let set_op = if self.variables[index].scope < self.scope_depth {
-                Op::SetUpvalue
-            } else {
-                Op::SetVariable
-            };
-
-            let get_op = if self.variables[index].scope < self.scope_depth {
-                Op::GetUpvalue
-            } else {
-                Op::GetVariable
-            };
-
             if self.match_token(TokenKind::Equal) {
                 if !self.variables[index].mutable {
                     panic!("Cannot reassign value of an immutable variable.");
                 }
 
+                let set_op = if self.variables[index].scope < self.scope_depth {
+                    Op::SetUpvalue
+                } else {
+                    Op::SetVariable
+                };
+
                 self.expression();
                 self.emit_byte(set_op);
             } else {
+                let get_op = if self.variables[index].scope < self.scope_depth {
+                    Op::GetUpvalue
+                } else {
+                    Op::GetVariable
+                };
+
                 self.emit_byte(get_op);
             }
 
@@ -477,7 +468,16 @@ impl Compiler {
         None
     }
 
+    fn variable_exists(&self, name: &str) -> bool {
+        self.variables
+            .iter()
+            .any(|v| v.name.value == name && v.scope <= self.scope_depth)
+    }
+
     fn variable_definition(&mut self, variable_key: u8) {
+        let mut variable = self.variables.get_mut(variable_key as usize).unwrap();
+        variable.defined = true;
+
         self.emit_byte(Op::SetVariable);
         self.emit(variable_key);
     }

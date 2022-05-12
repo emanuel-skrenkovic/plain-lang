@@ -39,6 +39,12 @@ impl fmt::Display for Token {
     }
 }
 
+impl std::default::Default for Token {
+    fn default() -> Self {
+        Token { kind: TokenKind::Error, value: "".to_owned(), line: 0 }
+    }
+}
+
 pub struct Scanner {
     source: String,
 
