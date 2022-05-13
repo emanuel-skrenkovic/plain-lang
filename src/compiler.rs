@@ -104,6 +104,8 @@ fn get_rule(token_kind: TokenKind) -> ParseRule {
 }
 
 pub struct Parser {
+    scanner: Scanner,
+
     current: Token,
     previous: Token,
 
@@ -111,19 +113,44 @@ pub struct Parser {
     error: bool
 }
 
-impl std::default::Default for Parser {
-    fn default() -> Self {
-        Parser::new()
-    }
-}
-
 impl Parser {
-    pub fn new() -> Parser {
+    pub fn new(scanner: Scanner) -> Parser {
         Parser {
+            scanner,
             current: Token::default(),
             previous: Token::default(),
             panic: false,
             error: false
+        }
+    }
+
+    fn advance(&mut self) {
+        self.previous = self.current.clone();
+
+        loop {
+            self.current = self.scanner.scan_token();
+
+            if !matches!(self.current.kind, TokenKind::Error) {
+                break;
+            }
+
+            self.error_at_current("Scanner error.");
+        }
+
+    }
+
+    fn match_token(&mut self, token_kind: TokenKind) -> bool {
+        if discriminant(&self.current.kind) != discriminant(&token_kind) {
+            return false
+        }
+
+        self.advance();
+        true
+    }
+
+    fn consume(&mut self, token_kind: TokenKind, error_message: &str) {
+        if !self.match_token(token_kind) {
+            self.error_at_current(error_message)
         }
     }
 
@@ -132,8 +159,8 @@ impl Parser {
         self.error = true;
 
         eprintln!("[line {}] Error at token '{}\n{}'", self.current.line,
-                                                      self.current.value,
-                                                      message);
+                                                       self.current.value,
+                                                       message);
     }
 }
 
@@ -145,7 +172,6 @@ pub struct Variable {
 }
 
 pub struct Compiler {
-    scanner: Scanner,
     parser: Parser,
     block: Rc<RefCell<Block>>,
     variables: Vec<Variable>,
@@ -155,8 +181,7 @@ pub struct Compiler {
 impl Compiler {
     pub fn new(source: String, block: Rc<RefCell<Block>>) -> Compiler {
         Compiler {
-            scanner: Scanner::new(source),
-            parser: Default::default(),
+            parser: Parser::new(Scanner::new(source)),
             block,
             variables: vec![],
             scope_depth: 0
@@ -164,7 +189,7 @@ impl Compiler {
     }
 
     pub fn compile(&mut self) {
-        self.advance();
+        self.parser.advance();
 
         // TODO: check if correct
         self.emit_byte(Op::Frame);
@@ -179,41 +204,12 @@ impl Compiler {
         self.emit_byte(Op::Return);
     }
 
-    fn advance(&mut self) {
-        self.parser.previous = self.parser.current.clone();
-
-        loop {
-            self.parser.current = self.scanner.scan_token();
-
-            if !matches!(self.parser.current.kind, TokenKind::Error) {
-                break;
-            }
-
-            self.parser.error_at_current("Scanner error.");
-        }
-    }
-
-    fn match_token(&mut self, token_kind: TokenKind) -> bool {
-        if discriminant(&self.parser.current.kind) != discriminant(&token_kind) {
-            return false
-        }
-
-        self.advance();
-        true
-    }
-
-    fn consume(&mut self, token_kind: TokenKind, error_message: &str) {
-        if !self.match_token(token_kind) {
-            self.parser.error_at_current(error_message)
-        }
-    }
-
     fn check_token(&self, token_kind: TokenKind) -> bool {
         discriminant(&self.parser.current.kind) == discriminant(&token_kind)
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
-        self.advance();
+        self.parser.advance();
 
         let prefix_rule  = get_rule(self.parser.previous.kind).prefix;
 
@@ -226,7 +222,7 @@ impl Compiler {
         while precedence.discriminator() <= get_rule(self.parser.current.kind)
                                                     .precedence
                                                     .discriminator() {
-            self.advance();
+            self.parser.advance();
 
             let infix_rule = get_rule(self.parser.previous.kind).infix;
             infix_rule.unwrap()(self);
@@ -248,8 +244,8 @@ impl Compiler {
 
         let has_value = !matches!(self.parser.previous.kind, TokenKind::Semicolon);
 
-        self.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
-        self.match_token(TokenKind::Semicolon); // Only eat the semicolon if present.
+        self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.parser.match_token(TokenKind::Semicolon); // Only eat the semicolon if present.
 
         self.scope_depth -= 1;
 
@@ -293,8 +289,8 @@ impl Compiler {
     }
 
     fn left_angle(&mut self) {
-        if self.match_token(TokenKind::Identifier) {
-            self.match_token(TokenKind::RightAngle);
+        if self.parser.match_token(TokenKind::Identifier) {
+            self.parser.match_token(TokenKind::RightAngle);
             // TODO generics
         } else {
             self.binary();
@@ -311,23 +307,23 @@ impl Compiler {
     fn declaration(&mut self) {
         match self.parser.current.kind {
             TokenKind::Func => {
-                self.advance();
+                self.parser.advance();
                 self.function_declaration();
             }
             TokenKind::Var => {
-                self.advance();
+                self.parser.advance();
                 self.var_declaration();
             },
             TokenKind::Let => {
-                self.advance();
+                self.parser.advance();
                 self.let_declaration();
             },
             TokenKind::While => {
-                self.advance();
+                self.parser.advance();
                 self._while();
             },
             TokenKind::For => {
-                self.advance();
+                self.parser.advance();
                 self._for();
             }
             _ => self.expression()
@@ -339,7 +335,7 @@ impl Compiler {
     }
 
     fn function_declaration(&mut self) {
-        self.consume(TokenKind::Identifier, "Cannot declare function without name.");
+        self.parser.consume(TokenKind::Identifier, "Cannot declare function without name.");
 
         let function_token = self.parser.previous.clone();
         let function_name = function_token.value.clone();
@@ -350,13 +346,14 @@ impl Compiler {
             );
         }
 
-        self.consume(TokenKind::LeftParen, "Expected '(' after function name.");
+        self.parser.consume(TokenKind::LeftParen, "Expected '(' after function name.");
 
-        while self.match_token(TokenKind::Identifier) {
+        while self.parser.match_token(TokenKind::Identifier) {
+            // TODO: parameters
             // self.match_token(TokenKind::Comma);
         }
 
-        self.consume(TokenKind::RightParen, "Expected ')' after function parameters.");
+        self.parser.consume(TokenKind::RightParen, "Expected ')' after function parameters.");
 
         let index = self.declare_variable(function_token, false);
 
@@ -365,7 +362,7 @@ impl Compiler {
     }
 
     fn let_declaration(&mut self) {
-        self.match_token(TokenKind::Identifier);
+        self.parser.match_token(TokenKind::Identifier);
 
         let variable_token = self.parser.previous.clone();
         let variable_name  = variable_token.value.clone();
@@ -376,18 +373,18 @@ impl Compiler {
             );
         }
 
-        self.consume(TokenKind::Equal, "Expect definition as a part of let declaration.");
+        self.parser.consume(TokenKind::Equal, "Expect definition as a part of let declaration.");
 
         let index = self.declare_variable(variable_token, false);
 
         self.expression();
-        self.match_token(TokenKind::Semicolon);
+        self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
 
         self.variable_definition(index);
     }
 
     fn var_declaration(&mut self) {
-        self.match_token(TokenKind::Identifier);
+        self.parser.match_token(TokenKind::Identifier);
 
         let variable_token = self.parser.previous.clone();
         let variable_name  = variable_token.value.clone();
@@ -404,9 +401,9 @@ impl Compiler {
 
         let index = self.declare_variable(variable_token, true);
 
-        if self.match_token(TokenKind::Equal) {
+        if self.parser.match_token(TokenKind::Equal) {
             self.expression();
-            self.match_token(TokenKind::Semicolon);
+            self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
         } else {
             self.emit_constant(Value::Unit);
         }
@@ -438,7 +435,7 @@ impl Compiler {
                                  .position(|v| v.name.value == self.parser.previous.value);
 
         if let Some(index) = variable_index {
-            if self.match_token(TokenKind::Equal) {
+            if self.parser.match_token(TokenKind::Equal) {
                 if !self.variables[index].mutable {
                     panic!("Cannot reassign value of an immutable variable.");
                 }
@@ -491,7 +488,7 @@ impl Compiler {
         let else_jump = self.emit_jump(Op::Jump);
         self.patch_jump(then_jump);
 
-        if self.match_token(TokenKind::Else) {
+        if self.parser.match_token(TokenKind::Else) {
             self.declaration();
         }
 
@@ -513,9 +510,9 @@ impl Compiler {
     // loop declaration are required. While and iterators (when I get to that)
     // will make up for everything.
     fn _for(&mut self) {
-        if self.match_token(TokenKind::Var) {
+        if self.parser.match_token(TokenKind::Var) {
             self.var_declaration();
-        } else if self.match_token(TokenKind::Let) {
+        } else if self.parser.match_token(TokenKind::Let) {
             self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.")
         } else {
             self.expression();
