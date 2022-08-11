@@ -8,24 +8,33 @@ use crate::block::{Block, Op, Value};
 const STACK_SIZE: usize = 1024;
 
 fn init_stack() -> VecDeque<Value> {
-    (0..STACK_SIZE).map(|_| Value::Unit).collect::<VecDeque<Value>>()
+    (0..STACK_SIZE).map(|_| Value::Unit).collect()
 }
+
+// fn pop(&mut self) -> Value {
+//     self.stack_top -= 1;
+//     let value = self.stack[self.stack_top].clone();
+
+//     self.stack[self.stack_top] = Value::Unit;
+
+//     value
+// }
 
 struct CallFrame {
     i: usize
 }
 
 impl CallFrame {
-    fn get_value(&self, stack: &VecDeque<Value>, index: usize) -> Value {
-        stack[index + self.i]
+    fn get_value(&self, stack: &mut VecDeque<Value>, index: usize) -> Value {
+        stack[index + self.i].clone()
     }
 
     fn set_value(&self, stack: &mut VecDeque<Value>, index: usize, value: Value) {
         stack[index + self.i] = value;
     }
 
-    fn get_upvalue(&self, stack: &VecDeque<Value>, index: usize) -> Value {
-        stack[index]
+    fn get_upvalue(&self, stack: &mut VecDeque<Value>, index: usize) -> Value {
+        stack[index].clone()
     }
 
     fn set_upvalue(&mut self, stack: &mut VecDeque<Value>, index: usize, value: Value) {
@@ -72,6 +81,8 @@ impl VM {
             let frame_index = frames.len() - 1;
             let frame       = frames.get_mut(frame_index).unwrap();
 
+            // println!("{:?}", &self.stack);
+
             match self.ip.try_into().unwrap() {
                 Op::Pop => {
                     self.pop();
@@ -89,7 +100,9 @@ impl VM {
                         _ => { panic!("TODO: Not supported") }
                     };
 
-                    self.push(Value::Number { val: first + second });
+                    let result = Value::Number { val: first + second };
+                    // println!("{} + {} = {:?}", first, second, result);
+                    self.push(result);
                 }
                 Op::Subtract => {
                     let (a, b) = self.binary_op();
@@ -227,7 +240,7 @@ impl VM {
                 },
                 Op::GetVariable => {
                     let index = self.read_byte() as usize;
-                    let value = frame.get_value(&self.stack, index);// self.stack[index];
+                    let value = (*self.block).borrow().values[index].clone(); // frame.get_value(&self.stack, index);// self.stack[index];
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -235,16 +248,19 @@ impl VM {
 
                     self.push(value);
                 }
+                Op::DeclareVariable => {
+                    // TODO: section intentionally left blank
+                },
                 Op::SetVariable => {
                     let index = self.read_byte() as usize;
-                    let value = self.peek(self.stack_top - 1);
+                    let value = self.pop();// self.peek(self.stack_top - 1).clone();
 
                     // frame.frame[index] = value;
                     frame.set_value(&mut self.stack, index, value);
                 }
                 Op::GetUpvalue => {
                     let index = self.read_byte() as usize;
-                    let value = frame.get_upvalue(&self.stack, index);
+                    let value = frame.get_upvalue(&mut self.stack, index);
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -254,7 +270,7 @@ impl VM {
                 },
                 Op::SetUpvalue => {
                     let index = self.read_byte() as usize;
-                    let value = self.peek(self.stack_top - 1);
+                    let value = self.peek(self.stack_top - 1).clone();
 
                     frame.set_upvalue(&mut self.stack, index, value);
                 },
@@ -295,6 +311,8 @@ impl VM {
                 _ => { self.i += 1; }
             }
 
+            // println!("{:?}", &self.stack);
+
             if self.i >= (*self.block).borrow().code.len() {
                 break;
             }
@@ -303,7 +321,7 @@ impl VM {
 
     fn pop(&mut self) -> Value {
         self.stack_top -= 1;
-        let value = self.stack[self.stack_top];
+        let value = self.stack[self.stack_top].clone();
 
         self.stack[self.stack_top] = Value::Unit;
 
@@ -324,11 +342,11 @@ impl VM {
 
     fn read_constant(&mut self) -> Value {
         let index = self.read_byte() as usize;
-        (*self.block).borrow().values[index]
+        (*self.block).borrow().values[index].clone()
     }
 
-    fn peek(&self, index: usize) -> Value {
-        self.stack[index]
+    fn peek(&self, index: usize) -> &Value {
+        &self.stack[index]
     }
 
     fn peek_op(&self, index: usize) -> u8 {
@@ -372,7 +390,13 @@ impl VM {
                 Op::Equal => self.print_simple_op("EQUAL"),
                 Op::Less => self.print_simple_op("LESS"),
                 Op::Greater => self.print_simple_op("GREATER"),
-                Op::GetVariable => self.print_byte_op("GET_VARIABLE"),
+                Op::DeclareVariable => self.print_simple_op("DECLARE_VARIABLE"),
+                Op::GetVariable => {
+                    let index = self.peek_op(self.i) as usize;
+                    let value = self.peek(index);
+
+                    self.print_constant_op("GET_VARIABLE", value);
+                },
                 Op::SetVariable => {
                     let index = self.peek_op(self.i) as usize;
                     let value = self.peek(index);
@@ -434,7 +458,7 @@ impl VM {
         println!("{name:<width$} {slot}", name=name, slot=self.i, width=20);
     }
 
-    fn print_constant_op(&self, name: &str, value: Value) {
+    fn print_constant_op(&self, name: &str, value: &Value) {
         println!("{name:<width$} {slot:<slot_width$} {value:?}", name=name,
                                                                  width=20,
                                                                  slot=self.i,

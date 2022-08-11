@@ -65,7 +65,7 @@ static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: Some(Compiler::left_angle), precedence: Precedence::Comparison }, // LeftAngle
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // RightAngle
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: Some(Compiler::unit), infix: None, precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Semicolon
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Colon
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Plus
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Minus
@@ -274,18 +274,18 @@ impl Compiler {
         );
 
         match operator {
-            TokenKind::LeftAngle    => { self.emit_byte(Op::Less); }
-            TokenKind::RightAngle   => { self.emit_byte(Op::Greater); }
-            TokenKind::BangEqual    => { self.emit_bytes(Op::Equal, Op::Not); }
-            TokenKind::EqualEqual   => { self.emit_byte(Op::Equal); }
-            TokenKind::GreaterEqual => { self.emit_byte(Op::GreaterEqual); }
-            TokenKind::LessEqual    => { self.emit_byte(Op::LessEqual); }
-            TokenKind::Plus         => { self.emit_byte(Op::Add); }
-            TokenKind::Minus        => { self.emit_byte(Op::Subtract); }
-            TokenKind::Star         => { self.emit_byte(Op::Multiply); }
-            TokenKind::Slash        => { self.emit_byte(Op::Divide); }
-            _ => { }
-        }
+            TokenKind::LeftAngle    => self.emit_byte(Op::Less),
+            TokenKind::RightAngle   => self.emit_byte(Op::Greater),
+            TokenKind::BangEqual    => self.emit_bytes(Op::Equal, Op::Not),
+            TokenKind::EqualEqual   => self.emit_byte(Op::Equal),
+            TokenKind::GreaterEqual => self.emit_byte(Op::GreaterEqual),
+            TokenKind::LessEqual    => self.emit_byte(Op::LessEqual),
+            TokenKind::Plus         => self.emit_byte(Op::Add),
+            TokenKind::Minus        => self.emit_byte(Op::Subtract),
+            TokenKind::Star         => self.emit_byte(Op::Multiply),
+            TokenKind::Slash        => self.emit_byte(Op::Divide),
+            _ => { 0 }
+        };
     }
 
     fn left_angle(&mut self) {
@@ -308,7 +308,7 @@ impl Compiler {
         match self.parser.current.kind {
             TokenKind::Func => {
                 self.parser.advance();
-                self.function_declaration();
+                self.function_decl();
             }
             TokenKind::Var => {
                 self.parser.advance();
@@ -334,7 +334,7 @@ impl Compiler {
         self.parse_variable();
     }
 
-    fn function_declaration(&mut self) {
+    fn function_decl(&mut self) {
         self.parser.consume(TokenKind::Identifier, "Cannot declare function without name.");
 
         let function_token = self.parser.previous.clone();
@@ -404,11 +404,10 @@ impl Compiler {
         if self.parser.match_token(TokenKind::Equal) {
             self.expression();
             self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
+            self.variable_definition(index);
         } else {
-            self.emit_constant(Value::Unit);
+            self.variable_declaration(index);
         }
-
-        self.variable_definition(index);
     }
 
     fn declare_variable(&mut self, token: Token, mutable: bool) -> u8 {
@@ -469,6 +468,13 @@ impl Compiler {
         self.variables
             .iter()
             .any(|v| v.name.value == name && v.scope <= self.scope_depth)
+    }
+
+    fn variable_declaration(&mut self, variable_key: u8) {
+        let mut variable = self.variables.get_mut(variable_key as usize).unwrap();
+        variable.defined = false;
+
+        self.emit_byte(Op::DeclareVariable);
     }
 
     fn variable_definition(&mut self, variable_key: u8) {
@@ -555,9 +561,11 @@ impl Compiler {
         self.emit_byte(Op::Call);
     }
 
-    fn unit(&mut self) {
-        self.emit_byte(Op::Pop);
-    }
+    // TODO: don't know what to do with this or if it is
+    // even needed.
+    // fn unit(&mut self) {
+    //     self.emit_byte(Op::Pop);
+    // }
 
     fn patch(&mut self, index: usize, byte: u8) {
         (*self.block).borrow_mut().write_at(index, byte);
