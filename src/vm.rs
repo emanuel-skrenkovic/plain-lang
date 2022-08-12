@@ -308,6 +308,17 @@ impl VM {
                     let jump = self.read_byte() as usize;
                     self.i -= jump;
                 },
+                Op::Call => {
+                    let index = self.read_byte() as usize;
+                    let value = (*self.block).borrow().values[index].clone();
+
+                    match value {
+                        Value::Function { name, block, arity } => {
+                            println!("{} {:?} {}", name, block, arity);
+                        },
+                        _ => { }
+                    };
+                },
                 _ => { self.i += 1; }
             }
 

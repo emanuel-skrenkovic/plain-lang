@@ -57,7 +57,7 @@ struct ParseRule {
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 39] = [
+static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None, infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
     ParseRule { prefix: Some(Compiler::block_expression), infix: None, precedence: Precedence::None }, // LeftBracket
@@ -71,6 +71,7 @@ static RULES: [ParseRule; 39] = [
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Minus
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Star
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Slash
+    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Comma
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Bang
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Equality }, // BandEqual
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Equality }, // EqualEqual
@@ -106,6 +107,8 @@ fn get_rule(token_kind: TokenKind) -> ParseRule {
 pub struct Parser {
     scanner: Scanner,
 
+    scanned_tokens: Vec<Token>,
+
     current: Token,
     previous: Token,
 
@@ -117,6 +120,7 @@ impl Parser {
     pub fn new(scanner: Scanner) -> Parser {
         Parser {
             scanner,
+            scanned_tokens: vec![],
             current: Token::default(),
             previous: Token::default(),
             panic: false,
@@ -129,6 +133,7 @@ impl Parser {
 
         loop {
             self.current = self.scanner.scan_token();
+            self.scanned_tokens.push(self.current.clone());
 
             if !matches!(self.current.kind, TokenKind::Error) {
                 break;
@@ -161,6 +166,20 @@ impl Parser {
         eprintln!("[line {}] Error at token '{}\n{}'", self.current.line,
                                                        self.current.value,
                                                        message);
+    }
+
+    // TODO: horrible and I should be publicly shamed
+    fn peek(&self, diff: i32) -> Option<&Token> {
+        let index = self.scanned_tokens.len() - 1;
+        let index = index as i32 + diff;
+
+        if index < 0 || index > self.scanned_tokens.len() as i32 {
+            return None
+        }
+
+        let index = index as usize;
+
+        Some(&self.scanned_tokens[index])
     }
 }
 
@@ -204,6 +223,7 @@ impl Compiler {
         self.emit_byte(Op::Return);
     }
 
+    // TODO: move to parser?
     fn check_token(&self, token_kind: TokenKind) -> bool {
         discriminant(&self.parser.current.kind) == discriminant(&token_kind)
     }
@@ -254,11 +274,11 @@ impl Compiler {
                         .filter(|v| v.scope > self.scope_depth)
                         .count();
 
-        if !has_value {
-            for _ in 0..count {
-                self.emit_byte(Op::Pop);
-            }
-        }
+        // if !has_value {
+        //     for _ in 0..count {
+        //         self.emit_byte(Op::Pop);
+        //     }
+        // }
 
         self.emit_byte(Op::Return);
     }
@@ -312,11 +332,11 @@ impl Compiler {
             }
             TokenKind::Var => {
                 self.parser.advance();
-                self.var_declaration();
+                self.var_decl();
             },
             TokenKind::Let => {
                 self.parser.advance();
-                self.let_declaration();
+                self.let_decl();
             },
             TokenKind::While => {
                 self.parser.advance();
@@ -346,22 +366,42 @@ impl Compiler {
             );
         }
 
+        // Compile the expression and then jump after the block
+        // to avoid executing the code during function _declaration_.
+        let variable_key = self.declare_variable(function_token, false);
+        self.variable_declaration(variable_key);
+
         self.parser.consume(TokenKind::LeftParen, "Expected '(' after function name.");
+
+        let mut arity = 0;
 
         while self.parser.match_token(TokenKind::Identifier) {
             // TODO: parameters
-            // self.match_token(TokenKind::Comma);
+            self.parser.match_token(TokenKind::Comma);
+            arity += 1;
         }
 
         self.parser.consume(TokenKind::RightParen, "Expected ')' after function parameters.");
 
-        let index = self.declare_variable(function_token, false);
+        // TODO: everything about this.
+        let function = Value::Function {
+            name: function_name,
+            block: Block::new(1024),
+            arity
+        };
+        self.emit_constant(function);
+        self.variable_definition(variable_key);
+        let jump = self.emit_jump(Op::Jump);
 
+        // Parse the block expression that defines the function.
+        self.parser.consume(TokenKind::LeftBracket, "Expected '{' before function body.");
         self.block_expression();
-        self.variable_definition(index);
+
+        // Patch the jump after the function block code is compiled.
+        self.patch_jump(jump);
     }
 
-    fn let_declaration(&mut self) {
+    fn let_decl(&mut self) {
         self.parser.match_token(TokenKind::Identifier);
 
         let variable_token = self.parser.previous.clone();
@@ -383,7 +423,7 @@ impl Compiler {
         self.variable_definition(index);
     }
 
-    fn var_declaration(&mut self) {
+    fn var_decl(&mut self) {
         self.parser.match_token(TokenKind::Identifier);
 
         let variable_token = self.parser.previous.clone();
@@ -401,12 +441,15 @@ impl Compiler {
 
         let index = self.declare_variable(variable_token, true);
 
+        // If the variable declaration is followed by the '=' sign,
+        // then it is defined and we should parse the definition expression.
         if self.parser.match_token(TokenKind::Equal) {
             self.expression();
-            self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
+            self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable definition.");
             self.variable_definition(index);
         } else {
             self.variable_declaration(index);
+            self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
         }
     }
 
@@ -517,7 +560,7 @@ impl Compiler {
     // will make up for everything.
     fn _for(&mut self) {
         if self.parser.match_token(TokenKind::Var) {
-            self.var_declaration();
+            self.var_decl();
         } else if self.parser.match_token(TokenKind::Let) {
             self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.")
         } else {
@@ -558,7 +601,19 @@ impl Compiler {
         let mut vm = VM::new(block);
         vm.interpret();
         */
-        self.emit_byte(Op::Call);
+
+        let function_name_token = self.parser.peek(-2);
+
+        if let Some(function_name) = function_name_token {
+            let variable_index = self.variables
+                                    .iter()
+                                    .position(|v| v.name.value == function_name.value);
+
+            if let Some(index) = variable_index {
+                self.emit_byte(Op::Call);
+                self.emit(index as u8);
+            }
+        }
     }
 
     // TODO: don't know what to do with this or if it is

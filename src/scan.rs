@@ -4,6 +4,7 @@ use std::fmt;
 pub enum TokenKind {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, Plus, Minus, Star, Slash,
+    Comma,
     Bang, BangEqual, EqualEqual, GreaterEqual, LessEqual, Equal,
     True, False,
     Let, Var,
@@ -111,6 +112,7 @@ impl Scanner {
             '-' => self.emit(TokenKind::Minus),
             '*' => self.emit(TokenKind::Star),
             '/' => self.emit(TokenKind::Slash), // TODO: comments
+            ',' => self.emit(TokenKind::Comma),
             '!' => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::BangEqual)
