@@ -24,12 +24,10 @@ fn main() {
             let _ = stdout().flush();
             let _ = stdin().read_line(&mut input);
 
-            let block = Rc::new(RefCell::new(Block::new(256)));
+            let mut compiler = Compiler::new(input.clone());
+            let program = compiler.compile();
 
-            let mut compiler = Compiler::new(input.clone(), block.clone());
-            compiler.compile();
-
-            let mut vm = VM::new(block);
+            let mut vm = VM::new(program);
             vm.interpret();
 
             input.clear();
@@ -39,10 +37,10 @@ fn main() {
 
         let block = Rc::new(RefCell::new(Block::new(256)));
 
-        let mut compiler = Compiler::new(source, block.clone());
-        compiler.compile();
+        let mut compiler = Compiler::new(source);
+        let program = compiler.compile();
 
-        let mut vm = VM::new(block);
+        let mut vm = VM::new(program);
         vm.interpret()
     };
 }

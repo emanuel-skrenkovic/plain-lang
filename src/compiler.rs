@@ -1,5 +1,3 @@
-use std::rc::Rc;
-use std::cell::RefCell;
 use std::mem::discriminant;
 
 use crate::block::{Block, Op, Value};
@@ -183,6 +181,7 @@ impl Parser {
     }
 }
 
+#[derive(Clone)]
 pub struct Variable {
     name: Token,
     mutable: bool,
@@ -190,24 +189,37 @@ pub struct Variable {
     defined: bool
 }
 
+#[derive(Clone)]
+pub struct Program {
+    pub block: Block,
+    pub variables: Vec<Variable>
+}
+
+impl Program {
+    fn new() -> Program {
+        Program {
+            block: Block::new(1024),
+            variables: vec![]
+        }
+    }
+}
+
 pub struct Compiler {
     parser: Parser,
-    block: Rc<RefCell<Block>>,
-    variables: Vec<Variable>,
+    current: Program,
     scope_depth: usize
 }
 
 impl Compiler {
-    pub fn new(source: String, block: Rc<RefCell<Block>>) -> Compiler {
+    pub fn new(source: String) -> Compiler {
         Compiler {
             parser: Parser::new(Scanner::new(source)),
-            block,
-            variables: vec![],
+            current: Program::new(),
             scope_depth: 0
         }
     }
 
-    pub fn compile(&mut self) {
+    pub fn compile(&mut self) -> Program {
         self.parser.advance();
 
         // TODO: check if correct
@@ -221,6 +233,8 @@ impl Compiler {
         }
 
         self.emit_byte(Op::Return);
+
+        self.current.clone()
     }
 
     // TODO: move to parser?
@@ -269,16 +283,17 @@ impl Compiler {
 
         self.scope_depth -= 1;
 
-        let count = self.variables
+        let count = self.current
+                        .variables
                         .iter()
                         .filter(|v| v.scope > self.scope_depth)
                         .count();
 
-        // if !has_value {
-        //     for _ in 0..count {
-        //         self.emit_byte(Op::Pop);
-        //     }
-        // }
+        if !has_value {
+            for _ in 0..count {
+                self.emit_byte(Op::Pop);
+            }
+        }
 
         self.emit_byte(Op::Return);
     }
@@ -456,14 +471,15 @@ impl Compiler {
     fn declare_variable(&mut self, token: Token, mutable: bool) -> u8 {
         let variable_name = token.value.clone();
 
-        self.variables.push(Variable {
+        self.current.variables.push(Variable {
             name:         token,
             mutable,
             scope:        self.scope_depth, // TODO
             defined:      true
         });
 
-        let variable_index = self.variables
+        let variable_index = self.current
+                                 .variables
                                  .iter()
                                  .position(|v| v.name.value == variable_name)
                                  .unwrap();
@@ -472,17 +488,18 @@ impl Compiler {
     }
 
     fn parse_variable(&mut self) -> Option<u8> {
-        let variable_index = self.variables
+        let variable_index = self.current
+                                 .variables
                                  .iter()
                                  .position(|v| v.name.value == self.parser.previous.value);
 
         if let Some(index) = variable_index {
             if self.parser.match_token(TokenKind::Equal) {
-                if !self.variables[index].mutable {
+                if !self.current.variables[index].mutable {
                     panic!("Cannot reassign value of an immutable variable.");
                 }
 
-                let set_op = if self.variables[index].scope < self.scope_depth {
+                let set_op = if self.current.variables[index].scope < self.scope_depth {
                     Op::SetUpvalue
                 } else {
                     Op::SetVariable
@@ -491,7 +508,7 @@ impl Compiler {
                 self.expression();
                 self.emit_byte(set_op);
             } else {
-                let get_op = if self.variables[index].scope < self.scope_depth {
+                let get_op = if self.current.variables[index].scope < self.scope_depth {
                     Op::GetUpvalue
                 } else {
                     Op::GetVariable
@@ -508,20 +525,21 @@ impl Compiler {
     }
 
     fn variable_exists(&self, name: &str) -> bool {
-        self.variables
+        self.current
+            .variables
             .iter()
             .any(|v| v.name.value == name && v.scope <= self.scope_depth)
     }
 
     fn variable_declaration(&mut self, variable_key: u8) {
-        let mut variable = self.variables.get_mut(variable_key as usize).unwrap();
+        let mut variable = self.current.variables.get_mut(variable_key as usize).unwrap();
         variable.defined = false;
 
         self.emit_byte(Op::DeclareVariable);
     }
 
     fn variable_definition(&mut self, variable_key: u8) {
-        let mut variable = self.variables.get_mut(variable_key as usize).unwrap();
+        let mut variable = self.current.variables.get_mut(variable_key as usize).unwrap();
         variable.defined = true;
 
         self.emit_byte(Op::SetVariable);
@@ -605,7 +623,8 @@ impl Compiler {
         let function_name_token = self.parser.peek(-2);
 
         if let Some(function_name) = function_name_token {
-            let variable_index = self.variables
+            let variable_index = self.current
+                                    .variables
                                     .iter()
                                     .position(|v| v.name.value == function_name.value);
 
@@ -623,16 +642,16 @@ impl Compiler {
     // }
 
     fn patch(&mut self, index: usize, byte: u8) {
-        (*self.block).borrow_mut().write_at(index, byte);
+        self.current.block.write_at(index, byte);
     }
 
     fn patch_jump(&mut self, index: usize) {
-        let code_len = (*self.block).borrow_mut().code.len();
+        let code_len = self.current.block.code.len();
         self.patch(index, (code_len - 1 - index) as u8);
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
-        let loop_end = (*self.block).borrow_mut().code.len();
+        let loop_end = self.current.block.code.len();
         self.emit_byte(Op::LoopJump);
         self.emit((loop_end - loop_start + 2) as u8);
     }
@@ -643,26 +662,26 @@ impl Compiler {
     }
 
     fn emit_byte(&mut self, op: Op) -> usize {
-        (*self.block).borrow_mut().write_op(op)
+        self.current.block.write_op(op)
     }
 
     fn emit(&mut self, byte: u8) -> usize {
-        (*self.block).borrow_mut().write(byte as u8)
+        self.current.block.write(byte as u8)
     }
 
     fn emit_bytes(&mut self, a: Op, b: Op) -> usize {
-        (*self.block).borrow_mut().write_op(a);
-        (*self.block).borrow_mut().write_op(b)
+        self.current.block.write_op(a);
+        self.current.block.write_op(b)
     }
 
     fn emit_constant(&mut self, value: Value) {
-        let i = (*self.block).borrow_mut().write_constant(value);
+        let i = self.current.block.write_constant(value);
 
-        (*self.block).borrow_mut().write_op(Op::Constant);
-        (*self.block).borrow_mut().write(i as u8);
+        self.current.block.write_op(Op::Constant);
+        self.current.block.write(i as u8);
     }
 
     fn position(&self) -> usize {
-        (*self.block).borrow().code.len()
+        self.current.block.code.len()
     }
 }

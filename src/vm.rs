@@ -1,8 +1,7 @@
-use std::rc::Rc;
-use std::cell::RefCell;
 use std::mem::discriminant;
 use std::collections::VecDeque;
 
+use crate::compiler::Program;
 use crate::block::{Block, Op, Value};
 
 const STACK_SIZE: usize = 1024;
@@ -10,15 +9,6 @@ const STACK_SIZE: usize = 1024;
 fn init_stack() -> VecDeque<Value> {
     (0..STACK_SIZE).map(|_| Value::Unit).collect()
 }
-
-// fn pop(&mut self) -> Value {
-//     self.stack_top -= 1;
-//     let value = self.stack[self.stack_top].clone();
-
-//     self.stack[self.stack_top] = Value::Unit;
-
-//     value
-// }
 
 struct CallFrame {
     i: usize
@@ -43,7 +33,7 @@ impl CallFrame {
 }
 
 pub struct VM {
-    block: Rc<RefCell<Block>>,
+    program: Program,
 
     stack: VecDeque<Value>,
     stack_top: usize,
@@ -53,10 +43,10 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn new(block: Rc<RefCell<Block>>) -> VM {
-        let ip = (*block).borrow().code[0];
+    pub fn new(program: Program) -> VM {
+        let ip = program.block.code[0];
         VM {
-            block,
+            program,
 
             stack: init_stack(),
             stack_top: 0,
@@ -240,7 +230,7 @@ impl VM {
                 },
                 Op::GetVariable => {
                     let index = self.read_byte() as usize;
-                    let value = (*self.block).borrow().values[index].clone(); // frame.get_value(&self.stack, index);// self.stack[index];
+                    let value = self.program.block.values[index].clone();
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -310,7 +300,7 @@ impl VM {
                 },
                 Op::Call => {
                     let index = self.read_byte() as usize;
-                    let value = (*self.block).borrow().values[index].clone();
+                    let value = self.program.block.values[index].clone();
 
                     match value {
                         Value::Function { name, block, arity } => {
@@ -324,7 +314,7 @@ impl VM {
 
             // println!("{:?}", &self.stack);
 
-            if self.i >= (*self.block).borrow().code.len() {
+            if self.i >= self.program.block.code.len() {
                 break;
             }
         }
@@ -346,14 +336,14 @@ impl VM {
 
     fn read_byte(&mut self) -> u8 {
         self.i += 1;
-        self.ip = (*self.block).borrow().code[self.i - 1];
+        self.ip = self.program.block.code[self.i - 1];
 
         self.ip
     }
 
     fn read_constant(&mut self) -> Value {
         let index = self.read_byte() as usize;
-        (*self.block).borrow().values[index].clone()
+        self.program.block.values[index].clone()
     }
 
     fn peek(&self, index: usize) -> &Value {
@@ -361,7 +351,7 @@ impl VM {
     }
 
     fn peek_op(&self, index: usize) -> u8 {
-        (*self.block).borrow().code[index]
+        self.program.block.code[index]
     }
 
     // TODO: how to handle differring types
