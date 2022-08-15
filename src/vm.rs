@@ -10,25 +10,44 @@ fn init_stack() -> VecDeque<Value> {
     (0..STACK_SIZE).map(|_| Value::Unit).collect()
 }
 
+// Cache eviction on every scope change?
 struct CallFrame {
-    i: usize
+    i: usize,
+    block: Block
 }
 
 impl CallFrame {
-    fn get_value(&self, stack: &mut VecDeque<Value>, index: usize) -> Value {
-        stack[index + self.i].clone()
+    fn get_value(&self, index: usize) -> Value {
+        self.block.values[index].clone()
     }
 
-    fn set_value(&self, stack: &mut VecDeque<Value>, index: usize, value: Value) {
-        stack[index + self.i] = value;
+    fn set_value(&mut self, index: usize, value: Value) {
+        self.block.values[index] = value;
     }
 
-    fn get_upvalue(&self, stack: &mut VecDeque<Value>, index: usize) -> Value {
-        stack[index].clone()
+    fn get_upvalue(&self, _index: usize) -> Value {
+        todo!()
     }
 
-    fn set_upvalue(&mut self, stack: &mut VecDeque<Value>, index: usize, value: Value) {
-        stack[index] = value
+    fn set_upvalue(&mut self, _index: usize, _value: Value) {
+        todo!()
+    }
+
+    fn read_byte(&mut self) -> u8 {
+        let ip = self.block.code[self.i];
+        self.i += 1;
+
+        ip
+    }
+
+    fn read_constant(&mut self, index: usize) -> Value {
+        // let index = self.read_byte() as usize;
+        // self.program.block.values[index].clone()
+        self.block.values[index].clone()
+    }
+
+    fn peek_op(&self, index: usize) -> u8 {
+        self.block.code[index]
     }
 }
 
@@ -37,22 +56,15 @@ pub struct VM {
 
     stack: VecDeque<Value>,
     stack_top: usize,
-
-    ip: u8,
-    i: usize,
 }
 
 impl VM {
     pub fn new(program: Program) -> VM {
-        let ip = program.block.code[0];
         VM {
             program,
 
             stack: init_stack(),
-            stack_top: 0,
-
-            ip,
-            i: 0
+            stack_top: 0
         }
     }
 
@@ -61,22 +73,23 @@ impl VM {
         frames.push_front(
             CallFrame {
                 i: 0,
+                block: self.program.block.clone() // TODO: remove the clone, give ownership instead
             }
         );
 
         loop {
-            self.ip = self.read_byte();
-            self.disassemble_instruction(self.ip);
+            let mut frame_index = frames.len() - 1;
+            let frame = &mut frames[frame_index];
 
-            let frame_index = frames.len() - 1;
-            let frame       = frames.get_mut(frame_index).unwrap();
+            let ip = frame.read_byte();
+            self.disassemble_instruction(frame, ip);
 
-            // println!("{:?}", &self.stack);
+            match ip.try_into().unwrap() {
 
-            match self.ip.try_into().unwrap() {
                 Op::Pop => {
                     self.pop();
                 }
+
                 Op::Add => {
                     let (a, b) = self.binary_op();
 
@@ -91,9 +104,9 @@ impl VM {
                     };
 
                     let result = Value::Number { val: first + second };
-                    // println!("{} + {} = {:?}", first, second, result);
                     self.push(result);
                 }
+
                 Op::Subtract => {
                     let (a, b) = self.binary_op();
 
@@ -109,6 +122,7 @@ impl VM {
 
                     self.push(Value::Number { val: first - second });
                 }
+
                 Op::Multiply => {
                     let (a, b) = self.binary_op();
 
@@ -124,6 +138,7 @@ impl VM {
 
                     self.push(Value::Number { val: first * second });
                 }
+
                 Op::Divide => {
                     let (a, b) = self.binary_op();
 
@@ -139,6 +154,7 @@ impl VM {
 
                     self.push(Value::Number { val: first / second });
                 }
+
                 Op::Equal => {
                     let (a, b) = self.binary_op();
 
@@ -154,6 +170,7 @@ impl VM {
 
                     self.push(Value::Bool { val: first == second });
                 }
+
                 Op::Less => {
                     let (a, b) = self.binary_op();
 
@@ -169,6 +186,7 @@ impl VM {
 
                     self.push(Value::Bool { val: first < second });
                 }
+
                 Op::Greater => {
                     let (a, b) = self.binary_op();
 
@@ -184,6 +202,7 @@ impl VM {
 
                     self.push(Value::Bool { val: first > second });
                 }
+
                 Op::GreaterEqual => {
                     let (a, b) = self.binary_op();
 
@@ -199,6 +218,7 @@ impl VM {
 
                     self.push(Value::Bool { val: first >= second });
                 }
+
                 Op::LessEqual => {
                     let (a, b) = self.binary_op();
 
@@ -214,6 +234,7 @@ impl VM {
 
                     self.push(Value::Bool { val: first <= second });
                 }
+
                 Op::Not => {
                     let value = self.pop();
 
@@ -224,13 +245,16 @@ impl VM {
 
                     self.push(Value::Bool { val: !boolean });
                 }
+
                 Op::Constant => { // Constant
-                    let value = self.read_constant();
+                    let index = frame.read_byte();
+                    let value = frame.read_constant(index as usize);
                     self.push(value);
                 },
+
                 Op::GetVariable => {
-                    let index = self.read_byte() as usize;
-                    let value = self.program.block.values[index].clone();
+                    let index = frame.read_byte() as usize;
+                    let value = frame.get_value(index);
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -238,19 +262,21 @@ impl VM {
 
                     self.push(value);
                 }
+
                 Op::DeclareVariable => {
                     // TODO: section intentionally left blank
                 },
-                Op::SetVariable => {
-                    let index = self.read_byte() as usize;
-                    let value = self.pop();// self.peek(self.stack_top - 1).clone();
 
-                    // frame.frame[index] = value;
-                    frame.set_value(&mut self.stack, index, value);
+                Op::SetVariable => {
+                    let index = frame.read_byte() as usize;
+                    let value = self.pop();
+
+                    frame.set_value(index, value);
                 }
+
                 Op::GetUpvalue => {
-                    let index = self.read_byte() as usize;
-                    let value = frame.get_upvalue(&mut self.stack, index);
+                    let index = frame.read_byte() as usize;
+                    let value = frame.get_upvalue(index);
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -258,31 +284,50 @@ impl VM {
 
                     self.push(value);
                 },
+
                 Op::SetUpvalue => {
-                    let index = self.read_byte() as usize;
+                    let index = frame.read_byte() as usize;
                     let value = self.peek(self.stack_top - 1).clone();
 
-                    frame.set_upvalue(&mut self.stack, index, value);
+                    frame.set_upvalue(index, value);
                 },
+
                 Op::Frame => {
-                    frames.push_back(CallFrame {
+                    // TODO: need closures
+                    let index = frame.read_byte() as usize;
+                    let value = frame.read_constant(index);
+
+                    let closure = match value {
+                        Value::Closure { val } =>  val,
+                        _ => panic!("Frame value of incorrect type. Expexted 'Closure'.")
+                    };
+
+                    let frame = CallFrame {
                         i: self.stack_top,
-                    });
+                        block: closure.code
+                    };
+                    frames.push_back(frame);
                 }
+
                 Op::Return => {
                     if frames.is_empty() {
                         break;
                     }
 
+                    if frame_index > 0 {
+                        frame_index -= 1;
+                    }
                     frames.pop_back();
                 }
+
                 Op::Jump => {
-                    let jump = self.read_byte() as usize;
-                    self.i += jump;
+                    let jump = frame.read_byte() as usize;
+                    frame.i += jump;
 
                 }
+
                 Op::CondJump => {
-                    let jump = self.read_byte() as usize;
+                    let jump = frame.read_byte() as usize;
                     let value = self.pop();
 
                     let boolean = match value {
@@ -291,30 +336,34 @@ impl VM {
                     };
 
                     if !boolean {
-                        self.i += jump;
+                        frame.i += jump;
                     }
                 }
-                Op::LoopJump => {
-                    let jump = self.read_byte() as usize;
-                    self.i -= jump;
-                },
-                Op::Call => {
-                    let index = self.read_byte() as usize;
-                    let value = self.program.block.values[index].clone();
 
-                    match value {
-                        Value::Function { name, block, arity } => {
-                            println!("{} {:?} {}", name, block, arity);
-                        },
-                        _ => { }
-                    };
+                Op::LoopJump => {
+                    let jump = frame.read_byte() as usize;
+                    frame.i -= jump;
                 },
-                _ => { self.i += 1; }
+
+                Op::Call => {
+                    let index = frame.read_byte() as usize;
+                    let value = frame.read_constant(index);// self.program.block.values[index].clone();
+
+                    let function_code = match value {
+                        Value::Function { name: _, block, arity: _ } =>  block,
+                        _ => panic!("Frame value of incorrect type. Expexted 'Function'.")
+                    };
+
+                    let frame = CallFrame {
+                        i: 0,
+                        block: function_code
+                    };
+                    frames.push_back(frame);
+                },
+                _ => { frame.i += 1; }
             }
 
-            // println!("{:?}", &self.stack);
-
-            if self.i >= self.program.block.code.len() {
+            if frames[frame_index].i >= frames[frame_index].block.code.len() {
                 break;
             }
         }
@@ -334,24 +383,8 @@ impl VM {
         self.stack_top += 1;
     }
 
-    fn read_byte(&mut self) -> u8 {
-        self.i += 1;
-        self.ip = self.program.block.code[self.i - 1];
-
-        self.ip
-    }
-
-    fn read_constant(&mut self) -> Value {
-        let index = self.read_byte() as usize;
-        self.program.block.values[index].clone()
-    }
-
     fn peek(&self, index: usize) -> &Value {
         &self.stack[index]
-    }
-
-    fn peek_op(&self, index: usize) -> u8 {
-        self.program.block.code[index]
     }
 
     // TODO: how to handle differring types
@@ -366,14 +399,14 @@ impl VM {
         (a, b)
     }
 
-    fn disassemble_instruction(&self, instruction: u8) {
+    fn disassemble_instruction(&self, frame: &CallFrame, instruction: u8) {
         print!("OP ");
 
         if let Ok(i) = instruction.try_into() {
             match i {
                 Op::Pop => {
                     let value = self.peek(0);
-                    self.print_constant_op("POP", value);
+                    self.print_constant_op(frame, "POP", value);
                 },
                 Op::True => self.print_simple_op("TRUE"),
                 Op::False => self.print_simple_op("FALSE"),
@@ -383,68 +416,77 @@ impl VM {
                 Op::Multiply => self.print_simple_op("MULTIPLY"),
                 Op::Divide => self.print_simple_op("DIVIDE"),
                 Op::Constant => {
-                    let index = self.peek_op(self.i) as usize;
-                    let value = self.peek(index);
+                    let index = frame.peek_op(frame.i) as usize;
+                    let value = frame.get_value(index);// self.peek(index);
 
-                    self.print_constant_op("CONSTANT", value);
+                    self.print_constant_op(frame, "CONSTANT", &value);
                 },
                 Op::Equal => self.print_simple_op("EQUAL"),
                 Op::Less => self.print_simple_op("LESS"),
                 Op::Greater => self.print_simple_op("GREATER"),
                 Op::DeclareVariable => self.print_simple_op("DECLARE_VARIABLE"),
                 Op::GetVariable => {
-                    let index = self.peek_op(self.i) as usize;
-                    let value = self.peek(index);
+                    let index = frame.peek_op(frame.i) as usize;
+                    let value = frame.get_value(index);// self.peek(index);
 
-                    self.print_constant_op("GET_VARIABLE", value);
+                    self.print_constant_op(frame, "GET_VARIABLE", &value);
                 },
                 Op::SetVariable => {
-                    let index = self.peek_op(self.i) as usize;
+                    let index = frame.peek_op(frame.i) as usize;
                     let value = self.peek(index);
 
-                    self.print_constant_op("SET_VARIABLE", value);
+                    self.print_constant_op(frame, "SET_VARIABLE", value);
                 },
-                Op::GetUpvalue => self.print_byte_op("GET_UPVALUE"),
+                Op::GetUpvalue => self.print_byte_op(frame, "GET_UPVALUE"),
                 Op::SetUpvalue => {
-                    let index = self.peek_op(self.i) as usize;
+                    let index = frame.peek_op(frame.i) as usize;
                     let value = self.peek(index);
 
-                    self.print_constant_op("SET_UPVALUE", value);
+                    self.print_constant_op(frame, "SET_UPVALUE", value);
                 },
                 Op::Frame => self.print_simple_op("FRAME"),
                 Op::Return => self.print_simple_op("RETURN"),
                 Op::Jump => {
-                    let jump = self.peek_op(self.i);
+                    let jump = frame.peek_op(frame.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="JUMP",
                              width=20,
-                             slot=self.i,
+                             slot=frame.i,
                              slot_width=5,
                              value=jump);
 
                 },
                 Op::CondJump => {
-                    let jump = self.peek_op(self.i);
+                    let jump = frame.peek_op(frame.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="COND_JUMP",
                              width=20,
-                             slot=self.i,
+                             slot=frame.i,
                              slot_width=5,
                              value=jump);
 
                 },
                 Op::LoopJump => {
-                    let jump = self.peek_op(self.i);
+                    let jump = frame.peek_op(frame.i);
                     println!("{name:<width$} {slot:<slot_width$} {value}",
                              name="LOOP_JUMP",
                              width=20,
-                             slot=self.i,
+                             slot=frame.i,
                              slot_width=5,
                              value=jump);
 
                 },
                 Op::Call => {
-                    self.print_simple_op("CALL");
+                    print!("CALL ");
+                    let index = frame.peek_op(frame.i) as usize;
+                    let value = self.peek(index);
+
+                    let function_name = match value {
+                        Value::Function { name, block: _, arity: _ } =>  name,
+                        _ => panic!("Frame value of incorrect type. Expexted 'Function'.")
+                    };
+
+                    println!("FUNCTION '{}'", function_name);
                 }
                 _ => { }
             }
@@ -455,14 +497,14 @@ impl VM {
         println!("{name:<width$} |", name=name, width=20);
     }
 
-    fn print_byte_op(&self, name: &str) {
-        println!("{name:<width$} {slot}", name=name, slot=self.i, width=20);
+    fn print_byte_op(&self, frame: &CallFrame, name: &str) {
+        println!("{name:<width$} {slot}", name=name, slot=frame.i, width=20);
     }
 
-    fn print_constant_op(&self, name: &str, value: &Value) {
+    fn print_constant_op(&self, frame: &CallFrame, name: &str, value: &Value) {
         println!("{name:<width$} {slot:<slot_width$} {value:?}", name=name,
                                                                  width=20,
-                                                                 slot=self.i,
+                                                                 slot=frame.i,
                                                                  slot_width=5,
                                                                  value=value);
     }

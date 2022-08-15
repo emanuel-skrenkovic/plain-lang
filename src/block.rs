@@ -6,7 +6,13 @@ pub enum Value {
     Number { val: i32 },
     Bool   { val: bool },
     Function { name: String, block: Block, arity: usize },
+    Closure { val: Closure },
     Unit
+}
+
+#[derive(Clone, Debug)]
+pub struct Closure {
+    pub code: Block
 }
 
 #[repr(u8)]
@@ -91,5 +97,9 @@ impl Block {
     pub fn write_constant(&mut self, constant: Value) -> u8 {
         self.values.push(constant);
         (self.values.len() - 1) as u8
+    }
+
+    pub fn write_constant_at(&mut self, index: usize, constant: Value) {
+        self.values[index] = constant;
     }
 }
