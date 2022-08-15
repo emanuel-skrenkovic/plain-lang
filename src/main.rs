@@ -18,8 +18,8 @@ fn main() {
 
         loop {
             print!("sage> ");
-            let _ = stdout().flush();
-            let _ = stdin().read_line(&mut input);
+            stdout().flush().unwrap();
+            stdin().read_line(&mut input).unwrap();
 
             let mut compiler = Compiler::new(input.clone());
             let program = compiler.compile();
@@ -36,6 +36,6 @@ fn main() {
         let program = compiler.compile();
 
         let mut vm = VM::new(program);
-        vm.interpret()
+        vm.interpret();
     };
 }

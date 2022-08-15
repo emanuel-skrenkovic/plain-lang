@@ -5,7 +5,7 @@ pub enum Value {
     String { val: String },
     Number { val: i32 },
     Bool   { val: bool },
-    Function { name: String, block: Block, arity: usize },
+    Function { name: String, arity: usize, closure: Closure },
     Closure { val: Closure },
     Unit
 }

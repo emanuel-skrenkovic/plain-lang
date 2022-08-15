@@ -59,6 +59,7 @@ pub struct VM {
 }
 
 impl VM {
+    #[must_use]
     pub fn new(program: Program) -> VM {
         VM {
             program,
@@ -349,14 +350,14 @@ impl VM {
                     let index = frame.read_byte() as usize;
                     let value = frame.read_constant(index);// self.program.block.values[index].clone();
 
-                    let function_code = match value {
-                        Value::Function { name: _, block, arity: _ } =>  block,
+                    let closure = match value {
+                        Value::Function { name: _, arity: _, closure } =>  closure,
                         _ => panic!("Frame value of incorrect type. Expexted 'Function'.")
                     };
 
                     let frame = CallFrame {
                         i: 0,
-                        block: function_code
+                        block: closure.code
                     };
                     frames.push_back(frame);
                 },
@@ -482,7 +483,7 @@ impl VM {
                     let value = self.peek(index);
 
                     let function_name = match value {
-                        Value::Function { name, block: _, arity: _ } =>  name,
+                        Value::Function { name, closure: _, arity: _ } => name,
                         _ => panic!("Frame value of incorrect type. Expexted 'Function'.")
                     };
 

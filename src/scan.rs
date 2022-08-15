@@ -56,6 +56,7 @@ pub struct Scanner {
 }
 
 impl Scanner {
+    #[must_use]
     pub fn new(source: String) -> Scanner {
         Scanner {
             source,
@@ -245,9 +246,7 @@ impl Scanner {
             let c = self.peek();
 
             match c {
-                ' '  => { self.advance(); }
-                '\r' => { self.advance(); }
-                '\t' => { self.advance(); }
+                ' ' | '\r' | '\t' => { self.advance(); }
                 '\n' => {
                     self.line += 1;
                     self.advance();

@@ -115,6 +115,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    #[must_use]
     pub fn new(scanner: Scanner) -> Parser {
         Parser {
             scanner,
@@ -157,7 +158,7 @@ impl Parser {
 
     fn consume(&mut self, token_kind: TokenKind, error_message: &str) {
         if !self.match_token(token_kind) {
-            self.error_at_current(error_message)
+            self.error_at_current(error_message);
         }
     }
 
@@ -165,9 +166,12 @@ impl Parser {
         self.panic = true;
         self.error = true;
 
-        eprintln!("[line {}] Error at token '{}\n{}'", self.current.line,
-                                                       self.current.value,
-                                                       message);
+        eprintln!(
+            "[line {}] Error at token '{}\n{}'",
+            self.current.line,
+            self.current.value,
+            message
+        );
     }
 
     // TODO: horrible and I should be publicly shamed
@@ -215,6 +219,7 @@ pub struct Compiler {
 }
 
 impl Compiler {
+    #[must_use]
     pub fn new(source: String) -> Compiler {
         Compiler {
             parser: Parser::new(Scanner::new(source)),
@@ -449,8 +454,8 @@ impl Compiler {
 
         let function = Value::Function {
             name: function_name,
-            block: function_code,
-            arity
+            arity,
+            closure: Closure { code: function_code },
         };
         self.emit_constant(function);
 
@@ -628,7 +633,7 @@ impl Compiler {
         if self.parser.match_token(TokenKind::Var) {
             self.var_decl();
         } else if self.parser.match_token(TokenKind::Let) {
-            self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.")
+            self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.");
         } else {
             self.expression();
         }
