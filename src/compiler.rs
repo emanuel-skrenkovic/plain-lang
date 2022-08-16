@@ -166,6 +166,8 @@ impl Parser {
         self.panic = true;
         self.error = true;
 
+        println!("CURRENT {:?}", self.current);
+
         eprintln!(
             "[line {}] Error at token '{}\n{}'",
             self.current.line,
@@ -229,24 +231,26 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&mut self) -> Program {
+    pub fn compile(&mut self) -> Result<Program, ()> {
         self.parser.advance();
 
-        // TODO: check if correct
-        // self.emit_byte(Op::Frame);
+        // TODO: should probably enclose program itself.
 
         loop {
             match self.parser.current.kind {
-                TokenKind::End => { break; }
-                _              => { self.declaration(); }
+                TokenKind::End => break,
+                _              => self.declaration()
             }
         }
 
-        // self.emit_byte(Op::Return);
+        if self.parser.panic {
+            return Err(())
+        }
 
-        // #horribleways
         assert!(self.scopes.len() == 1);
-        self.scopes.pop().unwrap()
+        Ok(self.scopes
+           .pop()
+           .unwrap())
     }
 
     fn current(&self) -> &Program {
@@ -257,6 +261,10 @@ impl Compiler {
         &mut self.scopes[self.scope_depth]
     }
 
+    fn is_at_end(&self) -> bool {
+        discriminant(&self.parser.current.kind) == discriminant(&TokenKind::End)
+    }
+
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.parser.advance();
 
@@ -265,7 +273,12 @@ impl Compiler {
         if let Some(prefix) = prefix_rule {
             prefix(self);
         } else {
-            self.parser.error_at_current("Prefix rule not defined.");
+            if self.is_at_end() {
+                return
+            }
+
+            self.parser.error_at_current("Expect expression.");
+            panic!();
         }
 
         while precedence.discriminator() <= get_rule(self.parser.current.kind)
@@ -295,6 +308,7 @@ impl Compiler {
         // TODO
         self.begin_scope();
         self.code_block();
+        self.parser.match_token(TokenKind::Semicolon);
         self.emit_byte(Op::Return);
         // The nested block of code is fully compiled,
         // and the closure can be constructed.
@@ -341,7 +355,6 @@ impl Compiler {
         }
 
         self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
-        self.parser.match_token(TokenKind::Semicolon); // Only eat the semicolon if present.
     }
 
     fn binary(&mut self) {
@@ -367,6 +380,8 @@ impl Compiler {
             TokenKind::Slash        => self.emit_byte(Op::Divide),
             _ => { 0 }
         };
+
+        self.parser.match_token(TokenKind::Semicolon);
     }
 
     fn left_angle(&mut self) {
@@ -383,6 +398,9 @@ impl Compiler {
             val: self.parser.previous.value.parse::<i32>().unwrap()
         };
         self.emit_constant(value);
+
+        // Eat the semicolon only if present;
+        self.parser.match_token(TokenKind::Semicolon);
     }
 
     fn declaration(&mut self) {
@@ -407,12 +425,18 @@ impl Compiler {
                 self.parser.advance();
                 self._for();
             }
-            _ => self.expression()
+            _ => { self.expression(); }
         }
+
     }
 
     fn variable(&mut self) {
-        self.parse_variable();
+        if self.parse_variable().is_none() {
+            let previous = self.parser.previous.value.clone();
+            self.parser.error_at_current(
+                &format!("Variable '{}' is not declared.", &previous)
+            );
+        }
     }
 
     fn function_decl(&mut self) {
@@ -449,6 +473,7 @@ impl Compiler {
 
         self.begin_scope();
         self.code_block();
+        self.parser.match_token(TokenKind::Semicolon);
         self.emit_byte(Op::Return);
         let function_code = self.end_scope();
 
@@ -479,7 +504,7 @@ impl Compiler {
         let index = self.declare_variable(variable_token, false);
 
         self.expression();
-        self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
+        // self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable 'let' declaration.");
 
         self.variable_definition(index);
     }
@@ -506,7 +531,7 @@ impl Compiler {
         // then it is defined and we should parse the definition expression.
         if self.parser.match_token(TokenKind::Equal) {
             self.expression();
-            self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable definition.");
+            // self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable definition.");
             self.variable_definition(index);
         } else {
             self.variable_declaration(index);
@@ -536,35 +561,63 @@ impl Compiler {
         variable_index as u8
     }
 
+    fn find_variable_by_name(&self, name: &str) -> Option<(usize, usize)> {
+        let mut current_scope = self.scope_depth;
+
+        loop {
+            let scope = &self.scopes[current_scope];
+
+            let variable_index = scope
+                .variables
+                .iter()
+                .position(|v| v.name.value == name);
+
+            if let Some(position) = variable_index {
+                return Some((current_scope, position))
+            }
+
+            if current_scope == 0 {
+                break
+            }
+
+            current_scope -= 1;
+        }
+
+        None
+    }
+
     fn parse_variable(&mut self) -> Option<u8> {
         let previous = self.parser.previous.value.clone();
-        let variable_index = self.current_mut()
-                                 .variables
-                                 .iter()
-                                 .position(|v| v.name.value == previous);
+        let variable_indices = self.find_variable_by_name(&previous);
 
-        if let Some(index) = variable_index {
+        if let Some((scope, index)) = variable_indices {
+
+            // If the following token is '=', then it's an assignment.
             if self.parser.match_token(TokenKind::Equal) {
                 if !self.current().variables[index].mutable {
                     panic!("Cannot reassign value of an immutable variable.");
                 }
 
-                let set_op = if self.current().variables[index].scope < self.scope_depth {
-                    Op::SetUpvalue
-                } else {
-                    Op::SetVariable
-                };
-
                 self.expression();
-                self.emit_byte(set_op);
-            } else {
-                let get_op = if self.current().variables[index].scope < self.scope_depth {
-                    Op::GetUpvalue
-                } else {
-                    Op::GetVariable
-                };
 
-                self.emit_byte(get_op);
+                if scope < self.scope_depth {
+                    // Emit scope distance -> vm will move frames by this distance.
+                    self.emit_byte(Op::SetUpvalue);
+                    let scope_distance = self.scope_depth - scope;
+                    self.emit(scope_distance as u8);
+                } else {
+                    self.emit_byte(Op::SetVariable);
+                }
+
+            } else {
+                if scope < self.scope_depth {
+                    // Emit scope distance -> vm will move frames by this distance.
+                    self.emit_byte(Op::GetUpvalue);
+                    let scope_distance = self.scope_depth - scope;
+                    self.emit(scope_distance as u8);
+                } else {
+                    self.emit_byte(Op::GetVariable);
+                }
             }
 
             self.emit(index as u8);
@@ -660,31 +713,35 @@ impl Compiler {
     }
 
     fn function_invocation(&mut self) {
-        /*
-        let block = Rc::new(RefCell::new(Block::new(256)));
-        let mut compiler = Compiler::new(
-            self.source.clone(),
-            block.clone()
-        );
-
-        compiler.compile();
-
-        let mut vm = VM::new(block);
-        vm.interpret();
-        */
-
         let function_name_token = self.parser.peek(-2);
 
-        if let Some(function_name) = function_name_token {
+        // Unwrapping to avoid borrowing. Need to get an mutable reference later in
+        // parser.consume.
+        if function_name_token.is_some() {
+            let function_name_token = function_name_token.unwrap();
+            let function_name = function_name_token.value.clone();
+
             let variable_index = self.current()
                                     .variables
                                     .iter()
-                                    .position(|v| v.name.value == function_name.value);
+                                    .position(|v| v.name.value == function_name);
+
+            // TODO: this is all kinds of fucked up.
+            // Need to actually handle arguments, this just assumes there are none.
+            // "Use closures you plebian."
+            // self.parser.consume(TokenKind::LeftParen, "Expect '(' after function name.");
+            self.parser.consume(TokenKind::RightParen, "Expect ')' after function arguments.");
 
             if let Some(index) = variable_index {
                 self.emit_byte(Op::Call);
                 self.emit(index as u8);
+            } else {
+                self.parser.error_at_current(
+                    &format!("No defined function with name '{}'", &function_name)
+                );
             }
+
+            self.parser.match_token(TokenKind::Semicolon);
         }
     }
 
@@ -760,7 +817,7 @@ mod compiler_tests {
         let source = "5 + 6";
 
         // Act
-        let program = compile_source(source);
+        let program = compile_source(source).unwrap();
 
         // Assert
         let generated_code = program.block.code;
@@ -778,7 +835,7 @@ mod compiler_tests {
         ";
 
         // Act
-        let program = compile_source(source);
+        let program = compile_source(source).unwrap();
 
         // Assert
         let generated_code = program.block.code;
@@ -787,23 +844,7 @@ mod compiler_tests {
         debug_assert_eq!(generated_code, vec![8, 0, 15, 0, 16, 0]);
     }
 
-    #[test]
-    fn block_expression_should_not_fail() {
-        // Arrange
-        let source = "{ 5 }";
-        let mut compiler = Compiler::new(source.to_owned());
-
-        // Act
-        compiler.block_expression();
-
-        // Assert
-        debug_assert!(!compiler.current().block.code.is_empty());
-        debug_assert_eq!(compiler.scope_depth, 0);
-        debug_assert_eq!(compiler.current().block.code, vec![19, 0]);
-
-    }
-
-    fn compile_source(source: &str) -> Program {
+    fn compile_source(source: &str) -> Result<Program, ()> {
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
         program

@@ -69,14 +69,14 @@ impl TryFrom<u8> for Op {
 #[derive(Clone, Debug)]
 pub struct Block {
     pub code: Vec<u8>,
-    pub values: Vec<Value>
+    pub constants: Vec<Value>
 }
 
 impl Block {
     pub fn new(capacity: usize) -> Block {
         Block {
             code: Vec::with_capacity(capacity),
-            values: vec![]
+            constants: vec![]
         }
     }
 
@@ -95,11 +95,11 @@ impl Block {
     }
 
     pub fn write_constant(&mut self, constant: Value) -> u8 {
-        self.values.push(constant);
-        (self.values.len() - 1) as u8
+        self.constants.push(constant);
+        (self.constants.len() - 1) as u8
     }
 
     pub fn write_constant_at(&mut self, index: usize, constant: Value) {
-        self.values[index] = constant;
+        self.constants[index] = constant;
     }
 }

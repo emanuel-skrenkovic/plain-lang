@@ -23,6 +23,7 @@ fn main() {
 
             let mut compiler = Compiler::new(input.clone());
             let program = compiler.compile();
+            let program = program.unwrap();
 
             let mut vm = VM::new(program);
             vm.interpret();
@@ -34,6 +35,7 @@ fn main() {
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
+        let program = program.unwrap();
 
         let mut vm = VM::new(program);
         vm.interpret();

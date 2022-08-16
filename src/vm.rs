@@ -18,19 +18,11 @@ struct CallFrame {
 
 impl CallFrame {
     fn get_value(&self, index: usize) -> Value {
-        self.block.values[index].clone()
+        self.block.constants[index].clone()
     }
 
     fn set_value(&mut self, index: usize, value: Value) {
-        self.block.values[index] = value;
-    }
-
-    fn get_upvalue(&self, _index: usize) -> Value {
-        todo!()
-    }
-
-    fn set_upvalue(&mut self, _index: usize, _value: Value) {
-        todo!()
+        self.block.constants[index] = value;
     }
 
     fn read_byte(&mut self) -> u8 {
@@ -43,7 +35,7 @@ impl CallFrame {
     fn read_constant(&mut self, index: usize) -> Value {
         // let index = self.read_byte() as usize;
         // self.program.block.values[index].clone()
-        self.block.values[index].clone()
+        self.block.constants[index].clone()
     }
 
     fn peek_op(&self, index: usize) -> u8 {
@@ -276,8 +268,11 @@ impl VM {
                 }
 
                 Op::GetUpvalue => {
+                    let scope_distance = frame.read_byte() as usize;
                     let index = frame.read_byte() as usize;
-                    let value = frame.get_upvalue(index);
+
+                    let enclosing_scope = &frames[frame_index - scope_distance];
+                    let value = enclosing_scope.get_value(index);
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -287,10 +282,12 @@ impl VM {
                 },
 
                 Op::SetUpvalue => {
+                    let scope_distance = frame.read_byte() as usize;
                     let index = frame.read_byte() as usize;
-                    let value = self.peek(self.stack_top - 1).clone();
 
-                    frame.set_upvalue(index, value);
+                    let value = self.peek(self.stack_top - 1).clone();
+                    let enclosing_scope = &mut frames[frame_index - scope_distance];
+                    enclosing_scope.set_value(index, value);
                 },
 
                 Op::Frame => {
@@ -480,11 +477,11 @@ impl VM {
                 Op::Call => {
                     print!("CALL ");
                     let index = frame.peek_op(frame.i) as usize;
-                    let value = self.peek(index);
+                    let value = frame.get_value(index); // self.peek(index);
 
                     let function_name = match value {
                         Value::Function { name, closure: _, arity: _ } => name,
-                        _ => panic!("Frame value of incorrect type. Expexted 'Function'.")
+                        _ => panic!("Frame value of incorrect type. Expected 'Function'.")
                     };
 
                     println!("FUNCTION '{}'", function_name);
