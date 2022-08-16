@@ -1,0 +1,5 @@
+func test() {
+    5
+}
+
+test();

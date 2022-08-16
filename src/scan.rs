@@ -4,6 +4,7 @@ use std::fmt;
 pub enum TokenKind {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, Plus, Minus, Star, Slash,
+    Comma,
     Bang, BangEqual, EqualEqual, GreaterEqual, LessEqual, Equal,
     True, False,
     Let, Var,
@@ -39,6 +40,12 @@ impl fmt::Display for Token {
     }
 }
 
+impl std::default::Default for Token {
+    fn default() -> Self {
+        Token { kind: TokenKind::Error, value: "".to_owned(), line: 0 }
+    }
+}
+
 pub struct Scanner {
     source: String,
 
@@ -49,6 +56,7 @@ pub struct Scanner {
 }
 
 impl Scanner {
+    #[must_use]
     pub fn new(source: String) -> Scanner {
         Scanner {
             source,
@@ -105,6 +113,7 @@ impl Scanner {
             '-' => self.emit(TokenKind::Minus),
             '*' => self.emit(TokenKind::Star),
             '/' => self.emit(TokenKind::Slash), // TODO: comments
+            ',' => self.emit(TokenKind::Comma),
             '!' => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::BangEqual)
@@ -237,9 +246,7 @@ impl Scanner {
             let c = self.peek();
 
             match c {
-                ' '  => { self.advance(); }
-                '\r' => { self.advance(); }
-                '\t' => { self.advance(); }
+                ' ' | '\r' | '\t' => { self.advance(); }
                 '\n' => {
                     self.line += 1;
                     self.advance();

@@ -123,6 +123,24 @@ def if_else_assignment():
     assert result.exit_code == 0, result.stderr
 
 
+@test
+def function_call():
+    result = run_test("function_call.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def function_call_return_value():
+    result = run_test("function_call_return_value.sg")
+    assert result.exit_code == 0, result.stderr
+
+
+@test
+def function_call_closure():
+    result = run_test("function_call_closure.sg")
+    assert result.exit_code == 0, result.stderr
+
+
 if __name__ == "__main__":
     for test in get_tests():
         test_name = test[0]
