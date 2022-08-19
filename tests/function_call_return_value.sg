@@ -1,6 +1,0 @@
-func test() { 
-    5 
-}
-
-let a = test();
-a == 5;

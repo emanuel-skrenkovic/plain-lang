@@ -1,6 +1,0 @@
-let a = 5;
-func test() {
-    a + 3
-}
-
-test() == 8;
