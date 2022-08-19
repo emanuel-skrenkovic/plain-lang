@@ -89,7 +89,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Case
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // For
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // While
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Func
+    ParseRule { prefix: Some(Compiler::anonymous_function_expression), infix: None, precedence: Precedence::None }, // Func
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Struct
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Interface
     ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // Literal
@@ -306,16 +306,8 @@ impl Compiler {
         self.current_mut().block.write(closure_index as u8);
 
         // TODO
-        // self.begin_scope();
         let nested_block = self.code_block();
         self.parser.match_token(TokenKind::Semicolon);
-
-
-
-        // self.emit_byte(Op::Return);
-        // The nested block of code is fully compiled,
-        // and the closure can be constructed.
-        // let nested_block = self.end_scope(0);
 
         let closure = Closure { code: nested_block };
         self.current_mut()
@@ -349,7 +341,8 @@ impl Compiler {
         // TODO: think about this
         // self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
-        self.end_scope(count)
+        self.emit_return(count);
+        self.end_scope()
     }
 
     fn binary(&mut self) {
@@ -450,24 +443,8 @@ impl Compiler {
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    fn function_decl(&mut self) {
-        self.parser.consume(TokenKind::Identifier, "Cannot declare function without name.");
-
-        let function_token = self.parser.previous.clone();
-        let function_name = function_token.value.clone();
-
-        if self.variable_exists(&function_name) {
-            self.parser.error_at_current(
-                &format!("Cannot redeclare function with name '{}'", function_name)
-            );
-        }
-
-        // Compile the expression and then jump after the block
-        // to avoid executing the code during function _declaration_.
-        let variable_key = self.declare_variable(function_token, false);
-        self.variable_declaration(variable_key);
-
-        self.parser.consume(TokenKind::LeftParen, "Expected '(' after function name.");
+    fn function(&mut self, name: &str) -> Value {
+        self.parser.consume(TokenKind::LeftParen, "Expected '(' after function declaration.");
         self.begin_scope();
 
         let mut arity = 0;
@@ -513,12 +490,41 @@ impl Compiler {
         // Pop all the values in the block (excluding the returning value, if preset),
         // as well as the arguments, and the function itself which was pulled onto the stack
         // again during function call.
-        let function_code = self.end_scope(count + arity + 1);
+        self.emit_return(count + arity + 1);
+
+        let function_code = self.end_scope();
         let function = Value::Function {
-            name: function_name,
+            name: name.to_owned(),
             arity,
             closure: Closure { code: function_code },
         };
+
+        function
+    }
+
+    fn anonymous_function_expression(&mut self) {
+        let function = self.function("anonumous");
+        self.emit_constant(function);
+    }
+
+    fn function_decl(&mut self) {
+        self.parser.consume(TokenKind::Identifier, "Cannot declare function without name.");
+
+        let function_token = self.parser.previous.clone();
+        let function_name = function_token.value.clone();
+
+        if self.variable_exists(&function_name) {
+            self.parser.error_at_current(
+                &format!("Cannot redeclare function with name '{}'", function_name)
+            );
+        }
+
+        // Compile the expression and then jump after the block
+        // to avoid executing the code during function _declaration_.
+        let variable_key = self.declare_variable(function_token, false);
+        self.variable_declaration(variable_key);
+
+        let function = self.function(&function_name);
         self.emit_constant(function);
 
         self.variable_definition(variable_key);
@@ -727,7 +733,9 @@ impl Compiler {
         self.emit_loop(loop_start);
         self.patch_jump(break_jump);
 
-        let nested_block = self.end_scope(0);
+        self.emit_return(0);
+
+        let nested_block = self.end_scope();
         self.end_closure(closure_index as usize, nested_block);
     }
 
@@ -795,7 +803,9 @@ impl Compiler {
 
         // end body
 
-        let nested_block = self.end_scope(0);
+        self.emit_return(0);
+
+        let nested_block = self.end_scope();
         self.end_closure(closure_index as usize, nested_block);
     }
 
@@ -824,7 +834,6 @@ impl Compiler {
                 .constants
                 .iter()
                 .position(|v| {
-                    // TODO: check if correct
                     match v {
                         Value::Function { name, arity: _, closure: _ } => name == name,
                         _ => false
@@ -866,12 +875,9 @@ impl Compiler {
     }
 
     /// Gives away ownership of the block after the scope is finished.
-    fn end_scope(&mut self, values_count: usize) -> Block {
+    fn end_scope(&mut self) -> Block {
         assert!(self.scope_depth > 0);
         assert!(!self.scopes.is_empty());
-
-        self.emit_byte(Op::Return);
-        self.emit(values_count as u8);
 
         self.scope_depth -= 1;
         let nested = self.scopes.pop().unwrap();
@@ -881,6 +887,11 @@ impl Compiler {
 
     fn semicolon(&mut self) {
         self.parser.match_token(TokenKind::Semicolon);
+    }
+
+    fn emit_return(&mut self, values_count: usize) {
+        self.emit_byte(Op::Return);
+        self.emit(values_count as u8);
     }
 
     fn patch(&mut self, index: usize, byte: u8) {
