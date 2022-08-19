@@ -1,0 +1,6 @@
+func test(a, b, c) {
+    a * b + c
+}
+
+let a = test(1, 2, 3);
+a;

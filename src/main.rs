@@ -1,14 +1,9 @@
-pub mod vm;
-pub mod scan;
-pub mod block;
-pub mod compiler;
-
 use std::fs;
 use std::env;
 use std::io::{stdin, stdout, Write};
 
-use crate::vm::VM;
-use crate::compiler::Compiler;
+use sage::vm::VM;
+use sage::compiler::Compiler;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

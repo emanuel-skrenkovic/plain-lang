@@ -5,10 +5,3 @@ version = 3
 [[package]]
 name = "sage"
 version = "0.1.0"
-
-[[package]]
-name = "sage_cli"
-version = "0.1.0"
-dependencies = [
- "sage",
-]

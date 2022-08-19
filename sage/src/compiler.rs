@@ -63,7 +63,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None, infix: Some(Compiler::left_angle), precedence: Precedence::Comparison }, // LeftAngle
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // RightAngle
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: Some(Compiler::semicolon), infix: None, precedence: Precedence::None }, // Semicolon
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Colon
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Plus
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Minus
@@ -76,8 +76,8 @@ static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // GreaterEqual
     ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // LessEqual
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Equal
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // True
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // False
+    ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // True
+    ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // False
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Let
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Var
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // This
@@ -191,7 +191,7 @@ impl Parser {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Variable {
     name: Token,
     mutable: bool,
@@ -302,22 +302,25 @@ impl Compiler {
         // Closure is written later because the code block needs to be populated
         // by nested code first.
         // TODO: make prettier
-        let i = self.current_mut().block.write_constant(Value::Unit);
-        self.current_mut().block.write(i as u8);
+        let closure_index = self.current_mut().block.write_constant(Value::Unit);
+        self.current_mut().block.write(closure_index as u8);
 
         // TODO
-        self.begin_scope();
-        self.code_block();
+        // self.begin_scope();
+        let nested_block = self.code_block();
         self.parser.match_token(TokenKind::Semicolon);
-        self.emit_byte(Op::Return);
+
+
+
+        // self.emit_byte(Op::Return);
         // The nested block of code is fully compiled,
         // and the closure can be constructed.
-        let nested_block = self.end_scope();
+        // let nested_block = self.end_scope(0);
 
         let closure = Closure { code: nested_block };
         self.current_mut()
             .block
-            .write_constant_at(i as usize, Value::Closure { val: closure });
+            .write_constant_at(closure_index as usize, Value::Closure { val: closure });
     }
 
     // TODO: this is the result of bad design. I need to use block expression
@@ -325,10 +328,14 @@ impl Compiler {
     // Since the 'block_expression' method calls end scope, and thus consumes the closure,
     // that code cannot be reused for function declarations.
     // This is bad and it should be implemented in more reusable, functional way.
-    fn code_block(&mut self) {
+    fn code_block(&mut self) -> Block {
+        self.begin_scope();
+
         // Compile code until the end of the block or the end of the program is reached.
+        let mut count = 0;
         while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
             self.declaration();
+            count += 1;
         }
 
         // Blocks are expression - this captures if the block contains a value,
@@ -336,25 +343,13 @@ impl Compiler {
         // If the final statement in the block is a semicolon, then treat it
         // like a value-less block, else, return the last value in the block.
         let has_value = !matches!(self.parser.previous.kind, TokenKind::Semicolon);
-        // If the block returns no value, all the nested values go out of scope
-        // and should be popped.
-        if !has_value {
-            self.emit_byte(Op::Pop);
-            // let count = self.current()
-            //             .variables
-            //             .iter()
-            //             .filter(|v| v.scope > self.scope_depth)
-            //             .count();
+        let count = if has_value && count > 0 { count - 1 } else { count };
 
-            // TODO: think about this. Is it necessary to pop all the values
-            // that the closure creates, or only the last one which represents
-            // its value?
-            // for _ in 0..count {
-            //     self.emit_byte(Op::Pop);
-            // }
-        }
+        self.parser.match_token(TokenKind::RightBracket);
+        // TODO: think about this
+        // self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
-        self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.end_scope(count)
     }
 
     fn binary(&mut self) {
@@ -394,10 +389,24 @@ impl Compiler {
     }
 
     fn literal(&mut self) {
-        let value = Value::Number {
-            val: self.parser.previous.value.parse::<i32>().unwrap()
-        };
-        self.emit_constant(value);
+        match self.parser.previous.kind {
+            TokenKind::True => {
+                let value = Value::Bool { val: true };
+                self.emit_constant(value);
+            },
+
+            TokenKind::False => {
+                let value = Value::Bool { val: false };
+                self.emit_constant(value);
+            }
+
+            _ => {
+                let value = Value::Number {
+                    val: self.parser.previous.value.parse::<i32>().unwrap()
+                };
+                self.emit_constant(value);
+            }
+        }
 
         // Eat the semicolon only if present;
         self.parser.match_token(TokenKind::Semicolon);
@@ -437,6 +446,8 @@ impl Compiler {
                 &format!("Variable '{}' is not declared.", &previous)
             );
         }
+
+        self.parser.match_token(TokenKind::Semicolon);
     }
 
     fn function_decl(&mut self) {
@@ -457,13 +468,26 @@ impl Compiler {
         self.variable_declaration(variable_key);
 
         self.parser.consume(TokenKind::LeftParen, "Expected '(' after function name.");
+        self.begin_scope();
 
-        // TODO: Parse function arguments.
         let mut arity = 0;
-        while self.parser.match_token(TokenKind::Identifier) {
-            // TODO: parameters
-            self.parser.match_token(TokenKind::Comma);
-            arity += 1;
+        // If open paren is not followed by closed paren, then parse the parameters.
+        if !self.parser.check_token(TokenKind::RightParen) {
+            loop {
+                arity += 1;
+
+                self.parser.consume(
+                    TokenKind::Identifier,
+                    "Expect parameter identifier after '('."
+                );
+
+                let parameter_name_token = self.parser.previous.clone();
+                self.declare_variable(parameter_name_token, false);
+
+                if !self.parser.match_token(TokenKind::Comma) {
+                    break
+                }
+            }
         }
 
         self.parser.consume(TokenKind::RightParen, "Expected ')' after function parameters.");
@@ -471,12 +495,25 @@ impl Compiler {
         // Parse the block expression that defines the function.
         self.parser.consume(TokenKind::LeftBracket, "Expected '{' before function body.");
 
-        self.begin_scope();
-        self.code_block();
-        self.parser.match_token(TokenKind::Semicolon);
-        self.emit_byte(Op::Return);
-        let function_code = self.end_scope();
+        let mut count = 0;
+        while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
+            self.declaration();
+            count += 1;
+        }
+        let has_value = !matches!(self.parser.previous.kind, TokenKind::Semicolon);
+        let count = if has_value && count > 0 { count - 1 } else { count };
 
+        self.parser.match_token(TokenKind::RightBracket);
+        self.parser.match_token(TokenKind::Semicolon);
+
+        // TODO: think about semantics.
+        // If the function returns nothing, return Unit instead.
+        if !has_value { self.emit_constant(Value::Unit); }
+
+        // Pop all the values in the block (excluding the returning value, if preset),
+        // as well as the arguments, and the function itself which was pulled onto the stack
+        // again during function call.
+        let function_code = self.end_scope(count + arity + 1);
         let function = Value::Function {
             name: function_name,
             arity,
@@ -591,11 +628,10 @@ impl Compiler {
         let variable_indices = self.find_variable_by_name(&previous);
 
         if let Some((scope, index)) = variable_indices {
-
             // If the following token is '=', then it's an assignment.
             if self.parser.match_token(TokenKind::Equal) {
-                if !self.current().variables[index].mutable {
-                    panic!("Cannot reassign value of an immutable variable.");
+                if !self.scopes[scope].variables[index].mutable {
+                    self.parser.error_at_current("Cannot reassign value of an immutable variable.");
                 }
 
                 self.expression();
@@ -669,20 +705,41 @@ impl Compiler {
     }
 
     fn _while(&mut self) {
+        let closure_index = self.start_closure();
+        self.begin_scope();
+
         let loop_start = self.position();
         self.expression();
 
         let break_jump = self.emit_jump(Op::CondJump);
-        self.declaration();
-        self.emit_loop(loop_start);
 
+        // Body
+        let mut values = 0;
+        self.parser.consume(TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
+        while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
+            self.declaration();
+            values += 1;
+        }
+        for _ in 0..values { self.emit_byte(Op::Pop); }
+
+        self.parser.match_token(TokenKind::RightBracket);
+
+        self.emit_loop(loop_start);
         self.patch_jump(break_jump);
+
+        let nested_block = self.end_scope(0);
+        self.end_closure(closure_index as usize, nested_block);
     }
 
     // In this implementation, all the parts of a for
     // loop declaration are required. While and iterators (when I get to that)
     // will make up for everything.
     fn _for(&mut self) {
+        let closure_index = self.start_closure();
+        self.begin_scope();
+
+        // loop variable
+
         if self.parser.match_token(TokenKind::Var) {
             self.var_decl();
         } else if self.parser.match_token(TokenKind::Let) {
@@ -692,45 +749,87 @@ impl Compiler {
         }
 
         let mut loop_start = self.position();
-        // condition
-        self.expression();
 
+        // end loop variables
+
+        // condition
+
+        self.expression();
         let exit_jump = self.emit_jump(Op::CondJump);
+
+        // end condition
+
         // advancement statement
+
         let body_jump = self.emit_jump(Op::Jump);
         let advancement_start = self.position();
         self.expression();
+        self.emit_byte(Op::Pop);
 
         self.emit_loop(loop_start);
 
         loop_start = advancement_start;
         self.patch_jump(body_jump);
 
+        // end advancement statement
+
         // body
-        self.block_expression();
+
+        self.parser.consume(TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
+
+        // self.code_block();
+        let mut values_count = 0;
+        while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
+            self.declaration();
+            values_count += 1;
+        }
+
+        // Pop all the values in the loop block on each iteration.
+        for _ in 0..values_count { self.emit_byte(Op::Pop); }
+
+        self.parser.match_token(TokenKind::RightBracket);
+
         self.emit_loop(loop_start);
         self.patch_jump(exit_jump);
+        // self.emit_byte(Op::Pop);
+
+        // end body
+
+        let nested_block = self.end_scope(0);
+        self.end_closure(closure_index as usize, nested_block);
     }
 
     fn function_invocation(&mut self) {
         let function_name_token = self.parser.peek(-2);
 
-        // Unwrapping to avoid borrowing. Need to get an mutable reference later in
-        // parser.consume.
         if function_name_token.is_some() {
+            // Unwrapping to avoid borrowing. Need to get an mutable reference later in
+            // parser.consume.
             let function_name_token = function_name_token.unwrap();
             let function_name = function_name_token.value.clone();
 
-            let variable_index = self.current()
-                                    .variables
-                                    .iter()
-                                    .position(|v| v.name.value == function_name);
+            if self.parser.check_token(TokenKind::Literal) {
+                loop {
+                    self.expression();
 
-            // TODO: this is all kinds of fucked up.
-            // Need to actually handle arguments, this just assumes there are none.
-            // "Use closures you plebian."
-            // self.parser.consume(TokenKind::LeftParen, "Expect '(' after function name.");
+                    if !self.parser.match_token(TokenKind::Comma) {
+                        break
+                    }
+                }
+            }
             self.parser.consume(TokenKind::RightParen, "Expect ')' after function arguments.");
+
+            let variable_index = self.current()
+                .block
+                .constants
+                .iter()
+                .position(|v| {
+                    // TODO: check if correct
+                    match v {
+                        Value::Function { name, arity: _, closure: _ } => name == name,
+                        _ => false
+                    }
+                });
 
             if let Some(index) = variable_index {
                 self.emit_byte(Op::Call);
@@ -745,20 +844,43 @@ impl Compiler {
         }
     }
 
+    fn start_closure(&mut self) -> u8 {
+        self.emit_byte(Op::Frame);
+
+        let closure_index = self.current_mut().block.write_constant(Value::Unit);
+        self.current_mut().block.write(closure_index as u8);
+
+        closure_index
+    }
+
+    fn end_closure(&mut self, closure_index: usize, block: Block) {
+        let closure = Closure { code: block };
+        self.current_mut()
+            .block
+            .write_constant_at(closure_index, Value::Closure { val: closure });
+    }
+
     fn begin_scope(&mut self) {
         self.scope_depth += 1;
         self.scopes.push(Program::new());
     }
 
     /// Gives away ownership of the block after the scope is finished.
-    fn end_scope(&mut self) -> Block {
+    fn end_scope(&mut self, values_count: usize) -> Block {
         assert!(self.scope_depth > 0);
         assert!(!self.scopes.is_empty());
+
+        self.emit_byte(Op::Return);
+        self.emit(values_count as u8);
 
         self.scope_depth -= 1;
         let nested = self.scopes.pop().unwrap();
 
         nested.block
+    }
+
+    fn semicolon(&mut self) {
+        self.parser.match_token(TokenKind::Semicolon);
     }
 
     fn patch(&mut self, index: usize, byte: u8) {

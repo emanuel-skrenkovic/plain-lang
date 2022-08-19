@@ -83,6 +83,8 @@ impl Scanner {
             return self.literal()
         }
 
+        // TODO: true | false?
+
         if c.is_alphabetic() {
             return self.identifier()
         }
@@ -159,6 +161,10 @@ impl Scanner {
                     return self.check_keyword(2, 1, "r", TokenKind::For)
                 }
 
+                if self.source.chars().nth(self.start + 1).unwrap() == 'a' { // TODO: fix
+                    return self.check_keyword(2, 3, "lse", TokenKind::False)
+                }
+
                 self.check_keyword(2, 2, "nc", TokenKind::Func)
             },
             'i' => {
@@ -176,7 +182,13 @@ impl Scanner {
 
                 self.check_keyword(2, 4, "itch", TokenKind::Switch)
             },
-            't' => self.check_keyword(1, 3, "his", TokenKind::This),
+            't' => {
+                if self.source.chars().nth(self.start + 1).unwrap() == 'r' {
+                    return self.check_keyword(2, 2, "ue", TokenKind::True)
+                }
+
+                self.check_keyword(1, 3, "his", TokenKind::This)
+            },
             'v' => self.check_keyword(1, 2, "ar", TokenKind::Var),
             'w' => self.check_keyword(1, 4, "hile", TokenKind::While),
             _   => TokenKind::Identifier,
