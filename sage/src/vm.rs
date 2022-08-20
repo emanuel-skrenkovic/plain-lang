@@ -24,6 +24,8 @@ impl CallFrame {
         }
     }
     fn get_value(&self, index: usize, stack: &VecDeque<Value>) -> Value {
+        let test = index + self.position;
+        println!("INDEX: {}", test);
         stack[index + self.position].clone()
     }
 
@@ -276,7 +278,7 @@ impl VM {
                     self.push(value);
                 },
 
-                Op::GetVariable => {
+                Op::GetLocal => {
                     let index = frame.read_byte() as usize;
                     let value = frame.get_value(index, &self.stack);
 
@@ -291,7 +293,7 @@ impl VM {
                     // TODO: section intentionally left blank
                 },
 
-                Op::SetVariable => {
+                Op::SetLocal => {
                     let value = self.peek(0).clone();
 
                     let index = frame.read_byte() as usize;
@@ -377,8 +379,11 @@ impl VM {
                 },
 
                 Op::Call => {
-                    let index = frame.read_byte() as usize;
-                    let value = frame.read_constant(index);
+                    let args = frame.read_byte() as usize;
+                    let value = frame.get_value(
+                        self.stack_top - args - frame.position - 1,
+                        &self.stack
+                    );
 
                     let (arity, closure) = match value {
                         Value::Function { name: _, arity, closure } => (arity, closure),
@@ -398,7 +403,7 @@ impl VM {
     }
 
     pub fn pop(&mut self) -> Value {
-        assert!(!self.stack.is_empty());
+        assert!(!self.stack.is_empty(), "Cannot pop empty stack.");
         let value = self.stack.pop_back().unwrap();
         self.stack_top -= 1;
         value
@@ -453,19 +458,23 @@ impl VM {
                 Op::Less => self.print_simple_op("LESS"),
                 Op::Greater => self.print_simple_op("GREATER"),
                 Op::DeclareVariable => self.print_simple_op("DECLARE_VARIABLE"),
-                Op::GetVariable => {
+                Op::GetLocal => {
                     let index = frame.peek_op(frame.i - 1) as usize;
                     let value = frame.get_value(index, &self.stack);
 
-                    self.print_constant_op(frame, "GET_VARIABLE", &value);
+                    self.print_constant_op(frame, "GET_LOCAL", &value);
                 },
-                Op::SetVariable => {
+                Op::SetLocal => {
                     // let index = frame.peek_op(frame.i - 1) as usize;
                     let value = self.peek(0);
 
-                    self.print_constant_op(frame, "SET_VARIABLE", value);
+                    self.print_constant_op(frame, "SET_LOCAL", value);
                 },
-                Op::GetUpvalue => self.print_byte_op(frame, "GET_UPVALUE"),
+                Op::GetUpvalue => {
+                    let value = self.peek(0);
+                    self.print_constant_op(frame, "GET_UPVALUE", value);
+                    // self.print_byte_op(frame, "GET_UPVALUE")
+                },
                 Op::SetUpvalue => {
                     // let index = frame.peek_op(frame.i - 1) as usize;
                     let value = self.peek(0);
@@ -509,8 +518,8 @@ impl VM {
                 },
                 Op::Call => {
                     print!("CALL ");
-                    let index = frame.peek_op(frame.i - 1) as usize;
-                    let value = frame.get_value(index, &self.stack);
+                    let args = frame.peek_op(frame.i - 1) as usize;
+                    let value = frame.get_value(self.stack_top - args - frame.position - 1, &self.stack);
 
                     let function_name = match value {
                         Value::Function { name, closure: _, arity: _ } => name,
@@ -528,9 +537,9 @@ impl VM {
         println!("{name:<width$} |", name=name, width=20);
     }
 
-    fn print_byte_op(&self, frame: &CallFrame, name: &str) {
-        println!("{name:<width$} {slot}", name=name, slot=frame.i - 1, width=20);
-    }
+    // fn print_byte_op(&self, frame: &CallFrame, name: &str) {
+    //     println!("{name:<width$} {slot}", name=name, slot=frame.i - 1, width=20);
+    // }
 
     fn print_constant_op(&self, frame: &CallFrame, name: &str, value: &Value) {
         println!("{name:<width$} {slot:<slot_width$} {value:?}", name=name,

@@ -648,7 +648,7 @@ impl Compiler {
                     let scope_distance = self.scope_depth - scope;
                     self.emit(scope_distance as u8);
                 } else {
-                    self.emit_byte(Op::SetVariable);
+                    self.emit_byte(Op::SetLocal);
                 }
 
             } else {
@@ -658,7 +658,7 @@ impl Compiler {
                     let scope_distance = self.scope_depth - scope;
                     self.emit(scope_distance as u8);
                 } else {
-                    self.emit_byte(Op::GetVariable);
+                    self.emit_byte(Op::GetLocal);
                 }
             }
 
@@ -690,7 +690,7 @@ impl Compiler {
             .variables
             .get_mut(variable_key as usize).unwrap().defined = true;
 
-        self.emit_byte(Op::SetVariable);
+        self.emit_byte(Op::SetLocal);
         self.emit(variable_key);
     }
 
@@ -785,21 +785,21 @@ impl Compiler {
 
         self.parser.consume(TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        // self.code_block();
-        let mut values_count = 0;
+        // Compile code until the end of the block or the end of the program is reached.
+        let mut count = 0;
         while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
             self.declaration();
-            values_count += 1;
+            count += 1;
         }
 
-        // Pop all the values in the loop block on each iteration.
-        for _ in 0..values_count { self.emit_byte(Op::Pop); }
+        let has_value = !matches!(self.parser.previous.kind, TokenKind::Semicolon);
+        let count = if has_value && count > 0 { count - 1 } else { count };
+        for _ in 0..count { self.emit_byte(Op::Pop); }
 
         self.parser.match_token(TokenKind::RightBracket);
 
         self.emit_loop(loop_start);
         self.patch_jump(exit_jump);
-        // self.emit_byte(Op::Pop);
 
         // end body
 
@@ -807,50 +807,66 @@ impl Compiler {
 
         let nested_block = self.end_scope();
         self.end_closure(closure_index as usize, nested_block);
+
+        self.emit_byte(Op::Pop);
     }
 
     fn function_invocation(&mut self) {
         let function_name_token = self.parser.peek(-2);
 
-        if function_name_token.is_some() {
-            // Unwrapping to avoid borrowing. Need to get an mutable reference later in
-            // parser.consume.
-            let function_name_token = function_name_token.unwrap();
-            let function_name = function_name_token.value.clone();
+        if function_name_token.is_none() {
+            // TODO: error, probably
+            return;
+        }
 
-            if self.parser.check_token(TokenKind::Literal) {
-                loop {
-                    self.expression();
+        // Unwrapping to avoid borrowing. Need to get an mutable reference later in
+        // parser.consume.
+        let function_name_token = function_name_token.unwrap();
+        let function_name = function_name_token.value.clone();
 
-                    if !self.parser.match_token(TokenKind::Comma) {
-                        break
-                    }
+        let mut arguments: usize = 0;
+        if !self.parser.check_token(TokenKind::RightParen) {
+            loop {
+                arguments += 1;
+                self.expression();
+
+                if !self.parser.match_token(TokenKind::Comma) {
+                    break
                 }
             }
-            self.parser.consume(TokenKind::RightParen, "Expect ')' after function arguments.");
+        }
+        self.parser.consume(TokenKind::RightParen, "Expect ')' after function arguments.");
 
-            let variable_index = self.current()
-                .block
+        // Get the scope of the variable, then find it by name in the scopes constants.
+        if let Some((scope, _)) = self.find_variable_by_name(&function_name) {
+            let function = self.scopes[scope].block
                 .constants
                 .iter()
-                .position(|v| {
-                    match v {
-                        Value::Function { name, arity: _, closure: _ } => name == name,
+                .find(|c| {
+                    match c {
+                        Value::Function { name, arity: _, closure: _ } => name == &function_name,
                         _ => false
                     }
                 });
 
-            if let Some(index) = variable_index {
-                self.emit_byte(Op::Call);
-                self.emit(index as u8);
-            } else {
-                self.parser.error_at_current(
-                    &format!("No defined function with name '{}'", &function_name)
-                );
+            if let Some(Value::Function { name, arity, closure: _ }) = function {
+                if arity != &arguments {
+                    let error_message = format!(
+                        "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
+                        arguments,
+                        name,
+                        arity
+                    );
+
+                    self.parser.error_at_current(&error_message);
+                }
             }
 
-            self.parser.match_token(TokenKind::Semicolon);
+            self.emit_byte(Op::Call);
+            self.emit(arguments as u8);
         }
+
+        self.parser.match_token(TokenKind::Semicolon);
     }
 
     fn start_closure(&mut self) -> u8 {

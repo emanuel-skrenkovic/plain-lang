@@ -915,6 +915,141 @@ mod function {
             _ => debug_assert!(false, "Value is of incorrect type.")
         }
     }
+
+    #[test]
+    fn function_invoked_in_nested_scope() {
+        // Arrange
+        let source = "
+            func add(a, b) {
+                a + b
+            }
+
+            var result = 0;
+
+            {
+                result = add(4, 2);
+            }
+
+            result;
+        ".to_owned();
+
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Act
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 6),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_invoked_in_loop() {
+        // Arrange
+        let source = "
+            func test(a, b) {
+                a + b
+            }
+
+            var result = 0;
+            for var i = 0; i < 10; i = i + 1; {
+                result = result + test(i, i);
+            }
+
+            result;
+        ".to_owned();
+
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Act
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 90),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_invoked_from_variable_in_loop() {
+        // Arrange
+        let source = "
+            func test(a, b) {
+                a + b
+            }
+
+            let proxy = test;
+
+            var result = 0;
+            for var i = 0; i < 10; i = i + 1; {
+                result = result + proxy(i, i);
+            }
+
+            result;
+        ".to_owned();
+
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Act
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 90),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_invoked_from_variable_in_nested_scope() {
+        // Arrange
+        let source = "
+            func add(a, b) {
+                a + b
+            }
+
+            let proxy = add;
+
+            var result = 0;
+
+            {
+                result = proxy(4, 2);
+            }
+
+            result;
+        ".to_owned();
+
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Act
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 6),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
 }
 
 #[cfg(test)]
@@ -1482,11 +1617,11 @@ mod for_loop {
     }
 
     #[test]
-    #[should_panic(expected = "Out of bounds access")]
+    #[should_panic(expected = "Cannot pop empty stack.")]
     fn for_does_not_leave_dangling_values() {
         let source = "
             for var i = 0; i < 10; i = i + 1; {
-                var test = 5;;
+                var test = 5;
                 test = test + i;
                 test;
             }
