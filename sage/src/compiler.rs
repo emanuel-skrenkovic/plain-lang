@@ -309,9 +309,7 @@ impl Compiler {
         self.parser.match_token(TokenKind::Semicolon);
 
         let closure = Closure { code: nested_block };
-        self.current_mut()
-            .block
-            .write_constant_at(closure_index as usize, Value::Closure { val: closure });
+        self.patch_constant(closure_index as usize, Value::Closure { val: closure });
     }
 
     // TODO: this is the result of bad design. I need to use block expression
@@ -921,9 +919,10 @@ impl Compiler {
 
     fn end_closure(&mut self, closure_index: usize, block: Block) {
         let closure = Closure { code: block };
-        self.current_mut()
-            .block
-            .write_constant_at(closure_index, Value::Closure { val: closure });
+        self.patch_constant(
+            closure_index,
+            Value::Closure { val: closure }
+        );
     }
 
     fn begin_scope(&mut self) {
@@ -989,6 +988,12 @@ impl Compiler {
 
         self.current_mut().block.write_op(Op::Constant);
         self.current_mut().block.write(i as u8);
+    }
+
+    fn patch_constant(&mut self, index: usize, constant: Value) {
+        self.current_mut()
+            .block
+            .write_constant_at(index, constant);
     }
 
     fn position(&self) -> usize {
