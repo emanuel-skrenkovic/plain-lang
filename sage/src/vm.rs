@@ -112,8 +112,14 @@ impl VM {
             let frame = &mut frames[frame_index];
             let ip = frame.read_byte();
 
-            match ip.try_into().unwrap() {
+            let operation = ip.try_into();
+            if operation.is_err() {
+                panic!("Could not parse operation '{}'.", ip);
+            }
 
+            let operation = operation.unwrap();
+
+            match operation {
                 Op::Pop => {
                     self.pop();
                 }
