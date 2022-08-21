@@ -55,8 +55,8 @@ struct ParseRule {
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 40] = [
-    ParseRule { prefix: None, infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
+static RULES: [ParseRule; 41] = [
+    ParseRule { prefix: Some(Compiler::function_expression), infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
     ParseRule { prefix: Some(Compiler::block_expression), infix: None, precedence: Precedence::None }, // LeftBracket
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightBracket
@@ -93,6 +93,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Struct
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Interface
     ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // Literal
+    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // FatArrow
     ParseRule { prefix: Some(Compiler::variable), infix: None, precedence: Precedence::None }, // Identifier
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Error
     ParseRule { prefix: None, infix: None, precedence: Precedence::None }  // End
@@ -165,8 +166,6 @@ impl Parser {
     fn error_at_current(&mut self, message: &str) {
         self.panic = true;
         self.error = true;
-
-        println!("CURRENT {:?}", self.current);
 
         eprintln!(
             "[line {}] Error at token '{}\n{}'",
@@ -500,6 +499,48 @@ impl Compiler {
         };
 
         function
+    }
+
+    fn function_expression(&mut self) {
+        self.begin_scope();
+
+        let mut arity = 0;
+        if !self.parser.check_token(TokenKind::RightParen) {
+            loop {
+                arity += 1;
+
+                self.parser.consume(
+                    TokenKind::Identifier,
+                    "Expect parameter identifier after '('."
+                );
+
+                let parameter_name_token = self.parser.previous.clone();
+                self.declare_variable(parameter_name_token, false);
+
+                if !self.parser.match_token(TokenKind::Comma) {
+                    break
+                }
+            }
+        }
+
+        let variable_name = self.parser.previous.clone();
+        self.declare_variable(variable_name, false);
+
+        self.parser.consume(TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
+        self.parser.consume(TokenKind::FatArrow, "Expect '=>' when declaring lambda.");
+
+        self.expression();
+        self.emit_return(arity + 1);
+
+        let expression_block = self.end_scope();
+        let function = Value::Function {
+            name: "lambda".to_owned(), // TODO: proper name
+            arity,
+            closure: Closure { code: expression_block },
+        };
+
+        self.emit_constant(function)
+
     }
 
     fn anonymous_function_expression(&mut self) {

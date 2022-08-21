@@ -1050,6 +1050,151 @@ mod function {
         }
     }
 
+    #[test]
+    fn function_lambda_parsed_interpreted() {
+        // Arrange
+        let source = "
+            let square = (x) => x * x;
+            square(2);
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+    }
+
+    #[test]
+    fn function_lambda_places_correct_value_on_stack() {
+        // Arrange
+        let source = "
+            let square = (x) => x * x;
+            square(2);
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 4),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_lambda_results_equal_when_invoked_multiple_times_with_same_arguments() {
+        let source = "
+            let square = (x) => x * x;
+            square(2) == square(2);
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            Value::Bool { val } => debug_assert_eq!(val, true),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_lambda_called_in_loop() {
+        let source = "
+            let square = (x) => x * x;
+
+            var result = 0;
+            for var i = 0; i < 10; i = i + 1; {
+                result = square(i);
+            }
+            result;
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 81),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_lambda_two_arguments() {
+        // Arrange
+        let source = "
+            let add = (a, b) => a + b;
+            add(4, 2);
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 6),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
+
+    #[test]
+    fn function_lambda_three_arguments() {
+        // Arrange
+        let source = "
+            let add = (a, b, c) => a + b * c;
+            add(1, 2, 3);
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_owned());
+        let program = compiler.compile();
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 7),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
+    }
 }
 
 #[cfg(test)]

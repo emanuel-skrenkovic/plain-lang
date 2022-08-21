@@ -11,6 +11,7 @@ pub enum TokenKind {
     This, If, Else, Break, Continue,
     Switch, Case, For, While,
     Func, Struct, Interface, Literal,
+    FatArrow,
     Identifier,
     Error, End
 }
@@ -126,6 +127,10 @@ impl Scanner {
             '='  => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::EqualEqual)
+                }
+
+                if self.match_char('>') {
+                    return self.emit(TokenKind::FatArrow)
                 }
 
                 self.emit(TokenKind::Equal)

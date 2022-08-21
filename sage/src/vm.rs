@@ -24,8 +24,6 @@ impl CallFrame {
         }
     }
     fn get_value(&self, index: usize, stack: &VecDeque<Value>) -> Value {
-        let test = index + self.position;
-        println!("INDEX: {}", test);
         stack[index + self.position].clone()
     }
 
@@ -187,8 +185,6 @@ impl VM {
 
                 Op::Equal => {
                     let (a, b) = self.binary_op();
-
-                    println!("{:?} == {:?}", a, b);
 
                     if let Ok(equality) = a.equals(&b) {
                         self.push(Value::Bool { val: equality });
