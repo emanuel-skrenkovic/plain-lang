@@ -1,9 +1,9 @@
-use std::fs;
 use std::env;
+use std::fs;
 use std::io::{stdin, stdout, Write};
 
-use sage::vm::VM;
 use sage::compiler::Compiler;
+use sage::vm::VM;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

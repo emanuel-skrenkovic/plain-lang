@@ -219,13 +219,15 @@ pub struct Compiler {
     scope_depth: usize
 }
 
+// TODO: refactor to pass the entire scanned/parsed data
+// structure from parser/scanner.
+// A data pipeline.
 impl Compiler {
     #[must_use]
     pub fn new(source: String) -> Compiler {
         Compiler {
             parser: Parser::new(Scanner::new(source)),
             scopes: vec![Program::new()],
-            // current: Rc::new(RefCell::new(Program::new(None))),
             scope_depth: 0
         }
     }
@@ -380,15 +382,8 @@ impl Compiler {
 
     fn literal(&mut self) {
         match self.parser.previous.kind {
-            TokenKind::True => {
-                let value = Value::Bool { val: true };
-                self.emit_constant(value);
-            },
-
-            TokenKind::False => {
-                let value = Value::Bool { val: false };
-                self.emit_constant(value);
-            }
+            TokenKind::True  => self.emit_constant(Value::Bool{ val: true }),
+            TokenKind::False => self.emit_constant(Value::Bool { val: false }),
 
             _ => {
                 let value = Value::Number {
@@ -624,15 +619,15 @@ impl Compiler {
     fn declare_variable(&mut self, token: Token, mutable: bool) -> u8 {
         let variable_name = token.value.clone();
 
-        let scope_depth = self.scope_depth;
+        let variable = Variable {
+            name: token,
+            mutable,
+            scope: self.scope_depth,
+            defined: true
+        };
         self.current_mut()
             .variables
-            .push(Variable {
-                name: token,
-                mutable,
-                scope: scope_depth, // TODO
-                defined: true
-            });
+            .push(variable);
 
         let variable_index = self.current_mut()
                                  .variables
@@ -672,40 +667,37 @@ impl Compiler {
         let previous = self.parser.previous.value.clone();
         let variable_indices = self.find_variable_by_name(&previous);
 
-        if let Some((scope, index)) = variable_indices {
-            // If the following token is '=', then it's an assignment.
-            if self.parser.match_token(TokenKind::Equal) {
-                if !self.scopes[scope].variables[index].mutable {
-                    self.parser.error_at_current("Cannot reassign value of an immutable variable.");
-                }
+        let Some((scope, index)) = variable_indices else { return None };
 
-                self.expression();
-
-                if scope < self.scope_depth {
-                    // Emit scope distance -> vm will move frames by this distance.
-                    self.emit_byte(Op::SetUpvalue);
-                    let scope_distance = self.scope_depth - scope;
-                    self.emit(scope_distance as u8);
-                } else {
-                    self.emit_byte(Op::SetLocal);
-                }
-
-            } else {
-                if scope < self.scope_depth {
-                    // Emit scope distance -> vm will move frames by this distance.
-                    self.emit_byte(Op::GetUpvalue);
-                    let scope_distance = self.scope_depth - scope;
-                    self.emit(scope_distance as u8);
-                } else {
-                    self.emit_byte(Op::GetLocal);
-                }
+        // If the following token is '=', then it's an assignment.
+        if self.parser.match_token(TokenKind::Equal) {
+            if !self.scopes[scope].variables[index].mutable {
+                self.parser.error_at_current("Cannot reassign value of an immutable variable.");
             }
 
-            self.emit(index as u8);
-            return Some(index as u8)
+            self.expression();
+
+            if scope < self.scope_depth {
+                // Emit scope distance -> vm will move frames by this distance.
+                self.emit_byte(Op::SetUpvalue);
+                let scope_distance = self.scope_depth - scope;
+                self.emit(scope_distance as u8);
+            } else {
+                self.emit_byte(Op::SetLocal);
+            }
+        } else {
+            if scope < self.scope_depth {
+                // Emit scope distance -> vm will move frames by this distance.
+                self.emit_byte(Op::GetUpvalue);
+                let scope_distance = self.scope_depth - scope;
+                self.emit(scope_distance as u8);
+            } else {
+                self.emit_byte(Op::GetLocal);
+            }
         }
 
-        None
+        self.emit(index as u8);
+        Some(index as u8)
     }
 
     fn variable_exists(&self, name: &str) -> bool {

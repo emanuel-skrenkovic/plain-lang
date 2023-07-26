@@ -1,6 +1,6 @@
-use sage::vm::VM;
 use sage::block::Value;
 use sage::compiler::Compiler;
+use sage::vm::VM;
 
 #[cfg(test)]
 mod equals_operator {
@@ -21,7 +21,7 @@ mod equals_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, false),
-            _                   => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -40,7 +40,7 @@ mod equals_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _                   => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -78,7 +78,7 @@ mod not_equals_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _                   => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -97,7 +97,7 @@ mod not_equals_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, false),
-            _                   => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -134,7 +134,7 @@ mod plus_operator {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 11),
-            _                     => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -153,7 +153,7 @@ mod plus_operator {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 26),
-            _                     => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -176,7 +176,7 @@ mod minus_operator {
 
     #[test]
     fn subtract() {
-        let source ="5 - 6".to_owned();
+        let source = "5 - 6".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -190,7 +190,7 @@ mod minus_operator {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, -1),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -213,7 +213,7 @@ mod greater_than_operator {
 
     #[test]
     fn greater_than_lesser() {
-        let source ="5 > 6".to_owned();
+        let source = "5 > 6".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -227,13 +227,13 @@ mod greater_than_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, false),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
     #[test]
     fn greater_than_greater() {
-        let source ="5 > 4".to_owned();
+        let source = "5 > 4".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -247,14 +247,14 @@ mod greater_than_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
     #[test]
     #[should_panic]
     fn greater_than_different_types() {
-        let source ="5 > true".to_owned();
+        let source = "5 > true".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -272,7 +272,7 @@ mod less_than_operator {
 
     #[test]
     fn less_than_lesser() {
-        let source ="5 < 6".to_owned();
+        let source = "5 < 6".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -286,13 +286,13 @@ mod less_than_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
     #[test]
     fn less_than_greater() {
-        let source ="5 < 4".to_owned();
+        let source = "5 < 4".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -306,14 +306,14 @@ mod less_than_operator {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, false),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
     #[test]
     #[should_panic]
     fn less_than_different_types() {
-        let source ="5 > true".to_owned();
+        let source = "5 > true".to_owned();
 
         let mut compiler = Compiler::new(source);
         let program = compiler.compile();
@@ -347,7 +347,7 @@ mod block_expression {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 10),
-            _                     => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -376,7 +376,8 @@ mod block_expression {
                 let b = a + 2;
                 b;
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -391,7 +392,7 @@ mod block_expression {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 7),
-            _                   => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 }
@@ -418,8 +419,12 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function { name: _, arity: _, closure: _ } => { },
-            _ => debug_assert!(false, "Value on stack is not a function.")
+            Value::Function {
+                name: _,
+                arity: _,
+                closure: _,
+            } => {}
+            _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
 
@@ -441,8 +446,12 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function { name: _, arity, closure: _ } => debug_assert_eq!(arity, 2),
-            _ => debug_assert!(false, "Value on stack is not a function.")
+            Value::Function {
+                name: _,
+                arity,
+                closure: _,
+            } => debug_assert_eq!(arity, 2),
+            _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
 
@@ -464,8 +473,12 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function { name, arity: _, closure: _ } => debug_assert_eq!(name, "test"),
-            _ => debug_assert!(false, "Value on stack is not a function.")
+            Value::Function {
+                name,
+                arity: _,
+                closure: _,
+            } => debug_assert_eq!(name, "test"),
+            _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
 
@@ -490,7 +503,7 @@ mod function {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 3),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -520,7 +533,7 @@ mod function {
 
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -533,7 +546,8 @@ mod function {
             }
 
             test();
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -548,7 +562,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 5),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -561,7 +575,8 @@ mod function {
             }
 
             test();
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -575,8 +590,8 @@ mod function {
         // Assert
         let value = vm.pop();
         match value {
-            Value::Unit => {  }
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            Value::Unit => {}
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -590,7 +605,8 @@ mod function {
 
             test();
             test();
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -604,8 +620,8 @@ mod function {
         // Assert
         let value = vm.pop();
         match value {
-            Value::Unit => {  }
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            Value::Unit => {}
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -619,7 +635,8 @@ mod function {
 
             test(4, 2);
             test(4, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -633,8 +650,8 @@ mod function {
         // Assert
         let value = vm.pop();
         match value {
-            Value::Unit => {  }
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            Value::Unit => {}
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -648,7 +665,8 @@ mod function {
 
             test();
             test();
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -663,13 +681,13 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 5),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
 
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 5),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -683,7 +701,8 @@ mod function {
 
             test(4, 2);
             test(4, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -698,13 +717,13 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 11),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
 
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 11),
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -717,7 +736,8 @@ mod function {
             }
 
             test();
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -731,14 +751,20 @@ mod function {
         // Assert
         let value = vm.pop();
         match value {
-            Value::Unit => {  }
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            Value::Unit => {}
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
 
         let value = vm.pop();
         match value {
-            Value::Function { name, arity: _, closure: _ } => { debug_assert_eq!(name, "test") },
-            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack.")
+            Value::Function {
+                name,
+                arity: _,
+                closure: _,
+            } => {
+                debug_assert_eq!(name, "test")
+            }
+            _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
 
@@ -747,7 +773,8 @@ mod function {
         // Arrange
         let source = "
             test();
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -763,7 +790,8 @@ mod function {
             }
 
             test(1, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -779,7 +807,7 @@ mod function {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 3),
-            _ => debug_assert!(false, "Value on stack is not a function.")
+            _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
 
@@ -792,7 +820,8 @@ mod function {
             }
 
             test(1, 2, 3);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -808,7 +837,7 @@ mod function {
 
         match value {
             Value::Number { val } => debug_assert_eq!(val, 6),
-            _ => debug_assert!(false, "Value on stack is not a function.")
+            _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
 
@@ -823,7 +852,8 @@ mod function {
             }
 
             test(1);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -844,7 +874,8 @@ mod function {
             }
             let holder = test;
             holder(1, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -858,7 +889,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 3),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -871,7 +902,8 @@ mod function {
             }
             let holder = test;
             test(1, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -885,7 +917,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 3),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -898,7 +930,8 @@ mod function {
             }
             let holder = test;
             test(1, 2) == holder(1, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -912,7 +945,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -931,7 +964,8 @@ mod function {
             }
 
             result;
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -945,7 +979,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 6),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -963,7 +997,8 @@ mod function {
             }
 
             result;
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -977,7 +1012,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 90),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -997,7 +1032,8 @@ mod function {
             }
 
             result;
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -1011,7 +1047,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 90),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -1032,7 +1068,8 @@ mod function {
             }
 
             result;
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -1046,7 +1083,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 6),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -1056,7 +1093,8 @@ mod function {
         let source = "
             let square = (x) => x * x;
             square(2);
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1074,7 +1112,8 @@ mod function {
         let source = "
             let square = (x) => x * x;
             square(2);
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1089,7 +1128,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 4),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -1098,7 +1137,8 @@ mod function {
         let source = "
             let square = (x) => x * x;
             square(2) == square(2);
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1113,7 +1153,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -1127,7 +1167,8 @@ mod function {
                 result = square(i);
             }
             result;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1142,7 +1183,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 81),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -1152,7 +1193,8 @@ mod function {
         let source = "
             let add = (a, b) => a + b;
             add(4, 2);
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1167,7 +1209,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 6),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 
@@ -1177,7 +1219,8 @@ mod function {
         let source = "
             let add = (a, b, c) => a + b * c;
             add(1, 2, 3);
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1192,7 +1235,7 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 7),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 }
@@ -1221,7 +1264,7 @@ mod closure {
         // TODO: macro?
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _                   => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1230,7 +1273,8 @@ mod closure {
         let source = "
             { let a = 5; }
             { let b = a + 2; }
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new(source.to_owned());
         let program = compiler.compile();
@@ -1263,7 +1307,8 @@ mod var_variables {
         let source = "
             var a = 5;
             a;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1277,8 +1322,8 @@ mod var_variables {
         // Assert
         let value = vm.pop();
         match value {
-            Value::Number{ val } => debug_assert_eq!(val, 5),
-            _ => debug_assert!(false, "Value is of incorrect type,")
+            Value::Number { val } => debug_assert_eq!(val, 5),
+            _ => debug_assert!(false, "Value is of incorrect type,"),
         }
     }
 
@@ -1303,7 +1348,8 @@ mod var_variables {
         let source = "
             var a = true;
             a;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1318,7 +1364,7 @@ mod var_variables {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type,")
+            _ => debug_assert!(false, "Value is of incorrect type,"),
         }
     }
 
@@ -1343,7 +1389,8 @@ mod var_variables {
         let source = "
             var a = 5;
             a = 2;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1362,7 +1409,8 @@ mod var_variables {
             var a = 5;
             a = 2;
             a;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1377,7 +1425,7 @@ mod var_variables {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 2),
-            _ => debug_assert!(false, "Value is of incorrect type,")
+            _ => debug_assert!(false, "Value is of incorrect type,"),
         }
     }
 
@@ -1388,7 +1436,8 @@ mod var_variables {
             var a;
             a = 2;
             a;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1403,7 +1452,7 @@ mod var_variables {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 2),
-            _ => debug_assert!(false, "Value is of incorrect type,")
+            _ => debug_assert!(false, "Value is of incorrect type,"),
         }
     }
 }
@@ -1433,7 +1482,8 @@ mod let_variables {
         let source = "
             let a = 5;
             a;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1447,8 +1497,8 @@ mod let_variables {
         // Assert
         let value = vm.pop();
         match value {
-            Value::Number{ val } => debug_assert_eq!(val, 5),
-            _ => debug_assert!(false, "Value is of incorrect type,")
+            Value::Number { val } => debug_assert_eq!(val, 5),
+            _ => debug_assert!(false, "Value is of incorrect type,"),
         }
     }
 
@@ -1473,7 +1523,8 @@ mod let_variables {
         let source = "
             let a = true;
             a;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1488,7 +1539,7 @@ mod let_variables {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type,")
+            _ => debug_assert!(false, "Value is of incorrect type,"),
         }
     }
 
@@ -1509,7 +1560,8 @@ mod let_variables {
         let source = "
             let a = 5;
             a = 2;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1529,7 +1581,8 @@ mod control_flow {
             if 2 == 2 {
                 true
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1544,7 +1597,7 @@ mod control_flow {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1556,7 +1609,8 @@ mod control_flow {
             if 2 == 3 {
                 true
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1580,7 +1634,8 @@ mod control_flow {
             } else {
                 false
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1595,7 +1650,7 @@ mod control_flow {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, true),
-            _ => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1607,7 +1662,8 @@ mod control_flow {
             } else {
                 false
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1622,7 +1678,7 @@ mod control_flow {
         let value = vm.pop();
         match value {
             Value::Bool { val } => debug_assert_eq!(val, false),
-            _ => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1636,7 +1692,8 @@ mod control_flow {
             } else {
                 3
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1651,7 +1708,7 @@ mod control_flow {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 1),
-            _ => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1665,7 +1722,8 @@ mod control_flow {
             } else {
                 3
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1680,7 +1738,7 @@ mod control_flow {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 2),
-            _ => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1694,7 +1752,8 @@ mod control_flow {
             } else {
                 3
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1709,7 +1768,7 @@ mod control_flow {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 3),
-            _ => debug_assert!(false, "Value is of incorrect type")
+            _ => debug_assert!(false, "Value is of incorrect type"),
         }
     }
 
@@ -1722,7 +1781,8 @@ mod control_flow {
             } else if 4 == 5 {
                 2
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1749,7 +1809,8 @@ mod for_loop {
             for var i = 0; i < 10; i = i + 1; {
                 i;
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1770,7 +1831,8 @@ mod for_loop {
                 test = test + i;
                 test;
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1792,7 +1854,8 @@ mod for_loop {
                 test = test + i;
             }
             test;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1806,7 +1869,7 @@ mod for_loop {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 45),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 }
@@ -1822,7 +1885,8 @@ mod while_loop {
             while i < 5 {
                 i = i + 1;
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1834,7 +1898,7 @@ mod while_loop {
         vm.interpret();
     }
 
-#[test]
+    #[test]
     #[should_panic(expected = "Out of bounds access")]
     fn while_does_not_leave_dangling_values() {
         let source = "
@@ -1845,7 +1909,8 @@ mod while_loop {
                 test;
                 i = i + 1;
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1869,7 +1934,8 @@ mod while_loop {
                 i = i + 1;
             }
             test;
-        ".to_owned();
+        "
+        .to_owned();
 
         // Act
         let mut compiler = Compiler::new(source.to_owned());
@@ -1883,7 +1949,7 @@ mod while_loop {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 45),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 }
