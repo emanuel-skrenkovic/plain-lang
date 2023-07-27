@@ -1,4 +1,5 @@
 use std::fmt;
+use std::mem::discriminant;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TokenKind {
@@ -67,6 +68,21 @@ impl Scanner {
 
             line: 1
         }
+    }
+
+    pub fn scan_tokens(&mut self) -> Vec<Token> {
+        let mut tokens: Vec<Token> = vec![];
+
+        loop {
+            let current = self.scan_token();
+            let end = discriminant(&current.kind) == discriminant(&TokenKind::End);
+
+            tokens.push(current);
+
+            if end { break }
+        }
+
+        tokens
     }
 
     pub fn scan_token(&mut self) -> Token {
