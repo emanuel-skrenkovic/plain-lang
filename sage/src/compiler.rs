@@ -56,47 +56,47 @@ struct ParseRule {
 }
 
 static RULES: [ParseRule; 41] = [
-    ParseRule { prefix: Some(Compiler::function_expression), infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightParen
-    ParseRule { prefix: Some(Compiler::block_expression), infix: None, precedence: Precedence::None }, // LeftBracket
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // RightBracket
-    ParseRule { prefix: None, infix: Some(Compiler::left_angle), precedence: Precedence::Comparison }, // LeftAngle
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // RightAngle
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: Some(Compiler::semicolon), infix: None, precedence: Precedence::None }, // Semicolon
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Colon
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Plus
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Term }, // Minus
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Star
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Factor }, // Slash
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Comma
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Bang
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Equality }, // BandEqual
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Equality }, // EqualEqual
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // GreaterEqual
-    ParseRule { prefix: None, infix: Some(Compiler::binary), precedence: Precedence::Comparison }, // LessEqual
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Equal
-    ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // True
-    ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // False
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Let
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Var
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // This
-    ParseRule { prefix: Some(Compiler::_if), infix: None, precedence: Precedence::None }, // If
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Else
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Break
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Continue
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Switch
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Case
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // For
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // While
-    ParseRule { prefix: Some(Compiler::anonymous_function_expression), infix: None, precedence: Precedence::None }, // Func
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Struct
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Interface
-    ParseRule { prefix: Some(Compiler::literal), infix: None, precedence: Precedence::None }, // Literal
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // FatArrow
-    ParseRule { prefix: Some(Compiler::variable), infix: None, precedence: Precedence::None }, // Identifier
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }, // Error
-    ParseRule { prefix: None, infix: None, precedence: Precedence::None }  // End
+    ParseRule { prefix: Some(Compiler::function_expression),           infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // RightParen
+    ParseRule { prefix: Some(Compiler::block_expression),              infix: None,                                precedence: Precedence::None }, // LeftBracket
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // RightBracket
+    ParseRule { prefix: None,                                          infix: Some(Compiler::left_angle),          precedence: Precedence::Comparison }, // LeftAngle
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // RightAngle
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Questionmark
+    ParseRule { prefix: Some(Compiler::semicolon),                     infix: None,                                precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Colon
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Plus
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Minus
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Star
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Slash
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Comma
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Bang
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // BandEqual
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // EqualEqual
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // GreaterEqual
+    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // LessEqual
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Equal
+    ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // True
+    ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // False
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Let
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Var
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // This
+    ParseRule { prefix: Some(Compiler::_if),                           infix: None,                                precedence: Precedence::None }, // If
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Else
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Break
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Continue
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Switch
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Case
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // For
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // While
+    ParseRule { prefix: Some(Compiler::anonymous_function_expression), infix: None,                                precedence: Precedence::None }, // Func
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Struct
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Interface
+    ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // Literal
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // FatArrow
+    ParseRule { prefix: Some(Compiler::variable),                      infix: None,                                precedence: Precedence::None }, // Identifier
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Error
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }  // End
 ];
 
 fn get_rule(token_kind: TokenKind) -> ParseRule {
@@ -289,15 +289,16 @@ impl Compiler {
 
         let prefix_rule  = get_rule(self.parser.previous.kind).prefix;
 
-        if let Some(prefix) = prefix_rule {
-            prefix(self);
-        } else {
-            if self.is_at_end() {
-                return
-            }
+        match prefix_rule {
+            Some(prefix) => prefix(self),
+            _ => {
+                if self.is_at_end() {
+                    return
+                }
 
-            self.parser.error_at_current("Expect expression.");
-            panic!();
+                self.parser.error_at_current("Expect expression.");
+                panic!();
+            }
         }
 
         while precedence.discriminator() <= get_rule(self.parser.current.kind)
@@ -308,6 +309,13 @@ impl Compiler {
             let infix_rule = get_rule(self.parser.previous.kind).infix;
             infix_rule.unwrap()(self);
         }
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        // TODO
+        // self.parser.match_token(TokenKind::Semicolon);
+        // self.emit_byte(Op::Pop);
     }
 
     fn expression(&mut self) {
@@ -437,9 +445,8 @@ impl Compiler {
                 self.parser.advance();
                 self._for();
             }
-            _ => { self.expression(); }
+            _ => self.expression_statement(),
         }
-
     }
 
     fn variable(&mut self) {
