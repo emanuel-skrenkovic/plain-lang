@@ -3,6 +3,7 @@ use std::fs;
 use std::io::{stdin, stdout, Write};
 
 use sage::compiler::Compiler;
+use sage::scan::Scanner;
 use sage::vm::VM;
 
 fn main() {
@@ -16,20 +17,24 @@ fn main() {
             stdout().flush().unwrap();
             stdin().read_line(&mut input).unwrap();
 
-            let mut compiler = Compiler::new(input.clone());
-            let program = compiler.compile();
+            let mut scanner = Scanner::new(input.clone());
+            let tokens = scanner.scan_tokens();
+
+            let mut compiler = Compiler::new();
+            let program = compiler.compile(tokens);
             let program = program.unwrap();
 
             let mut vm = VM::new(program);
             vm.interpret();
-
-            input.clear();
         }
     } else {
         let source = fs::read_to_string(&args[1]).unwrap();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut scanner = Scanner::new(source);
+        let mut compiler = Compiler::new();
+
+        let tokens = scanner.scan_tokens();
+        let program = compiler.compile(tokens);
         let program = program.unwrap();
 
         let mut vm = VM::new(program);

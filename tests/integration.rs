@@ -5,13 +5,16 @@ use sage::vm::VM;
 #[cfg(test)]
 mod equals_operator {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn equals_not_equal() {
         let source = "5 == 6";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut scanner = Scanner::new(source.to_owned());
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -29,8 +32,10 @@ mod equals_operator {
     fn equals_equal() {
         let source = "5 == 5";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut scanner = Scanner::new(source.to_owned());
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -50,8 +55,10 @@ mod equals_operator {
     fn equals_different_types() {
         let source = "5 == true";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut scanner = Scanner::new(source.to_owned());
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(scanner.scan_tokens());
         let program = program.unwrap();
 
         let mut vm = VM::new(program);
@@ -62,13 +69,16 @@ mod equals_operator {
 #[cfg(test)]
 mod not_equals_operator {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn not_equals_not_equal() {
         let source = "5 != 6";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut scanner = Scanner::new(source.to_owned());
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -86,8 +96,10 @@ mod not_equals_operator {
     fn not_equals_equal() {
         let source = "5 != 5";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut scanner = Scanner::new(source.to_owned());
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -106,8 +118,8 @@ mod not_equals_operator {
     fn not_equals_different_types() {
         let source = "5 != true";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source.to_owned()).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -118,13 +130,14 @@ mod not_equals_operator {
 #[cfg(test)]
 mod plus_operator {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn add() {
         let source = "5 + 6";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source.to_owned()).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -142,8 +155,8 @@ mod plus_operator {
     fn add_multiple_values() {
         let source = "5 + 6 + 7 + 8";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source.to_owned()).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -162,8 +175,8 @@ mod plus_operator {
     fn add_different_types() {
         let source = "5 + true";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source.to_owned()).scan_tokens());
 
         let mut vm = VM::new(program.unwrap());
         vm.interpret();
@@ -173,13 +186,14 @@ mod plus_operator {
 #[cfg(test)]
 mod minus_operator {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn subtract() {
         let source = "5 - 6".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source.to_owned()).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -199,8 +213,8 @@ mod minus_operator {
     fn subtract_different_types() {
         let source = "5 - true";
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source.to_owned()).scan_tokens());
 
         let mut vm = VM::new(program.unwrap());
         vm.interpret();
@@ -210,13 +224,14 @@ mod minus_operator {
 #[cfg(test)]
 mod greater_than_operator {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn greater_than_lesser() {
         let source = "5 > 6".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -235,8 +250,8 @@ mod greater_than_operator {
     fn greater_than_greater() {
         let source = "5 > 4".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -256,8 +271,8 @@ mod greater_than_operator {
     fn greater_than_different_types() {
         let source = "5 > true".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -269,13 +284,14 @@ mod greater_than_operator {
 #[cfg(test)]
 mod less_than_operator {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn less_than_lesser() {
         let source = "5 < 6".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -294,8 +310,8 @@ mod less_than_operator {
     fn less_than_greater() {
         let source = "5 < 4".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -315,8 +331,8 @@ mod less_than_operator {
     fn less_than_different_types() {
         let source = "5 > true".to_owned();
 
-        let mut compiler = Compiler::new(source);
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -328,16 +344,18 @@ mod less_than_operator {
 #[cfg(test)]
 mod block_expression {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn block_assignment() {
         let source = "
             let a = { let b = 3; b + 3 };
             a + 4;
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -357,10 +375,11 @@ mod block_expression {
         let source = "
             { let a = 5; }
             let b = a + 3;
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -379,8 +398,8 @@ mod block_expression {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -400,6 +419,7 @@ mod block_expression {
 #[cfg(test)]
 mod function {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn function_declaration_puts_function_on_stack() {
@@ -407,10 +427,11 @@ mod function {
             func test() {
                 5
             }
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -434,10 +455,11 @@ mod function {
             func test(a, b) {
                 a + b
             }
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -461,10 +483,11 @@ mod function {
             func test(a, b) {
                 a + b
             }
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -490,10 +513,11 @@ mod function {
             }
 
             test(1, 2);
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -517,10 +541,11 @@ mod function {
             }
 
             test() == 8;
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -549,8 +574,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -578,8 +603,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -608,8 +633,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -638,8 +663,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -668,8 +693,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -704,8 +729,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -739,8 +764,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -776,8 +801,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
 
@@ -793,8 +818,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -823,8 +848,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -855,8 +880,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -877,8 +902,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -905,8 +930,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -933,8 +958,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -967,8 +992,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1000,8 +1025,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1035,8 +1060,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1071,8 +1096,8 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1097,8 +1122,8 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1116,8 +1141,8 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1141,8 +1166,8 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1171,8 +1196,8 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1197,8 +1222,8 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1223,8 +1248,8 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1243,6 +1268,7 @@ mod function {
 #[cfg(test)]
 mod closure {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn closure_should_access_variable_from_outside_scope() {
@@ -1250,10 +1276,11 @@ mod closure {
             let a = 5;
             let b = { a + 2 };
             b == 7;
-        ";
+        "
+        .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
         let mut vm = VM::new(program.unwrap());
@@ -1276,8 +1303,8 @@ mod closure {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
 }
@@ -1285,6 +1312,7 @@ mod closure {
 #[cfg(test)]
 mod var_variables {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn var_defined_with_number_value() {
@@ -1292,8 +1320,8 @@ mod var_variables {
         let source = "var a = 5;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1311,8 +1339,8 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1333,8 +1361,8 @@ mod var_variables {
         let source = "var a = true;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1352,8 +1380,8 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1374,8 +1402,8 @@ mod var_variables {
         let source = "var a;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1393,8 +1421,8 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1413,8 +1441,8 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1440,8 +1468,8 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1460,6 +1488,7 @@ mod var_variables {
 #[cfg(test)]
 mod let_variables {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn let_defined_with_number_value() {
@@ -1467,8 +1496,8 @@ mod let_variables {
         let source = "let a = 5;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1486,8 +1515,8 @@ mod let_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1508,8 +1537,8 @@ mod let_variables {
         let source = "let a = true;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1527,8 +1556,8 @@ mod let_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1549,8 +1578,8 @@ mod let_variables {
         let source = "let a;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
 
@@ -1564,8 +1593,8 @@ mod let_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
 }
@@ -1573,6 +1602,7 @@ mod let_variables {
 #[cfg(test)]
 mod control_flow {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn if_expression_true_branch() {
@@ -1585,8 +1615,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1613,8 +1643,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1638,8 +1668,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1666,8 +1696,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1696,8 +1726,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1726,8 +1756,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1756,8 +1786,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1785,8 +1815,8 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1802,6 +1832,7 @@ mod control_flow {
 #[cfg(test)]
 mod for_loop {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn for_parsed_interpreted() {
@@ -1813,8 +1844,8 @@ mod for_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1835,8 +1866,8 @@ mod for_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1858,8 +1889,8 @@ mod for_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1877,6 +1908,7 @@ mod for_loop {
 #[cfg(test)]
 mod while_loop {
     use super::*;
+    use sage::scan::Scanner;
 
     #[test]
     fn while_parsed_and_interpreted() {
@@ -1889,8 +1921,8 @@ mod while_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1913,8 +1945,8 @@ mod while_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
@@ -1938,8 +1970,8 @@ mod while_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_owned());
-        let program = compiler.compile();
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
 
