@@ -65,6 +65,8 @@ static RULES: [ParseRule; 41] = [
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Questionmark
     ParseRule { prefix: Some(Compiler::semicolon),                     infix: None,                                precedence: Precedence::None }, // Semicolon
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Colon
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // ColonColon
+    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // ColonEquals
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Plus
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Minus
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Star
@@ -78,8 +80,6 @@ static RULES: [ParseRule; 41] = [
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Equal
     ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // True
     ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // False
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Let
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Var
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // This
     ParseRule { prefix: Some(Compiler::_if),                           infix: None,                                precedence: Precedence::None }, // If
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Else
@@ -429,14 +429,6 @@ impl Compiler {
                 self.parser.advance();
                 self.function_decl();
             }
-            TokenKind::Var => {
-                self.parser.advance();
-                self.var_decl();
-            },
-            TokenKind::Let => {
-                self.parser.advance();
-                self.let_decl();
-            },
             TokenKind::While => {
                 self.parser.advance();
                 self._while();
@@ -450,11 +442,34 @@ impl Compiler {
     }
 
     fn variable(&mut self) {
+        let immutable_declaration = self.parser.check_token(TokenKind::ColonColon);
+        let mutable_declaration   = self.parser.check_token(TokenKind::ColonEquals);
+
+        if mutable_declaration || immutable_declaration {
+            let variable_token = self.parser.previous.clone();
+            let variable_name  = variable_token.value.clone();
+
+            self.parser.match_token(
+                if mutable_declaration { TokenKind::ColonEquals } else { TokenKind::ColonColon }
+            );
+
+            if self.variable_exists(&variable_name) {
+                self.parser.error_at_current(
+                    &format!("Cannot redeclare variable with name '{}'.", variable_name)
+                );
+            }
+
+            let index = self.declare_variable(variable_token, mutable_declaration);
+
+            self.expression();
+            self.variable_definition(index);
+            self.parser.match_token(TokenKind::Semicolon);
+            return
+        }
+
         if self.parse_variable().is_none() {
             let previous = self.parser.previous.value.clone();
-            self.parser.error_at_current(
-                &format!("Variable '{}' is not declared.", &previous)
-            );
+            self.parser.error_at_current(&format!("Variable '{}' is not declared.", &previous));
         }
 
         self.parser.match_token(TokenKind::Semicolon);
@@ -562,7 +577,7 @@ impl Compiler {
     }
 
     fn anonymous_function_expression(&mut self) {
-        let function = self.function("anonumous");
+        let function = self.function("anonymous");
         self.emit_constant(function);
     }
 
@@ -587,58 +602,6 @@ impl Compiler {
         self.emit_constant(function);
 
         self.variable_definition(variable_key);
-    }
-
-    fn let_decl(&mut self) {
-        self.parser.match_token(TokenKind::Identifier);
-
-        let variable_token = self.parser.previous.clone();
-        let variable_name  = variable_token.value.clone();
-
-        if self.variable_exists(&variable_name) {
-            self.parser.error_at_current(
-                &format!("Cannot redeclare variable with name '{}'.", variable_name)
-            );
-        }
-
-        self.parser.consume(TokenKind::Equal, "Expect definition as a part of let declaration.");
-
-        let index = self.declare_variable(variable_token, false);
-
-        self.expression();
-        // self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable 'let' declaration.");
-
-        self.variable_definition(index);
-    }
-
-    fn var_decl(&mut self) {
-        self.parser.match_token(TokenKind::Identifier);
-
-        let variable_token = self.parser.previous.clone();
-        let variable_name  = variable_token.value.clone();
-
-        if self.variable_exists(&variable_name) {
-            self.parser.error_at_current(
-                &format!("Cannot redeclare variable with name '{}'.", variable_name)
-            );
-        }
-
-        if self.parse_variable().is_some() {
-            return
-        }
-
-        let index = self.declare_variable(variable_token, true);
-
-        // If the variable declaration is followed by the '=' sign,
-        // then it is defined and we should parse the definition expression.
-        if self.parser.match_token(TokenKind::Equal) {
-            self.expression();
-            // self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable definition.");
-            self.variable_definition(index);
-        } else {
-            self.variable_declaration(index);
-            self.parser.consume(TokenKind::Semicolon, "Expect ';' after variable declaration.");
-        }
     }
 
     fn declare_variable(&mut self, token: Token, mutable: bool) -> u8 {
@@ -804,10 +767,8 @@ impl Compiler {
 
         // loop variable
 
-        if self.parser.match_token(TokenKind::Var) {
-            self.var_decl();
-        } else if self.parser.match_token(TokenKind::Let) {
-            self.parser.error_at_current("'let' declaration as a part of for loop is not allowed.");
+        if self.parser.match_token(TokenKind::Identifier) {
+            self.variable();
         } else {
             self.expression();
         }

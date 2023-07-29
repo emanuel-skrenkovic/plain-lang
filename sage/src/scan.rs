@@ -4,11 +4,10 @@ use std::mem::discriminant;
 #[derive(Debug, Clone, Copy)]
 pub enum TokenKind {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
-    Questionmark, Semicolon, Colon, Plus, Minus, Star, Slash,
+    Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
     Comma,
     Bang, BangEqual, EqualEqual, GreaterEqual, LessEqual, Equal,
     True, False,
-    Let, Var,
     This, If, Else, Break, Continue,
     Switch, Case, For, While,
     Func, Struct, Interface, Literal,
@@ -87,24 +86,17 @@ impl Scanner {
 
     pub fn scan_token(&mut self) -> Token {
         self.skip_whitespace();
-
         self.start = self.current;
 
-        if self.source_end() {
-            return self.emit(TokenKind::End)
-        }
+        if self.source_end() { return self.emit(TokenKind::End) }
 
         let c = self.advance();
 
-        if c.is_numeric() {
-            return self.literal()
-        }
+        if c.is_numeric() { return self.literal() }
 
         // TODO: true | false?
 
-        if c.is_alphabetic() {
-            return self.identifier()
-        }
+        if c.is_alphabetic() { return self.identifier() }
 
         match c {
             '(' => self.emit(TokenKind::LeftParen),
@@ -126,7 +118,15 @@ impl Scanner {
                 self.emit(TokenKind::RightAngle)
             },
             '?' => self.emit(TokenKind::Questionmark),
-            ':' => self.emit(TokenKind::Colon),
+            ':' => {
+                if self.match_char(':') {
+                    return self.emit(TokenKind::ColonColon)
+                } else if self.match_char('=') {
+                    return self.emit(TokenKind::ColonEquals)
+                }
+
+                self.emit(TokenKind::Colon)
+            },
             ';' => self.emit(TokenKind::Semicolon),
             '+' => self.emit(TokenKind::Plus),
             '-' => self.emit(TokenKind::Minus),
@@ -195,7 +195,6 @@ impl Scanner {
 
                 self.check_keyword(1, 8, "nterface", TokenKind::If)
             },
-            'l' => self.check_keyword(1, 2, "et", TokenKind::Let),
             's' => {
                 if self.source.chars().nth(self.start + 1).unwrap() == 't' { // TODO: fix
                     return self.check_keyword(2, 4, "ruct", TokenKind::Struct)
@@ -210,7 +209,6 @@ impl Scanner {
 
                 self.check_keyword(1, 3, "his", TokenKind::This)
             },
-            'v' => self.check_keyword(1, 2, "ar", TokenKind::Var),
             'w' => self.check_keyword(1, 4, "hile", TokenKind::While),
             _   => TokenKind::Identifier,
         }
