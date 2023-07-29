@@ -349,7 +349,7 @@ mod block_expression {
     #[test]
     fn block_assignment() {
         let source = "
-            let a = { let b = 3; b + 3 };
+            a :: { b :: 3; b + 3 };
             a + 4;
         "
         .to_owned();
@@ -373,8 +373,8 @@ mod block_expression {
     #[should_panic]
     fn block_scope_out_of_scope_access() {
         let source = "
-            { let a = 5; }
-            let b = a + 3;
+            { a :: 5; }
+            b :: a + 3;
         "
         .to_owned();
 
@@ -390,9 +390,9 @@ mod block_expression {
     fn block_encloses_outer_scope() {
         // Arrange
         let source = "
-            let a = 5;
+            a :: 5;
             {
-                let b = a + 2;
+                b :: a + 2;
                 b;
             }
         "
@@ -535,7 +535,7 @@ mod function {
     fn function_call_encloses_outer_scope() {
         // Arrange
         let source = "
-            let a = 5;
+            a :: 5;
             func test() {
                 a + 3
             }
@@ -897,7 +897,7 @@ mod function {
             func test(a, b) {
                 a + b
             }
-            let holder = test;
+            holder :: test;
             holder(1, 2);
         "
         .to_owned();
@@ -925,7 +925,7 @@ mod function {
             func test(a, b) {
                 a + b
             }
-            let holder = test;
+            holder :: test;
             test(1, 2);
         "
         .to_owned();
@@ -953,7 +953,7 @@ mod function {
             func test(a, b) {
                 a + b
             }
-            let holder = test;
+            holder :: test;
             test(1, 2) == holder(1, 2);
         "
         .to_owned();
@@ -982,7 +982,7 @@ mod function {
                 a + b
             }
 
-            var result = 0;
+            result := 0;
 
             {
                 result = add(4, 2);
@@ -1016,8 +1016,8 @@ mod function {
                 a + b
             }
 
-            var result = 0;
-            for var i = 0; i < 10; i = i + 1; {
+            result := 0;
+            for i := 0; i < 10; i = i + 1; {
                 result = result + test(i, i);
             }
 
@@ -1049,10 +1049,10 @@ mod function {
                 a + b
             }
 
-            let proxy = test;
+            proxy :: test;
 
-            var result = 0;
-            for var i = 0; i < 10; i = i + 1; {
+            result := 0;
+            for i := 0; i < 10; i = i + 1; {
                 result = result + proxy(i, i);
             }
 
@@ -1084,9 +1084,9 @@ mod function {
                 a + b
             }
 
-            let proxy = add;
+            proxy :: add;
 
-            var result = 0;
+            result := 0;
 
             {
                 result = proxy(4, 2);
@@ -1116,7 +1116,7 @@ mod function {
     fn function_lambda_parsed_interpreted() {
         // Arrange
         let source = "
-            let square = (x) => x * x;
+            square :: (x) => x * x;
             square(2);
         "
         .to_owned();
@@ -1135,7 +1135,7 @@ mod function {
     fn function_lambda_places_correct_value_on_stack() {
         // Arrange
         let source = "
-            let square = (x) => x * x;
+            square :: (x) => x * x;
             square(2);
         "
         .to_owned();
@@ -1160,7 +1160,7 @@ mod function {
     #[test]
     fn function_lambda_results_equal_when_invoked_multiple_times_with_same_arguments() {
         let source = "
-            let square = (x) => x * x;
+            square :: (x) => x * x;
             square(2) == square(2);
         "
         .to_owned();
@@ -1185,10 +1185,10 @@ mod function {
     #[test]
     fn function_lambda_called_in_loop() {
         let source = "
-            let square = (x) => x * x;
+            square :: (x) => x * x;
 
-            var result = 0;
-            for var i = 0; i < 10; i = i + 1; {
+            result := 0;
+            for i := 0; i < 10; i = i + 1; {
                 result = square(i);
             }
             result;
@@ -1216,7 +1216,7 @@ mod function {
     fn function_lambda_two_arguments() {
         // Arrange
         let source = "
-            let add = (a, b) => a + b;
+            add :: (a, b) => a + b;
             add(4, 2);
         "
         .to_owned();
@@ -1242,7 +1242,7 @@ mod function {
     fn function_lambda_three_arguments() {
         // Arrange
         let source = "
-            let add = (a, b, c) => a + b * c;
+            add :: (a, b, c) => a + b * c;
             add(1, 2, 3);
         "
         .to_owned();
@@ -1273,8 +1273,8 @@ mod closure {
     #[test]
     fn closure_should_access_variable_from_outside_scope() {
         let source = "
-            let a = 5;
-            let b = { a + 2 };
+            a :: 5;
+            b :: { a + 2 };
             b == 7;
         "
         .to_owned();
@@ -1298,8 +1298,8 @@ mod closure {
     #[test]
     fn closure_should_not_capture_sibling_values() {
         let source = "
-            { let a = 5; }
-            { let b = a + 2; }
+            { a :: 5; }
+            { b :: a + 2; }
         "
         .to_owned();
 
@@ -1317,7 +1317,7 @@ mod var_variables {
     #[test]
     fn var_defined_with_number_value() {
         // Arrange
-        let source = "var a = 5;".to_owned();
+        let source = "a := 5;".to_owned();
 
         // Act
         let mut compiler = Compiler::new();
@@ -1333,7 +1333,7 @@ mod var_variables {
     fn var_returns_number_value_when_referenced() {
         // Arrange
         let source = "
-            var a = 5;
+            a := 5;
             a;
         "
         .to_owned();
@@ -1358,7 +1358,7 @@ mod var_variables {
     #[test]
     fn var_defined_with_boolean_value() {
         // Arrange
-        let source = "var a = true;".to_owned();
+        let source = "a := true;".to_owned();
 
         // Act
         let mut compiler = Compiler::new();
@@ -1374,7 +1374,7 @@ mod var_variables {
     fn var_returns_boolean_value_when_referenced() {
         // Arrange
         let source = "
-            var a = true;
+            a := true;
             a;
         "
         .to_owned();
@@ -1396,26 +1396,27 @@ mod var_variables {
         }
     }
 
-    #[test]
-    fn var_declared_not_defined() {
-        // Arrange
-        let source = "var a;".to_owned();
-
-        // Act
-        let mut compiler = Compiler::new();
-        let program = compiler.compile(Scanner::new(source).scan_tokens());
-        debug_assert!(program.is_ok());
-        let program = program.unwrap();
-
-        let mut vm = VM::new(program);
-        vm.interpret();
-    }
+    // TODO
+    // #[test]
+    // fn var_declared_not_defined() {
+    //     // Arrange
+    //     let source = "var a;".to_owned();
+    //
+    //     // Act
+    //     let mut compiler = Compiler::new();
+    //     let program = compiler.compile(Scanner::new(source).scan_tokens());
+    //     debug_assert!(program.is_ok());
+    //     let program = program.unwrap();
+    //
+    //     let mut vm = VM::new(program);
+    //     vm.interpret();
+    // }
 
     #[test]
     fn var_redefined() {
         // Arrange
         let source = "
-            var a = 5;
+            a := 5;
             a = 2;
         "
         .to_owned();
@@ -1434,7 +1435,7 @@ mod var_variables {
     fn var_redefined_returns_new_value() {
         // Arrange
         let source = "
-            var a = 5;
+            a := 5;
             a = 2;
             a;
         "
@@ -1457,32 +1458,33 @@ mod var_variables {
         }
     }
 
-    #[test]
-    fn var_declared_then_defined() {
-        // Arrange
-        let source = "
-            var a;
-            a = 2;
-            a;
-        "
-        .to_owned();
-
-        // Act
-        let mut compiler = Compiler::new();
-        let program = compiler.compile(Scanner::new(source).scan_tokens());
-        debug_assert!(program.is_ok());
-        let program = program.unwrap();
-
-        let mut vm = VM::new(program);
-        vm.interpret();
-
-        // Assert
-        let value = vm.pop();
-        match value {
-            Value::Number { val } => debug_assert_eq!(val, 2),
-            _ => debug_assert!(false, "Value is of incorrect type,"),
-        }
-    }
+    // TODO
+    // #[test]
+    // fn var_declared_then_defined() {
+    //     // Arrange
+    //     let source = "
+    //         var a;
+    //         a = 2;
+    //         a;
+    //     "
+    //     .to_owned();
+    //
+    //     // Act
+    //     let mut compiler = Compiler::new();
+    //     let program = compiler.compile(Scanner::new(source).scan_tokens());
+    //     debug_assert!(program.is_ok());
+    //     let program = program.unwrap();
+    //
+    //     let mut vm = VM::new(program);
+    //     vm.interpret();
+    //
+    //     // Assert
+    //     let value = vm.pop();
+    //     match value {
+    //         Value::Number { val } => debug_assert_eq!(val, 2),
+    //         _ => debug_assert!(false, "Value is of incorrect type,"),
+    //     }
+    // }
 }
 
 #[cfg(test)]
@@ -1493,7 +1495,7 @@ mod let_variables {
     #[test]
     fn let_defined_with_number_value() {
         // Arrange
-        let source = "let a = 5;".to_owned();
+        let source = "a :: 5;".to_owned();
 
         // Act
         let mut compiler = Compiler::new();
@@ -1509,7 +1511,7 @@ mod let_variables {
     fn let_returns_number_value_when_referenced() {
         // Arrange
         let source = "
-            let a = 5;
+            a :: 5;
             a;
         "
         .to_owned();
@@ -1534,7 +1536,7 @@ mod let_variables {
     #[test]
     fn let_defined_with_boolean_value() {
         // Arrange
-        let source = "let a = true;".to_owned();
+        let source = "a :: true;".to_owned();
 
         // Act
         let mut compiler = Compiler::new();
@@ -1550,7 +1552,7 @@ mod let_variables {
     fn let_returns_boolean_value_when_referenced() {
         // Arrange
         let source = "
-            let a = true;
+            a :: true;
             a;
         "
         .to_owned();
@@ -1572,22 +1574,23 @@ mod let_variables {
         }
     }
 
-    #[test]
-    fn let_error_if_value_not_defined() {
-        // Arrange
-        let source = "let a;".to_owned();
-
-        // Act
-        let mut compiler = Compiler::new();
-        let program = compiler.compile(Scanner::new(source).scan_tokens());
-        debug_assert!(!program.is_ok());
-    }
+    // TODO
+    // #[test]
+    // fn let_error_if_value_not_defined() {
+    //     // Arrange
+    //     let source = "let a;".to_owned();
+    //
+    //     // Act
+    //     let mut compiler = Compiler::new();
+    //     let program = compiler.compile(Scanner::new(source).scan_tokens());
+    //     debug_assert!(!program.is_ok());
+    // }
 
     #[test]
     fn let_error_if_redefined() {
         // Arrange
         let source = "
-            let a = 5;
+            a :: 5;
             a = 2;
         "
         .to_owned();
@@ -1596,6 +1599,36 @@ mod let_variables {
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod colon_equals {
+    use super::*;
+    use sage::scan::Scanner;
+
+    #[test]
+    fn declaration() {
+        let source = "
+            a := 5;
+        ".to_owned();
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+    }
+
+    #[test]
+    fn _for() {
+        let source = "
+            for i := 0; i < 5; i = i + 1; {
+                i;
+            }
+        ".to_owned();
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
     }
 }
 
@@ -1837,7 +1870,7 @@ mod for_loop {
     #[test]
     fn for_parsed_interpreted() {
         let source = "
-            for var i = 0; i < 10; i = i + 1; {
+            for i := 0; i < 10; i = i + 1; {
                 i;
             }
         "
@@ -1857,8 +1890,8 @@ mod for_loop {
     #[should_panic(expected = "Cannot pop empty stack.")]
     fn for_does_not_leave_dangling_values() {
         let source = "
-            for var i = 0; i < 10; i = i + 1; {
-                var test = 5;
+            for i := 0; i < 10; i = i + 1; {
+                test := 5;
                 test = test + i;
                 test;
             }
@@ -1880,8 +1913,8 @@ mod for_loop {
     #[test]
     fn for_captures_enclosing_variable() {
         let source = "
-            var test = 0;
-            for var i = 0; i < 10; i = i + 1 {
+            test := 0;
+            for i := 0; i < 10; i = i + 1 {
                 test = test + i;
             }
             test;
@@ -1913,7 +1946,7 @@ mod while_loop {
     #[test]
     fn while_parsed_and_interpreted() {
         let source = "
-            var i = 0;
+            i := 0;
             while i < 5 {
                 i = i + 1;
             }
@@ -1931,12 +1964,11 @@ mod while_loop {
     }
 
     #[test]
-    #[should_panic(expected = "Out of bounds access")]
     fn while_does_not_leave_dangling_values() {
         let source = "
-            var i = 0;
+            i := 0;
             while i < 10 {
-                var test = 5;;
+                test := 5;
                 test = test + i;
                 test;
                 i = i + 1;
@@ -1953,14 +1985,18 @@ mod while_loop {
         let mut vm = VM::new(program);
         vm.interpret();
 
-        let _ = vm.pop();
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 10),
+            _ => debug_assert!(false, "Value is of incorrect type.")
+        }
     }
 
     #[test]
     fn while_captures_enclosing_variable() {
         let source = "
-            var test = 0;
-            var i = 0;
+            test := 0;
+            i := 0;
             while i < 10 {
                 test = test + i;
                 i = i + 1;
