@@ -55,7 +55,7 @@ struct ParseRule {
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 41] = [
+static RULES: [ParseRule; 40] = [
     ParseRule { prefix: Some(Compiler::function_expression),           infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // RightParen
     ParseRule { prefix: Some(Compiler::block_expression),              infix: None,                                precedence: Precedence::None }, // LeftBracket
@@ -93,7 +93,6 @@ static RULES: [ParseRule; 41] = [
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Struct
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Interface
     ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // Literal
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // FatArrow
     ParseRule { prefix: Some(Compiler::variable),                      infix: None,                                precedence: Precedence::None }, // Identifier
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Error
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }  // End
@@ -560,7 +559,6 @@ impl Compiler {
         self.declare_variable(variable_name, false);
 
         self.parser.consume(TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
-        self.parser.consume(TokenKind::FatArrow, "Expect '=>' when declaring lambda.");
 
         self.expression();
         self.emit_return(arity + 1);
@@ -739,8 +737,9 @@ impl Compiler {
         let break_jump = self.emit_jump(Op::CondJump);
 
         // Body
-        let mut values = 0;
         self.parser.consume(TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
+
+        let mut values = 0;
         while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
             self.declaration();
             values += 1;
