@@ -357,8 +357,9 @@ mod block_expression {
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
+        let program = program.unwrap();
 
-        let mut vm = VM::new(program.unwrap());
+        let mut vm = VM::new(program);
         vm.interpret();
 
         let value = vm.pop();
@@ -375,8 +376,7 @@ mod block_expression {
         let source = "
             { a :: 5; }
             b :: a + 3;
-        "
-        .to_owned();
+        ".to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -420,6 +420,31 @@ mod block_expression {
 mod function {
     use super::*;
     use sage::scan::Scanner;
+
+    #[test]
+    fn t() {
+        let source = "
+            a :: () { 5 };
+        ".to_owned();
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+
+        let mut vm = VM::new(program.unwrap());
+        vm.interpret();
+
+        let value = vm.pop();
+
+        match value {
+            Value::Function {
+                name: _,
+                arity: _,
+                closure: _,
+            } => {}
+            _ => debug_assert!(false, "Value on stack is not a function."),
+        }
+    }
 
     #[test]
     fn function_declaration_puts_function_on_stack() {

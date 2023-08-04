@@ -322,21 +322,21 @@ impl Compiler {
     }
 
     fn block_expression(&mut self) {
-        self.emit_byte(Op::Frame);
+        // self.emit_byte(Op::Frame);
 
         // Reserve place for Closure value which will be written later.
         // Closure is written later because the code block needs to be populated
         // by nested code first.
         // TODO: make prettier
-        let closure_index = self.current_mut().block.write_constant(Value::Unit);
-        self.current_mut().block.write(closure_index as u8);
+        // let closure_index = self.current_mut().block.write_constant(Value::Unit);
+        // self.current_mut().block.write(closure_index as u8);
 
         // TODO
         let nested_block = self.code_block();
         self.parser.match_token(TokenKind::Semicolon);
 
-        let closure = Closure { code: nested_block };
-        self.patch_constant(closure_index as usize, Value::Closure { val: closure });
+        // let closure = Closure { code: nested_block };
+        // self.patch_constant(closure_index as usize, Value::Closure { val: closure });
     }
 
     // TODO: this is the result of bad design. I need to use block expression
@@ -344,8 +344,8 @@ impl Compiler {
     // Since the 'block_expression' method calls end scope, and thus consumes the closure,
     // that code cannot be reused for function declarations.
     // This is bad and it should be implemented in more reusable, functional way.
-    fn code_block(&mut self) -> Block {
-        self.begin_scope();
+    fn code_block(&mut self) {
+        // self.begin_scope();
 
         // Compile code until the end of the block or the end of the program is reached.
         let mut count = 0;
@@ -361,12 +361,12 @@ impl Compiler {
         let has_value = !matches!(self.parser.previous.kind, TokenKind::Semicolon);
         let count = if has_value && count > 0 { count - 1 } else { count };
 
-        self.parser.match_token(TokenKind::RightBracket);
+        // self.parser.match_token(TokenKind::RightBracket);
         // TODO: think about this
-        // self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
-        self.emit_return(count);
-        self.end_scope()
+        // self.emit_return(count);
+        // self.end_scope()
     }
 
     fn binary(&mut self) {
@@ -458,10 +458,11 @@ impl Compiler {
                 );
             }
 
-            let index = self.declare_variable(variable_token, mutable_declaration);
-
             self.expression();
+
+            let index = self.declare_variable(variable_token, mutable_declaration);
             self.variable_definition(index);
+
             self.parser.match_token(TokenKind::Semicolon);
             return
         }
@@ -571,12 +572,11 @@ impl Compiler {
         };
 
         self.emit_constant(function)
-
     }
 
     fn anonymous_function_expression(&mut self) {
-        let function = self.function("anonymous");
-        self.emit_constant(function);
+        // let function = self.function("anonymous");
+        // self.emit_constant(function);
     }
 
     fn function_decl(&mut self) {
@@ -728,8 +728,8 @@ impl Compiler {
     }
 
     fn _while(&mut self) {
-        let closure_index = self.start_closure();
-        self.begin_scope();
+        // let closure_index = self.start_closure();
+        // self.begin_scope();
 
         let loop_start = self.position();
         self.expression();
@@ -751,18 +751,18 @@ impl Compiler {
         self.emit_loop(loop_start);
         self.patch_jump(break_jump);
 
-        self.emit_return(0);
+        // self.emit_return(0);
 
-        let nested_block = self.end_scope();
-        self.end_closure(closure_index as usize, nested_block);
+        // let nested_block = self.end_scope();
+        // self.end_closure(closure_index as usize, nested_block);
     }
 
     // In this implementation, all the parts of a for
     // loop declaration are required. While and iterators (when I get to that)
     // will make up for everything.
     fn _for(&mut self) {
-        let closure_index = self.start_closure();
-        self.begin_scope();
+        // let closure_index = self.start_closure();
+        // self.begin_scope();
 
         // loop variable
 
@@ -819,10 +819,10 @@ impl Compiler {
 
         // end body
 
-        self.emit_return(0);
+        // self.emit_return(0);
 
-        let nested_block = self.end_scope();
-        self.end_closure(closure_index as usize, nested_block);
+        // let nested_block = self.end_scope();
+        // self.end_closure(closure_index as usize, nested_block);
 
         self.emit_byte(Op::Pop);
     }
@@ -885,29 +885,29 @@ impl Compiler {
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    fn start_closure(&mut self) -> u8 {
-        self.emit_byte(Op::Frame);
-
-        let closure_index = self.current_mut().block.write_constant(Value::Unit);
-        self.current_mut().block.write(closure_index as u8);
-
-        closure_index
-    }
-
-    fn end_closure(&mut self, closure_index: usize, block: Block) {
-        let closure = Closure { code: block };
-        self.patch_constant(
-            closure_index,
-            Value::Closure { val: closure }
-        );
-    }
+    // fn start_closure(&mut self) -> u8 {
+    //     self.emit_byte(Op::Frame);
+    //
+    //     let closure_index = self.current_mut().block.write_constant(Value::Unit);
+    //     self.current_mut().block.write(closure_index as u8);
+    //
+    //     closure_index
+    // }
+    //
+    // fn end_closure(&mut self, closure_index: usize, block: Block) {
+    //     let closure = Closure { code: block };
+    //     self.patch_constant(
+    //         closure_index,
+    //         Value::Closure { val: closure }
+    //     );
+    // }
 
     fn begin_scope(&mut self) {
         self.scope_depth += 1;
         self.scopes.push(Program::new());
     }
 
-    /// Gives away ownership of the block after the scope is finished.
+    // /// Gives away ownership of the block after the scope is finished.
     fn end_scope(&mut self) -> Block {
         assert!(self.scope_depth > 0);
         assert!(!self.scopes.is_empty());
