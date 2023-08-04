@@ -326,16 +326,16 @@ impl VM {
                 },
 
                 Op::Frame => {
-                    let index = frame.read_byte() as usize;
-                    let value = frame.read_constant(index);
-
-                    let closure = match value {
-                        Value::Closure { val } =>  val,
-                        _ => panic!("Frame value of incorrect type. Expected 'Closure'.")
-                    };
-
-                    let frame = CallFrame::new(self.stack_top, closure.code);
-                    frames.push_back(frame);
+                    // let index = frame.read_byte() as usize;
+                    // let value = frame.read_constant(index);
+                    //
+                    // let closure = match value {
+                    //     Value::Closure { val } =>  val,
+                    //     _ => panic!("Frame value of incorrect type. Expected 'Closure'.")
+                    // };
+                    //
+                    // let frame = CallFrame::new(self.stack_top, closure.code);
+                    // frames.push_back(frame);
                 }
 
                 Op::Return => {
