@@ -8,86 +8,104 @@ use crate::block::{Block, Op, Value};
 const STACK_SIZE: usize = 1024;
 
 // Cache eviction on every scope change?
-struct CallFrame {
+struct CallFrame
+{
     position: usize,
     i: usize,
     block: Block
 }
 
-impl CallFrame {
+impl CallFrame
+{
     #[must_use]
-    pub fn new(position: usize, block: Block) -> CallFrame {
+    pub fn new(position: usize, block: Block) -> CallFrame
+    {
         CallFrame {
             position,
             i: 0,
             block
         }
     }
-    fn get_value(&self, index: usize, stack: &VecDeque<Value>) -> Value {
+
+    fn get_value(&self, index: usize, stack: &VecDeque<Value>) -> Value
+    {
         stack[index + self.position].clone()
     }
 
-    fn set_value(&mut self, index: usize, value: Value, stack: &mut VecDeque<Value>) {
+    fn set_value(&mut self, index: usize, value: Value, stack: &mut VecDeque<Value>)
+    {
         stack[index + self.position] = value;
     }
 
-    fn read_byte(&mut self) -> u8 {
+    fn read_byte(&mut self) -> u8
+    {
         let ip = self.block.code[self.i];
         self.i += 1;
 
         ip
     }
 
-    fn read_constant(&mut self, index: usize) -> Value {
+    fn read_constant(&mut self, index: usize) -> Value
+    {
         self.block.constants[index].clone()
     }
 
-    fn peek_op(&self, index: usize) -> u8 {
+    fn peek_op(&self, index: usize) -> u8
+    {
         self.block.code[index]
     }
 }
 
 // TODO: use?
-pub struct Stack {
+pub struct Stack
+{
     values: VecDeque<Value>,
     stack_top: usize
 }
 
-impl <'vm> Stack {
-    pub fn new() -> Stack {
+impl <'vm> Stack
+{
+    pub fn new() -> Stack
+    {
         Stack {
             values: VecDeque::with_capacity(1024),
             stack_top: 0
         }
     }
 
-    pub fn push(&mut self, value: Value) {
+    pub fn push(&mut self, value: Value)
+    {
         self.values.push_back(value);
         self.stack_top += 1;
     }
 
-    pub fn pop(&mut self) -> Value {
+    pub fn pop(&mut self) -> Value
+    {
         assert!(!self.values.is_empty());
         let value = self.values.pop_back().unwrap();
         self.stack_top -= 1;
         value
     }
 
-    pub fn peek(&self, distance: usize) -> &Value {
+    pub fn peek(&self, distance: usize) -> &Value
+    {
         &self.values[self.stack_top - 1 - distance]
     }
 }
 
-pub struct VM {
+pub struct VM
+{
     program: Program,
 
     stack: VecDeque<Value>,
     stack_top: usize,
 }
 
-impl VM {
+impl VM
+{
     #[must_use]
-    pub fn new(program: Program) -> VM {
+    pub fn new(program: Program) -> VM
+    {
         VM {
             program,
 
@@ -96,7 +114,8 @@ impl VM {
         }
     }
 
-    pub fn interpret(&mut self) {
+    pub fn interpret(&mut self)
+    {
         let mut frames = VecDeque::new();
         frames.push_front(
             CallFrame::new(self.stack_top, self.program.block.clone())
@@ -404,24 +423,28 @@ impl VM {
         }
     }
 
-    pub fn pop(&mut self) -> Value {
+    pub fn pop(&mut self) -> Value
+    {
         assert!(!self.stack.is_empty(), "Cannot pop empty stack.");
         let value = self.stack.pop_back().unwrap();
         self.stack_top -= 1;
         value
     }
 
-    pub fn push(&mut self, value: Value) {
+    pub fn push(&mut self, value: Value)
+    {
         self.stack.push_back(value);
         self.stack_top += 1;
     }
 
-    pub fn peek(&self, distance: usize) -> &Value {
+    pub fn peek(&self, distance: usize) -> &Value
+    {
         &self.stack[self.stack_top - 1 - distance]
     }
 
     // TODO: how to handle differring types
-    fn binary_op(&mut self) -> (Value, Value) {
+    fn binary_op(&mut self) -> (Value, Value)
+    {
         let a = self.pop();
         let b = self.pop();
 
@@ -432,7 +455,8 @@ impl VM {
         (a, b)
     }
 
-    fn disassemble_instruction(&self, frame: &CallFrame, instruction: u8) {
+    fn disassemble_instruction(&self, frame: &CallFrame, instruction: u8)
+    {
         print!("OP ");
 
         if let Ok(i) = instruction.try_into() {
@@ -535,7 +559,8 @@ impl VM {
         }
     }
 
-    fn print_simple_op(&self, name: &str) {
+    fn print_simple_op(&self, name: &str)
+    {
         println!("{name:<width$} |", name=name, width=20);
     }
 
@@ -543,7 +568,8 @@ impl VM {
     //     println!("{name:<width$} {slot}", name=name, slot=frame.i - 1, width=20);
     // }
 
-    fn print_constant_op(&self, frame: &CallFrame, name: &str, value: &Value) {
+    fn print_constant_op(&self, frame: &CallFrame, name: &str, value: &Value)
+    {
         println!("{name:<width$} {slot:<slot_width$} {value:?}", name=name,
                                                                  width=20,
                                                                  slot=frame.i - 1,
@@ -553,11 +579,13 @@ impl VM {
 }
 
 #[cfg(test)]
-mod vm_tests {
+mod vm_tests
+{
     use super::*;
 
     #[test]
-    fn stack_push_pushes_to_stack_front() {
+    fn stack_push_pushes_to_stack_front()
+    {
         let mut stack = Stack::new();
         stack.push(Value::Unit);
 
@@ -566,7 +594,8 @@ mod vm_tests {
     }
 
     #[test]
-    fn stack_peek_with_no_distance_peeks_stack_top() {
+    fn stack_peek_with_no_distance_peeks_stack_top()
+    {
         let mut stack = Stack::new();
         stack.push(Value::Unit);
 
@@ -581,7 +610,8 @@ mod vm_tests {
     }
 
     #[test]
-    fn stack_pops_last_inserted_value() {
+    fn stack_pops_last_inserted_value()
+    {
         let mut stack = Stack::new();
         stack.push(Value::Unit);
 
