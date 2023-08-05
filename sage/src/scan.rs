@@ -2,7 +2,8 @@ use std::fmt;
 use std::mem::discriminant;
 
 #[derive(Debug, Clone, Copy)]
-pub enum TokenKind {
+pub enum TokenKind
+{
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
     Comma,
@@ -16,14 +17,17 @@ pub enum TokenKind {
 }
 
 #[derive(Debug)]
-pub struct Token {
+pub struct Token
+{
     pub kind: TokenKind,
     pub value: String,
     pub line: usize,
 }
 
-impl Clone for Token {
-    fn clone(&self) -> Self {
+impl Clone for Token
+{
+    fn clone(&self) -> Self
+    {
         Token {
             kind: self.kind,
             value: self.value.clone(),
@@ -32,21 +36,26 @@ impl Clone for Token {
     }
 }
 
-impl fmt::Display for Token {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl fmt::Display for Token
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+    {
         write!(f, "Kind {:?}\nValue {}\nLine {}\n", self.kind,
                                                     self.value,
                                                     self.line)
     }
 }
 
-impl std::default::Default for Token {
-    fn default() -> Self {
+impl std::default::Default for Token
+{
+    fn default() -> Self
+    {
         Token { kind: TokenKind::Error, value: "".to_owned(), line: 0 }
     }
 }
 
-pub struct Scanner {
+pub struct Scanner
+{
     source: String,
 
     current: usize,
@@ -55,9 +64,11 @@ pub struct Scanner {
     line: usize
 }
 
-impl Scanner {
+impl Scanner
+{
     #[must_use]
-    pub fn new(source: String) -> Scanner {
+    pub fn new(source: String) -> Scanner
+    {
         Scanner {
             source,
 
@@ -68,7 +79,8 @@ impl Scanner {
         }
     }
 
-    pub fn scan_tokens(&mut self) -> Vec<Token> {
+    pub fn scan_tokens(&mut self) -> Vec<Token>
+    {
         let mut tokens: Vec<Token> = vec![];
 
         loop {
@@ -83,7 +95,8 @@ impl Scanner {
         tokens
     }
 
-    pub fn scan_token(&mut self) -> Token {
+    pub fn scan_token(&mut self) -> Token
+    {
         self.skip_whitespace();
         self.start = self.current;
 
@@ -151,7 +164,8 @@ impl Scanner {
         }
     }
 
-    fn identifier(&mut self) -> Token {
+    fn identifier(&mut self) -> Token
+    {
         while self.peek().is_alphanumeric() {
             self.advance();
         }
@@ -159,7 +173,8 @@ impl Scanner {
         self.emit(self.identifier_type())
     }
 
-    fn identifier_type(&self) -> TokenKind {
+    fn identifier_type(&self) -> TokenKind
+    {
         let identifier_first_char = self.source.chars().nth(self.start).unwrap();
 
         match identifier_first_char {
@@ -209,7 +224,8 @@ impl Scanner {
         }
     }
 
-    fn literal(&mut self) -> Token {
+    fn literal(&mut self) -> Token
+    {
         while self.peek().is_alphanumeric() {
             self.advance();
         }
@@ -224,7 +240,8 @@ impl Scanner {
         length: usize,
         rest: &str,
         token_kind: TokenKind
-    ) -> TokenKind {
+    ) -> TokenKind
+    {
         let from = self.start + start;
         let to   = from + length;
 
@@ -241,7 +258,8 @@ impl Scanner {
         TokenKind::Identifier
     }
 
-    fn advance(&mut self) -> char {
+    fn advance(&mut self) -> char
+    {
         self.current += 1;
 
         self.source
@@ -250,11 +268,13 @@ impl Scanner {
             .unwrap()
     }
 
-    fn peek(&self) -> char {
+    fn peek(&self) -> char
+    {
         self.source_char_at(self.current)
     }
 
-    fn match_char(&mut self, c: char) -> bool {
+    fn match_char(&mut self, c: char) -> bool
+    {
         if self.peek() == c {
             self.advance();
             return true
@@ -263,11 +283,13 @@ impl Scanner {
         false
     }
 
-    fn source_char_at(&self, i: usize) -> char {
+    fn source_char_at(&self, i: usize) -> char
+    {
         self.source.chars().nth(i).unwrap_or('\0')
     }
 
-    fn skip_whitespace(&mut self) {
+    fn skip_whitespace(&mut self)
+    {
         loop {
             let c = self.peek();
 
@@ -282,11 +304,13 @@ impl Scanner {
         }
     }
 
-    fn source_end(&self) -> bool {
+    fn source_end(&self) -> bool
+    {
         self.peek() == '\0'
     }
 
-    fn emit(&self, kind: TokenKind) -> Token {
+    fn emit(&self, kind: TokenKind) -> Token
+    {
         Token {
             kind,
             value: self.source[self.start..self.current].to_owned(),

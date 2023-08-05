@@ -376,7 +376,8 @@ mod block_expression {
         let source = "
             { a :: 5; }
             b :: a + 3;
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -425,7 +426,8 @@ mod function {
     fn t() {
         let source = "
             a :: () { 5 };
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -1636,7 +1638,8 @@ mod colon_equals {
     fn declaration() {
         let source = "
             a := 5;
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -1649,7 +1652,8 @@ mod colon_equals {
             for i := 0; i < 5; i = i + 1; {
                 i;
             }
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -2013,7 +2017,7 @@ mod while_loop {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 10),
-            _ => debug_assert!(false, "Value is of incorrect type.")
+            _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
 

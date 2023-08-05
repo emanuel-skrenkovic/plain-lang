@@ -5,7 +5,8 @@ use crate::scan::{Token, TokenKind};
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
-enum Precedence {
+enum Precedence
+{
     None,
     Assignment,
     Or,
@@ -19,16 +20,20 @@ enum Precedence {
     Primary
 }
 
-impl Precedence {
-    pub fn discriminator(self) -> u8 {
+impl Precedence
+{
+    pub fn discriminator(self) -> u8
+    {
         self as u8
     }
 }
 
-impl TryFrom<u8> for Precedence {
+impl TryFrom<u8> for Precedence
+{
     type Error = ();
 
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
+    fn try_from(v: u8) -> Result<Self, Self::Error>
+    {
         match v {
             x if x == Precedence::None as u8       => Ok(Precedence::None),
             x if x == Precedence::Assignment as u8 => Ok(Precedence::Assignment),
@@ -49,7 +54,8 @@ impl TryFrom<u8> for Precedence {
 type ParseFn = fn(&mut Compiler);
 
 #[derive(Copy, Clone)]
-struct ParseRule {
+struct ParseRule
+{
     prefix: Option<ParseFn>,
     infix: Option<ParseFn>,
     precedence: Precedence
@@ -98,11 +104,13 @@ static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }  // End
 ];
 
-fn get_rule(token_kind: TokenKind) -> ParseRule {
+fn get_rule(token_kind: TokenKind) -> ParseRule
+{
     RULES[token_kind as usize]
 }
 
-pub struct Parser {
+pub struct Parser
+{
     tokens: Vec<Token>,
     scanned_tokens: Vec<Token>,
 
@@ -115,9 +123,11 @@ pub struct Parser {
     error: bool
 }
 
-impl Parser {
+impl Parser
+{
     #[must_use]
-    pub fn new(tokens: Vec<Token>) -> Parser {
+    pub fn new(tokens: Vec<Token>) -> Parser
+    {
         Parser {
             tokens,
             scanned_tokens: vec![],
@@ -129,7 +139,8 @@ impl Parser {
         }
     }
 
-    fn advance(&mut self) {
+    fn advance(&mut self)
+    {
         self.previous = self.current.clone();
 
         loop {
@@ -158,7 +169,8 @@ impl Parser {
         }
     }
 
-    fn match_token(&mut self, token_kind: TokenKind) -> bool {
+    fn match_token(&mut self, token_kind: TokenKind) -> bool
+    {
         if discriminant(&self.current.kind) != discriminant(&token_kind) {
             return false
         }
@@ -167,17 +179,20 @@ impl Parser {
         true
     }
 
-    fn check_token(&self, token_kind: TokenKind) -> bool {
+    fn check_token(&self, token_kind: TokenKind) -> bool
+    {
         discriminant(&self.current.kind) == discriminant(&token_kind)
     }
 
-    fn consume(&mut self, token_kind: TokenKind, error_message: &str) {
+    fn consume(&mut self, token_kind: TokenKind, error_message: &str)
+    {
         if !self.match_token(token_kind) {
             self.error_at_current(error_message);
         }
     }
 
-    fn error_at_current(&mut self, message: &str) {
+    fn error_at_current(&mut self, message: &str)
+    {
         self.panic = true;
         self.error = true;
 
@@ -190,7 +205,8 @@ impl Parser {
     }
 
     // TODO: horrible and I should be publicly shamed
-    fn peek(&self, diff: i32) -> Option<&Token> {
+    fn peek(&self, diff: i32) -> Option<&Token>
+    {
         let index = self.scanned_tokens.len() - 1;
         let index = index as i32 + diff;
 
@@ -205,7 +221,8 @@ impl Parser {
 }
 
 #[derive(Clone, Debug)]
-pub struct Variable {
+pub struct Variable
+{
     name: Token,
     mutable: bool,
     scope: usize,
@@ -213,13 +230,16 @@ pub struct Variable {
 }
 
 #[derive(Clone)]
-pub struct Program {
+pub struct Program
+{
     pub block: Block,
     pub variables: Vec<Variable>,
 }
 
-impl Program {
-    fn new() -> Program {
+impl Program
+{
+    fn new() -> Program
+    {
         Program {
             block: Block::new(1024),
             variables: vec![],
@@ -227,7 +247,8 @@ impl Program {
     }
 }
 
-pub struct Compiler {
+pub struct Compiler
+{
     // scanner: Scanner,
     parser: Parser,
     scopes: Vec<Program>,
@@ -237,9 +258,11 @@ pub struct Compiler {
 // TODO: refactor to pass the entire scanned/parsed data
 // structure from parser/scanner.
 // A data pipeline.
-impl Compiler {
+impl Compiler
+{
     #[must_use]
-    pub fn new() -> Compiler {
+    pub fn new() -> Compiler
+    {
         Compiler {
             // scanner: Scanner::new(source),
             parser: Parser::new(vec![]),
@@ -248,7 +271,8 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&mut self, tokens: Vec<Token>) -> Result<Program, ()> {
+    pub fn compile(&mut self, tokens: Vec<Token>) -> Result<Program, ()>
+    {
         self.parser = Parser::new(tokens);
         self.parser.advance();
 
@@ -271,19 +295,23 @@ impl Compiler {
            .unwrap())
     }
 
-    fn current(&self) -> &Program {
+    fn current(&self) -> &Program
+    {
         &self.scopes[self.scope_depth]
     }
 
-    fn current_mut(&mut self) -> &mut Program {
+    fn current_mut(&mut self) -> &mut Program
+    {
         &mut self.scopes[self.scope_depth]
     }
 
-    fn is_at_end(&self) -> bool {
+    fn is_at_end(&self) -> bool
+    {
         discriminant(&self.parser.current.kind) == discriminant(&TokenKind::End)
     }
 
-    fn parse_precedence(&mut self, precedence: Precedence) {
+    fn parse_precedence(&mut self, precedence: Precedence)
+    {
         self.parser.advance();
 
         let prefix_rule  = get_rule(self.parser.previous.kind).prefix;
@@ -310,18 +338,21 @@ impl Compiler {
         }
     }
 
-    fn expression_statement(&mut self) {
+    fn expression_statement(&mut self)
+    {
         self.expression();
         // TODO
         // self.parser.match_token(TokenKind::Semicolon);
         // self.emit_byte(Op::Pop);
     }
 
-    fn expression(&mut self) {
+    fn expression(&mut self)
+    {
         self.parse_precedence(Precedence::Assignment);
     }
 
-    fn block_expression(&mut self) {
+    fn block_expression(&mut self)
+    {
         // self.emit_byte(Op::Frame);
 
         // Reserve place for Closure value which will be written later.
@@ -344,7 +375,8 @@ impl Compiler {
     // Since the 'block_expression' method calls end scope, and thus consumes the closure,
     // that code cannot be reused for function declarations.
     // This is bad and it should be implemented in more reusable, functional way.
-    fn code_block(&mut self) {
+    fn code_block(&mut self)
+    {
         // self.begin_scope();
 
         // Compile code until the end of the block or the end of the program is reached.
@@ -369,7 +401,8 @@ impl Compiler {
         // self.end_scope()
     }
 
-    fn binary(&mut self) {
+    fn binary(&mut self)
+    {
         let operator   = self.parser.previous.kind;
         let parse_rule = get_rule(operator);
 
@@ -396,7 +429,8 @@ impl Compiler {
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    fn left_angle(&mut self) {
+    fn left_angle(&mut self)
+    {
         if self.parser.match_token(TokenKind::Identifier) {
             self.parser.match_token(TokenKind::RightAngle);
             // TODO generics
@@ -405,7 +439,8 @@ impl Compiler {
         }
     }
 
-    fn literal(&mut self) {
+    fn literal(&mut self)
+    {
         match self.parser.previous.kind {
             TokenKind::True  => self.emit_constant(Value::Bool{ val: true }),
             TokenKind::False => self.emit_constant(Value::Bool { val: false }),
@@ -422,7 +457,8 @@ impl Compiler {
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    fn declaration(&mut self) {
+    fn declaration(&mut self)
+    {
         match self.parser.current.kind {
             TokenKind::Func => {
                 self.parser.advance();
@@ -440,7 +476,8 @@ impl Compiler {
         }
     }
 
-    fn variable(&mut self) {
+    fn variable(&mut self)
+    {
         let immutable_declaration = self.parser.check_token(TokenKind::ColonColon);
         let mutable_declaration   = self.parser.check_token(TokenKind::ColonEquals);
 
@@ -475,7 +512,8 @@ impl Compiler {
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    fn function(&mut self, name: &str) -> Value {
+    fn function(&mut self, name: &str) -> Value
+    {
         self.parser.consume(TokenKind::LeftParen, "Expected '(' after function declaration.");
         self.begin_scope();
 
@@ -534,8 +572,19 @@ impl Compiler {
         function
     }
 
-    fn function_expression(&mut self) {
+    fn function_expression(&mut self)
+    {
         self.begin_scope();
+
+        // a :: ()
+        // ^ __
+        // 3 21
+        let variable_name = self.parser
+            .peek(-3)
+            .clone()
+            .unwrap()
+            .value
+            .clone();
 
         let mut arity = 0;
         if !self.parser.check_token(TokenKind::RightParen) {
@@ -556,8 +605,7 @@ impl Compiler {
             }
         }
 
-        let variable_name = self.parser.previous.clone();
-        self.declare_variable(variable_name, false);
+        self.declare_variable(self.parser.previous.clone(), false);
 
         self.parser.consume(TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
@@ -566,7 +614,7 @@ impl Compiler {
 
         let expression_block = self.end_scope();
         let function = Value::Function {
-            name: "lambda".to_owned(), // TODO: proper name
+            name: variable_name,
             arity,
             closure: Closure { code: expression_block },
         };
@@ -574,12 +622,14 @@ impl Compiler {
         self.emit_constant(function)
     }
 
-    fn anonymous_function_expression(&mut self) {
+    fn anonymous_function_expression(&mut self)
+    {
         // let function = self.function("anonymous");
         // self.emit_constant(function);
     }
 
-    fn function_decl(&mut self) {
+    fn function_decl(&mut self)
+    {
         self.parser.consume(TokenKind::Identifier, "Cannot declare function without name.");
 
         let function_token = self.parser.previous.clone();
@@ -602,7 +652,8 @@ impl Compiler {
         self.variable_definition(variable_key);
     }
 
-    fn declare_variable(&mut self, token: Token, mutable: bool) -> u8 {
+    fn declare_variable(&mut self, token: Token, mutable: bool) -> u8
+    {
         let variable_name = token.value.clone();
 
         let variable = Variable {
@@ -624,7 +675,8 @@ impl Compiler {
         variable_index as u8
     }
 
-    fn find_variable_by_name(&self, name: &str) -> Option<(usize, usize)> {
+    fn find_variable_by_name(&self, name: &str) -> Option<(usize, usize)>
+    {
         let mut current_scope = self.scope_depth;
 
         loop {
@@ -649,7 +701,8 @@ impl Compiler {
         None
     }
 
-    fn parse_variable(&mut self) -> Option<u8> {
+    fn parse_variable(&mut self) -> Option<u8>
+    {
         let previous = self.parser.previous.value.clone();
         let variable_indices = self.find_variable_by_name(&previous);
 
@@ -686,14 +739,16 @@ impl Compiler {
         Some(index as u8)
     }
 
-    fn variable_exists(&self, name: &str) -> bool {
+    fn variable_exists(&self, name: &str) -> bool
+    {
         self.current()
             .variables
             .iter()
             .any(|v| v.name.value == name && v.scope <= self.scope_depth)
     }
 
-    fn variable_declaration(&mut self, variable_key: u8) {
+    fn variable_declaration(&mut self, variable_key: u8)
+    {
         self.current_mut()
             .variables
             .get_mut(variable_key as usize)
@@ -702,7 +757,8 @@ impl Compiler {
         self.emit_byte(Op::DeclareVariable);
     }
 
-    fn variable_definition(&mut self, variable_key: u8) {
+    fn variable_definition(&mut self, variable_key: u8)
+    {
         self.current_mut()
             .variables
             .get_mut(variable_key as usize).unwrap().defined = true;
@@ -711,7 +767,8 @@ impl Compiler {
         self.emit(variable_key);
     }
 
-    fn _if(&mut self) {
+    fn _if(&mut self)
+    {
         self.expression();
 
         let then_jump = self.emit_jump(Op::CondJump);
@@ -727,7 +784,8 @@ impl Compiler {
         self.patch_jump(else_jump);
     }
 
-    fn _while(&mut self) {
+    fn _while(&mut self)
+    {
         // let closure_index = self.start_closure();
         // self.begin_scope();
 
@@ -760,7 +818,8 @@ impl Compiler {
     // In this implementation, all the parts of a for
     // loop declaration are required. While and iterators (when I get to that)
     // will make up for everything.
-    fn _for(&mut self) {
+    fn _for(&mut self)
+    {
         // let closure_index = self.start_closure();
         // self.begin_scope();
 
@@ -827,7 +886,8 @@ impl Compiler {
         self.emit_byte(Op::Pop);
     }
 
-    fn function_invocation(&mut self) {
+    fn function_invocation(&mut self)
+    {
         let function_name_token = self.parser.peek(-2);
 
         if function_name_token.is_none() {
@@ -902,13 +962,15 @@ impl Compiler {
     //     );
     // }
 
-    fn begin_scope(&mut self) {
+    fn begin_scope(&mut self)
+    {
         self.scope_depth += 1;
         self.scopes.push(Program::new());
     }
 
     // /// Gives away ownership of the block after the scope is finished.
-    fn end_scope(&mut self) -> Block {
+    fn end_scope(&mut self) -> Block
+    {
         assert!(self.scope_depth > 0);
         assert!(!self.scopes.is_empty());
 
@@ -918,106 +980,74 @@ impl Compiler {
         nested.block
     }
 
-    fn semicolon(&mut self) {
+    fn semicolon(&mut self)
+    {
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    fn emit_return(&mut self, values_count: usize) {
+    fn emit_return(&mut self, values_count: usize)
+    {
         self.emit_byte(Op::Return);
         self.emit(values_count as u8);
     }
 
-    fn patch(&mut self, index: usize, byte: u8) {
+    fn patch(&mut self, index: usize, byte: u8)
+    {
         self.current_mut().block.write_at(index, byte);
     }
 
-    fn patch_jump(&mut self, index: usize) {
+    fn patch_jump(&mut self, index: usize)
+    {
         let code_len = self.current().block.code.len();
         self.patch(index, (code_len - 1 - index) as u8);
     }
 
-    fn emit_loop(&mut self, loop_start: usize) {
+    fn emit_loop(&mut self, loop_start: usize)
+    {
         let loop_end = self.current().block.code.len();
         self.emit_byte(Op::LoopJump);
         self.emit((loop_end - loop_start + 2) as u8);
     }
 
-    fn emit_jump(&mut self, op: Op) -> usize {
+    fn emit_jump(&mut self, op: Op) -> usize
+    {
         self.emit_byte(op);
         self.emit(0)
     }
 
-    fn emit_byte(&mut self, op: Op) -> usize {
+    fn emit_byte(&mut self, op: Op) -> usize
+    {
         self.current_mut().block.write_op(op)
     }
 
-    fn emit(&mut self, byte: u8) -> usize {
+    fn emit(&mut self, byte: u8) -> usize
+    {
         self.current_mut().block.write(byte as u8)
     }
 
-    fn emit_bytes(&mut self, a: Op, b: Op) -> usize {
+    fn emit_bytes(&mut self, a: Op, b: Op) -> usize
+    {
         self.current_mut().block.write_op(a);
         self.current_mut().block.write_op(b)
     }
 
-    fn emit_constant(&mut self, value: Value) {
+    fn emit_constant(&mut self, value: Value)
+    {
         let i = self.current_mut().block.write_constant(value);
 
         self.current_mut().block.write_op(Op::Constant);
         self.current_mut().block.write(i as u8);
     }
 
-    fn patch_constant(&mut self, index: usize, constant: Value) {
+    fn patch_constant(&mut self, index: usize, constant: Value)
+    {
         self.current_mut()
             .block
             .write_constant_at(index, constant);
     }
 
-    fn position(&self) -> usize {
+    fn position(&self) -> usize
+    {
         self.current().block.code.len()
     }
 }
-
-// #[cfg(test)]
-// mod compiler_tests {
-//     use super::*;
-//
-//     #[test]
-//     fn add() {
-//         // Arrange
-//         let source = "5 + 6";
-//
-//         // Act
-//         let program = compile_source(source).unwrap();
-//
-//         // Assert
-//         let generated_code = program.block.code;
-//
-//         debug_assert!(!generated_code.is_empty());
-//         debug_assert_eq!(generated_code, vec![8, 0, 8, 1, 4]);
-//     }
-//
-//     #[test]
-//     fn let_value() {
-//         // Arrange
-//         let source = "
-//             let a = 5;
-//             a;
-//         ";
-//
-//         // Act
-//         let program = compile_source(source).unwrap();
-//
-//         // Assert
-//         let generated_code = program.block.code;
-//
-//         debug_assert!(!generated_code.is_empty());
-//         debug_assert_eq!(generated_code, vec![8, 0, 15, 0, 16, 0]);
-//     }
-//
-//     fn compile_source(source: &str) -> Result<Program, ()> {
-//         let mut compiler = Compiler::new(source.to_owned());
-//         let program = compiler.compile();
-//         program
-//     }
-// }

@@ -1,7 +1,8 @@
 use std::convert::TryFrom;
 
 #[derive(Clone, Debug)]
-pub enum Value {
+pub enum Value
+{
     String { val: String },
     Number { val: i32 },
     Bool   { val: bool },
@@ -11,12 +12,14 @@ pub enum Value {
 }
 
 #[derive(Clone, Debug)]
-pub struct Closure {
+pub struct Closure
+{
     pub code: Block
 }
 
 #[repr(u8)]
-pub enum Op {
+pub enum Op
+{
     Pop,
     True, False,
     Not,
@@ -31,10 +34,12 @@ pub enum Op {
     Call
 }
 
-impl TryFrom<u8> for Op {
+impl TryFrom<u8> for Op
+{
     type Error = ();
 
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
+    fn try_from(v: u8) -> Result<Self, Self::Error>
+    {
         match v {
             x if x == Op::Pop as u8             => Ok(Op::Pop),
             x if x == Op::True as u8            => Ok(Op::True),
@@ -67,39 +72,47 @@ impl TryFrom<u8> for Op {
 }
 
 #[derive(Clone, Debug)]
-pub struct Block {
+pub struct Block
+{
     pub code: Vec<u8>,
     pub constants: Vec<Value>
 }
 
-impl Block {
-    pub fn new(capacity: usize) -> Block {
+impl Block
+{
+    pub fn new(capacity: usize) -> Block
+    {
         Block {
             code: Vec::with_capacity(capacity),
             constants: vec![]
         }
     }
 
-    pub fn write_op(&mut self, op: Op) -> usize {
+    pub fn write_op(&mut self, op: Op) -> usize
+    {
         self.code.push(op as u8);
         self.code.len() - 1
     }
 
-    pub fn write(&mut self, val: u8) -> usize {
+    pub fn write(&mut self, val: u8) -> usize
+    {
         self.code.push(val);
         self.code.len() - 1
     }
 
-    pub fn write_at(&mut self, index: usize, val: u8) {
+    pub fn write_at(&mut self, index: usize, val: u8)
+    {
         self.code[index] = val;
     }
 
-    pub fn write_constant(&mut self, constant: Value) -> u8 {
+    pub fn write_constant(&mut self, constant: Value) -> u8
+    {
         self.constants.push(constant);
         (self.constants.len() - 1) as u8
     }
 
-    pub fn write_constant_at(&mut self, index: usize, constant: Value) {
+    pub fn write_constant_at(&mut self, index: usize, constant: Value)
+    {
         self.constants[index] = constant;
     }
 }

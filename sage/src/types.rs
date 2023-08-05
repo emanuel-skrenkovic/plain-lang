@@ -1,10 +1,12 @@
 use crate::block::Value;
 
-pub trait Equatable {
+pub trait Equatable
+{
     fn equals(&self, other: &Self) -> Result<bool, ()>;
 }
 
-impl Equatable for Value {
+impl Equatable for Value
+{
     fn equals(&self, other: &Value) -> Result<bool, ()> {
         match self {
             Value::Number { val } => {
