@@ -347,6 +347,31 @@ mod block_expression {
     use sage::scan::Scanner;
 
     #[test]
+    #[should_panic]
+    fn scopes() {
+        let source = "
+            { a :: 5; }
+            { b :: 6; }
+            { a + b; }
+        ".to_owned();
+
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 10),
+            _ => debug_assert!(false, "Value is of incorrect type"),
+        }
+    }
+
+    #[test]
     fn block_assignment() {
         let source = "
             a :: { b :: 3; b + 3 };
@@ -426,8 +451,7 @@ mod function {
     fn t() {
         let source = "
             a :: () { 5 };
-        "
-        .to_owned();
+        ".to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());

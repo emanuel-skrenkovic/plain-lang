@@ -325,8 +325,9 @@ impl VM
                     let scope_distance = frame.read_byte() as usize;
                     let index = frame.read_byte() as usize;
 
-                    let enclosing_scope = &frames[frame_index - scope_distance];
-                    let value = enclosing_scope.get_value(index, &self.stack);
+                    // let enclosing_scope = &frames[frame_index - scope_distance];
+                    // let value = enclosing_scope.get_value(index, &self.stack);
+                    let value = frame.get_value(index, &self.stack);
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
@@ -345,16 +346,16 @@ impl VM
                 },
 
                 Op::Frame => {
-                    // let index = frame.read_byte() as usize;
-                    // let value = frame.read_constant(index);
-                    //
-                    // let closure = match value {
-                    //     Value::Closure { val } =>  val,
-                    //     _ => panic!("Frame value of incorrect type. Expected 'Closure'.")
-                    // };
-                    //
-                    // let frame = CallFrame::new(self.stack_top, closure.code);
-                    // frames.push_back(frame);
+                    let index = frame.read_byte() as usize;
+                    let value = frame.read_constant(index);
+
+                    let closure = match value {
+                        Value::Closure { val } =>  val,
+                        _ => panic!("Frame value of incorrect type. Expected 'Closure'.")
+                    };
+
+                    let frame = CallFrame::new(self.stack_top, closure.code);
+                    frames.push_back(frame);
                 }
 
                 Op::Return => {
