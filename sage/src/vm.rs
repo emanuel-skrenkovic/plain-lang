@@ -325,9 +325,8 @@ impl VM
                     let scope_distance = frame.read_byte() as usize;
                     let index = frame.read_byte() as usize;
 
-                    // let enclosing_scope = &frames[frame_index - scope_distance];
-                    // let value = enclosing_scope.get_value(index, &self.stack);
-                    let value = frame.get_value(index, &self.stack);
+                    let enclosing_scope = &frames[frame_index - scope_distance];
+                    let value = enclosing_scope.get_value(index, &self.stack);
 
                     if discriminant(&value) == discriminant(&Value::Unit) {
                         panic!("Cannot access an undefined variable.");
