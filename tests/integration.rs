@@ -353,7 +353,8 @@ mod block_expression {
             { a :: 5; }
             { b :: 6; }
             { a + b; }
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -451,7 +452,8 @@ mod function {
     fn t() {
         let source = "
             a :: () { 5 };
-        ".to_owned();
+        "
+        .to_owned();
 
         let mut compiler = Compiler::new();
         let program = compiler.compile(Scanner::new(source).scan_tokens());
@@ -587,7 +589,7 @@ mod function {
         // Arrange
         let source = "
             a :: 5;
-            func test() {
+            test :: () {
                 a + 3
             }
 
@@ -1259,6 +1261,36 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 81),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+
+    #[test]
+    fn function_lambda_captures_while_called_in_loop() {
+        let source = "
+            add :: (a, b) { a + b };
+
+            result := 0;
+            for i := 0; i < 10; i = i + 1; {
+                result = add(result, i);
+            }
+            result;
+        "
+        .to_owned();
+
+        // Act
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 45),
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
