@@ -848,9 +848,6 @@ impl Compiler
 
     fn _while(&mut self)
     {
-        // let closure_index = self.start_closure();
-        // self.begin_scope();
-
         let loop_start = self.position();
         self.expression();
 
@@ -870,11 +867,6 @@ impl Compiler
 
         self.emit_loop(loop_start);
         self.patch_jump(break_jump);
-
-        // self.emit_return(0);
-
-        // let nested_block = self.end_scope();
-        // self.end_closure(closure_index as usize, nested_block);
     }
 
     // In this implementation, all the parts of a for
@@ -882,9 +874,6 @@ impl Compiler
     // will make up for everything.
     fn _for(&mut self)
     {
-        // let closure_index = self.start_closure();
-        // self.begin_scope();
-
         // loop variable
 
         if self.parser.match_token(TokenKind::Identifier) {
@@ -939,11 +928,6 @@ impl Compiler
         self.patch_jump(exit_jump);
 
         // end body
-
-        // self.emit_return(0);
-
-        // let nested_block = self.end_scope();
-        // self.end_closure(closure_index as usize, nested_block);
 
         self.emit_byte(Op::Pop);
     }
