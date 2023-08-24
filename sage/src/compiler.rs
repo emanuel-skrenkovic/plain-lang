@@ -61,7 +61,7 @@ struct ParseRule
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 40] = [
+static RULES: [ParseRule; 41] = [
     ParseRule { prefix: Some(Compiler::function_expression),           infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // RightParen
     ParseRule { prefix: Some(Compiler::block_expression),              infix: None,                                precedence: Precedence::None }, // LeftBracket
@@ -77,6 +77,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Minus
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Star
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Slash
+    ParseRule { prefix: None,                                          infix: Some(Compiler::pipe),                precedence: Precedence::Call }, // Pipe
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Comma
     ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Bang
     ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // BandEqual
@@ -425,9 +426,8 @@ impl Compiler
         let parse_rule = get_rule(operator);
 
         self.parse_precedence(
-            Precedence::try_from(
-                parse_rule.precedence.discriminator() + 1
-            ).unwrap()
+            Precedence::try_from(parse_rule.precedence.discriminator() + 1)
+                .unwrap()
         );
 
         match operator {
@@ -441,6 +441,7 @@ impl Compiler
             TokenKind::Minus        => self.emit_byte(Op::Subtract),
             TokenKind::Star         => self.emit_byte(Op::Multiply),
             TokenKind::Slash        => self.emit_byte(Op::Divide),
+            TokenKind::Pipe         => { self.pipe(); 0 },
             _ => { 0 }
         };
 
@@ -496,35 +497,45 @@ impl Compiler
 
     fn variable(&mut self)
     {
-        let immutable_declaration = self.parser.check_token(TokenKind::ColonColon);
-        let mutable_declaration   = self.parser.check_token(TokenKind::ColonEquals);
+        let immutable = self.parser.check_token(TokenKind::ColonColon);
+        let mutable   = self.parser.check_token(TokenKind::ColonEquals);
 
-        if mutable_declaration || immutable_declaration {
+        if mutable || immutable {
             let variable_token = self.parser.previous.clone();
             let variable_name  = variable_token.value.clone();
 
             self.parser.match_token(
-                if mutable_declaration { TokenKind::ColonEquals } else { TokenKind::ColonColon }
+                if mutable { TokenKind::ColonEquals } else { TokenKind::ColonColon }
             );
 
             if self.variable_exists(&variable_name) {
-                self.parser.error_at_current(
-                    &format!("Cannot redeclare variable with name '{}'.", variable_name)
-                );
+                return self
+                    .parser
+                    .error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
             }
 
             self.expression();
 
-            let index = self.declare_variable(variable_token, mutable_declaration);
+            let index = self.declare_variable(variable_token, mutable);
             self.variable_definition(index);
 
             self.parser.match_token(TokenKind::Semicolon);
             return
         }
 
+        // TODO: potentially remove.
+        if let Some(next) = self.parser.peek(0) {
+            if discriminant(&next.kind) == discriminant(&TokenKind::LeftParen) {
+                // This is a function call, do nothing in this case, the call will handle it.
+                self.parser.match_token(TokenKind::Semicolon);
+                return
+            }
+        }
+
         if self.parse_variable().is_none() {
-            let previous = self.parser.previous.value.clone();
-            self.parser.error_at_current(&format!("Variable '{}' is not declared.", &previous));
+            return self
+                .parser
+                .error_at_current(&format!("Variable '{}' is not declared.", &self.parser.previous.value));
         }
 
         self.parser.match_token(TokenKind::Semicolon);
@@ -575,10 +586,7 @@ impl Compiler
         // If the function returns nothing, return Unit instead.
         if !has_value { self.emit_constant(Value::Unit); }
 
-        // Pop all the values in the block (excluding the returning value, if preset),
-        // as well as the arguments, and the function itself which was pulled onto the stack
-        // again during function call.
-        self.emit_return(count + arity + 1);
+        self.emit_return(count + arity);
 
         let function_code = self.end_function();
         let function = Value::Function {
@@ -609,10 +617,7 @@ impl Compiler
             loop {
                 arity += 1;
 
-                self.parser.consume(
-                    TokenKind::Identifier,
-                    "Expect parameter identifier after '('."
-                );
+                self.parser.consume(TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
                 self.declare_variable(parameter_name_token, false);
@@ -628,7 +633,7 @@ impl Compiler
         self.parser.consume(TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
         self.expression();
-        self.emit_return(arity + 1);
+        self.emit_return(arity);
 
         let expression_block = self.end_function();
         let function = Value::Function {
@@ -728,7 +733,7 @@ impl Compiler
 
     fn parse_variable(&mut self) -> Option<u8>
     {
-        let previous = self.parser.previous.value.clone();
+        let previous         = self.parser.previous.value.clone();
         let variable_indices = self.find_variable_by_name(&previous);
 
         let Some((program_idx, scope, index)) = variable_indices else {
@@ -934,16 +939,10 @@ impl Compiler
 
     fn function_invocation(&mut self)
     {
-        let function_name_token = self.parser.peek(-2);
+        let Some(function_name_token) = self.parser.peek(-2) else {
+            return self.parser.error_at_current("Failed to parse function - no function name found.");
+        };
 
-        if function_name_token.is_none() {
-            // TODO: error, probably
-            return;
-        }
-
-        // Unwrapping to avoid borrowing. Need to get an mutable reference later in
-        // parser.consume.
-        let function_name_token = function_name_token.unwrap();
         let function_name = function_name_token.value.clone();
 
         let mut arguments: usize = 0;
@@ -959,56 +958,104 @@ impl Compiler
         }
         self.parser.consume(TokenKind::RightParen, "Expect ')' after function arguments.");
 
+        let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name) else {
+            return self
+                .parser
+                .error_at_current(&format!("Failed to find function '{}'.", &function_name));
+        };
+
         // Get the scope of the variable, then find it by name in the scopes constants.
-        if let Some((_, scope, _)) = self.find_variable_by_name(&function_name) {
-            let function = self.programs[scope].block
-                .constants
-                .iter()
-                .find(|c| {
-                    match c {
-                        Value::Function { name, arity: _, closure: _ } => name == &function_name,
-                        _ => false
-                    }
-                });
+        let function = self.programs[scope]
+            .block
+            .constants
+            .iter()
+            .find(|c| match c {
+                Value::Function { name, .. } => name == &function_name,
+                _ => false
+            });
 
-            if let Some(Value::Function { name, arity, closure: _ }) = function {
-                if arity != &arguments {
-                    let error_message = format!(
-                        "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
-                        arguments,
-                        name,
-                        arity
-                    );
+        if let Some(Value::Function { name, arity, closure: _ }) = function {
+            if arity != &arguments {
+                let error_message = format!(
+                    "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
+                    arguments,
+                    name,
+                    arity
+                );
 
-                    self.parser.error_at_current(&error_message);
-                }
+                self.parser.error_at_current(&error_message);
             }
-
-            self.emit_byte(Op::Call);
-            self.emit(arguments as u8);
         }
+
+        self.emit_byte(Op::Call);
+        self.emit((self.current_program - program_idx) as u8);
+        self.emit(index as u8);
 
         self.parser.match_token(TokenKind::Semicolon);
     }
 
-    // fn begin_closure(&mut self) -> u8
-    // {
-    //     self.emit_byte(Op::Frame);
-    //
-    //     let closure_index = self.current_mut().block.write_constant(Value::Unit);
-    //     self.current_mut().block.write(closure_index as u8);
-    //
-    //     closure_index
-    // }
-    //
-    // fn end_closure(&mut self, closure_index: usize, block: Block)
-    // {
-    //     let closure = Closure { code: block };
-    //     self.patch_constant(
-    //         closure_index,
-    //         Value::Closure { val: closure }
-    //     );
-    // }
+    // TODO: So far the piping into a function is only supported with function
+    // with arity of 1.
+    // Because of the different order of operations when using the pipe operator as opposed to
+    // regular function invocation, I've had to change the way functions are being called.
+    // Previously, the function was pulled back into the stack using Op::GetLocal/Op::GetUpvalue,
+    // and after that the arguments were pulled onto the stack. Now, the Op::GetLocal/Op::GetUpvalue
+    // functionality is baked into Op::Call. This way, the runtime operations regarding function calls
+    // do not depend on that order of values on the stack, instead they reach into the exact stack
+    // position to get the function value.
+    // Again, this makes things way easier when working with different execution orders, such as
+    // when piping things into functions (as arguments are parsed in a different order from regular function
+    // calls, again again).
+    fn pipe(&mut self)
+    {
+        if discriminant(&self.parser.previous.kind) != discriminant(&TokenKind::Pipe) {
+            return self
+                .parser
+                .error_at_current(&format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value));
+        }
+
+        let Some(function_name) = self.parser.peek(0) else {
+            return self
+                .parser
+                .error_at_current("Failed to parse function name - no function name found.");
+        };
+
+        let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name.value) else {
+            return self
+                .parser
+                .error_at_current(&format!("Failed to find function '{}'.", &function_name.value));
+        };
+
+        // Get the scope of the variable, then find it by name in the scopes constants.
+        let function = self.programs[scope]
+            .block
+            .constants
+            .iter()
+            .find(|c| match c {
+                Value::Function { name, .. } => name == &function_name.value,
+                _ => false
+            });
+
+        let Some(Value::Function { arity, ..}) = function else {
+            // TODO: how are parse errors handled? How is compilation stopped? Do I even
+            // stop compilation? Should I?
+            return self
+                .parser
+                .error_at_current(&format!("Function with name '{}' not in scope", &function_name.value));
+        };
+
+        if arity != &1 {
+            return self
+                .parser
+                .error_at_current("Function must take only one argument to be able to work with pipes.");
+        }
+
+        self.emit_byte(Op::Call);
+        self.emit((self.current_program - program_idx) as u8);
+        self.emit(index as u8);
+
+        self.parser.match_token(TokenKind::Semicolon);
+    }
 
     fn begin_scope(&mut self)
     {

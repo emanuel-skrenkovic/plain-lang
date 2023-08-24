@@ -6,6 +6,7 @@ pub enum TokenKind
 {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
+    Pipe,
     Comma,
     Bang, BangEqual, EqualEqual, GreaterEqual, LessEqual, Equal,
     True, False,
@@ -144,6 +145,13 @@ impl Scanner
             '-' => self.emit(TokenKind::Minus),
             '*' => self.emit(TokenKind::Star),
             '/' => self.emit(TokenKind::Slash), // TODO: comments
+            '|' => {
+                if self.match_char('>') {
+                    return self.emit(TokenKind::Pipe)
+                }
+
+               self.identifier()
+            },
             ',' => self.emit(TokenKind::Comma),
             '!' => {
                 if self.match_char('=') {

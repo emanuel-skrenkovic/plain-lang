@@ -1215,8 +1215,7 @@ mod function {
         let source = "
             square :: (x) { x * x };
             square(2) == square(2);
-        "
-        .to_owned();
+        ".to_owned();
 
         // Act
         let mut compiler = Compiler::new();
@@ -1343,6 +1342,37 @@ mod function {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 7),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+
+    #[test]
+    fn called_function_defined_in_outer_scope()
+    {
+        // Arrange
+        let source = "
+            add :: (a, b, c) { a + b * c };
+            add2 :: (a) {
+                add(a, 2, 3) + add(3, 2, 1)
+            };
+            result :: add2(3);
+            result;
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new();
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // Assert
+        let value = vm.pop();
+        match value {
+            // 3 + 2 + 3 + 3 + 2 + 1 = 14
+            Value::Number { val } => debug_assert_eq!(val, 14),
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
@@ -2102,6 +2132,39 @@ mod while_loop {
         let value = vm.pop();
         match value {
             Value::Number { val } => debug_assert_eq!(val, 45),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+}
+
+#[cfg(test)]
+mod pipe {
+    use super::*;
+    use sage::scan::Scanner;
+
+    #[test]
+    fn pipe()
+    {
+        let source = "
+            test :: (a) { a + 3 };
+            result :: 2 |> test;
+            result;
+        ".to_owned();
+
+        // Act
+        let program = Compiler::new()
+            .compile(Scanner::new(source).scan_tokens());
+
+        // Assert
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 5),
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }

@@ -382,14 +382,12 @@ impl VM
 
                 Op::CondJump => {
                     let jump = frame.read_byte() as usize;
-                    let value = self.pop();
 
-                    let boolean = match value {
-                        Value::Bool { val } => val,
-                        _ => panic!("TODO: Not supported")
+                    let Value::Bool { val } = self.pop() else {
+                        panic!("TODO: Not supported");
                     };
 
-                    if !boolean {
+                    if !val {
                         frame.i += jump;
                     }
                 }
@@ -400,26 +398,54 @@ impl VM
                 },
 
                 Op::Call => {
-                    let args = frame.read_byte() as usize;
-                    let value = frame.get_value(
-                        self.stack_top - args - frame.position - 1,
+                    let scope_distance = frame.read_byte() as usize;
+                    let index          = frame.read_byte() as usize;
+
+                    let enclosing_scope = &frames[frame_index - scope_distance];
+                    let function = enclosing_scope.get_value(
+                        index,
                         &self.stack
                     );
 
-                    let (arity, closure) = match value {
-                        Value::Function { name: _, arity, closure } => (arity, closure),
-                        _ => panic!("Frame value of incorrect type. Expected 'Function'.")
+                    let Value::Function { arity, closure, .. } = function else {
+                        panic!("Frame value of incorrect type. Expected 'Function'.");
                     };
+
+                    // TODO: make this not positional, rather push the location of the function
+                    // as a part of the opcode.
+
+                    // OLD PART
+
+                    // let value = frame.get_value(
+                    //     self.stack_top - args - frame.position - 1,
+                    //     &self.stack
+                    // );
+                    //
+                    // let Value::Function { arity, closure, .. } = value else {
+                    //     panic!("Frame value of incorrect type. Expected 'Function'.");
+                    // };
+
+                    // END OF OLD PART
 
                     // Moves back the start of the callframe by the function arity
                     // to capture all the parameter values.
-                    let frame = CallFrame::new(self.stack_top - arity, closure.code);
-                    frames.push_back(frame);
+
+                    // 1. fn variable
+                    // 2. Op::Call sites
+                    // 3. Op::Return sites (emit_return)
+                    // 4. RIGHT HERE DUMMY!
+
+                    // To the future Emanuel - maybe this will work. Take this into account,
+                    // it could be that the new CallFrame is not properly set up as the function could
+                    // be in the incorrect place on the stack. Long shot but might help!
+                    // let frame =
+                    frames.push_back(CallFrame::new(self.stack_top - arity, closure.code));
                 },
+
                 _ => { frame.i += 1; }
             }
 
-            self.disassemble_instruction(&frames[frame_index], ip);
+            self.disassemble_instruction(&frames[frame_index], frame_index, &frames, ip);
         }
     }
 
@@ -455,7 +481,13 @@ impl VM
         (a, b)
     }
 
-    fn disassemble_instruction(&self, frame: &CallFrame, instruction: u8)
+    fn disassemble_instruction(
+        &self,
+        frame: &CallFrame,
+        frame_index: usize,
+        frames: &VecDeque<CallFrame>,
+        instruction: u8,
+    )
     {
         print!("OP ");
 
@@ -544,8 +576,11 @@ impl VM
                 },
                 Op::Call => {
                     print!("CALL ");
-                    let args = frame.peek_op(frame.i - 1) as usize;
-                    let value = frame.get_value(self.stack_top - args - frame.position - 1, &self.stack);
+                    let scope_distance = frame.peek_op(frame.i - 2) as usize;
+                    let index = frame.peek_op(frame.i - 1) as usize;
+
+                    let enclosing_scope = &frames[frame_index - scope_distance];
+                    let value = enclosing_scope.get_value(index, &self.stack);
 
                     let function_name = match value {
                         Value::Function { name, closure: _, arity: _ } => name,
