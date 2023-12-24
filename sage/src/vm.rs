@@ -131,29 +131,22 @@ impl VM
             let frame = &mut frames[frame_index];
             let ip = frame.read_byte();
 
-            let operation = ip.try_into();
-            if operation.is_err() {
+            let Ok(operation) = ip.try_into() else {
                 panic!("Could not parse operation '{}'.", ip);
-            }
-
-            let operation = operation.unwrap();
+            };
 
             match operation {
-                Op::Pop => {
-                    self.pop();
-                }
+                Op::Pop => { self.pop(); }
 
                 Op::Add => {
                     let (a, b) = self.binary_op();
 
-                    let first = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let second = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     let result = Value::Number { val: first + second };
@@ -163,14 +156,12 @@ impl VM
                 Op::Subtract => {
                     let (a, b) = self.binary_op();
 
-                    let second = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let first = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Number { val: first - second });
@@ -179,14 +170,12 @@ impl VM
                 Op::Multiply => {
                     let (a, b) = self.binary_op();
 
-                    let first = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let second = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Number { val: first * second });
@@ -195,14 +184,12 @@ impl VM
                 Op::Divide => {
                     let (a, b) = self.binary_op();
 
-                    let second = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let first = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Number { val: first / second });
@@ -211,24 +198,22 @@ impl VM
                 Op::Equal => {
                     let (a, b) = self.binary_op();
 
-                    if let Ok(equality) = a.equals(&b) {
-                        self.push(Value::Bool { val: equality });
-                    } else {
+                    let Ok(equality) = a.equals(&b) else {
                         panic!("Types cannot be equated.");
-                    }
+                    };
+
+                    self.push(Value::Bool { val: equality });
                 }
 
                 Op::Less => {
                     let (a, b) = self.binary_op();
 
-                    let second = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let first = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Bool { val: first < second });
@@ -237,14 +222,12 @@ impl VM
                 Op::Greater => {
                     let (a, b) = self.binary_op();
 
-                    let second = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let first = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Bool { val: first > second });
@@ -253,14 +236,12 @@ impl VM
                 Op::GreaterEqual => {
                     let (a, b) = self.binary_op();
 
-                    let second = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let first = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Bool { val: first >= second });
@@ -269,28 +250,23 @@ impl VM
                 Op::LessEqual => {
                     let (a, b) = self.binary_op();
 
-                    let second = match a {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: second } = a else {
+                        panic!("TODO: Not supported")
                     };
 
-                    let first = match b {
-                        Value::Number { val } => val,
-                        _ => { panic!("TODO: Not supported") }
+                    let Value::Number { val: first } = b else {
+                        panic!("TODO: Not supported");
                     };
 
                     self.push(Value::Bool { val: first <= second });
                 }
 
                 Op::Not => {
-                    let value = self.pop();
-
-                    let boolean = match value {
-                        Value::Bool { val } => val,
-                        _ => panic!("TODO: Not supported")
+                    let Value::Bool { val } = self.pop() else {
+                        panic!("TODO: Not supported")
                     };
 
-                    self.push(Value::Bool { val: !boolean });
+                    self.push(Value::Bool { val: !val });
                 }
 
                 Op::Constant => { // Constant
@@ -341,21 +317,9 @@ impl VM
 
                     let value = self.peek(0).clone();
                     let enclosing_scope = &mut frames[frame_index - scope_distance];
+
                     enclosing_scope.set_value(index, value, &mut self.stack);
                 },
-
-                Op::Frame => {
-                    let index = frame.read_byte() as usize;
-                    let value = frame.read_constant(index);
-
-                    let closure = match value {
-                        Value::Closure { val } =>  val,
-                        _ => panic!("Frame value of incorrect type. Expected 'Closure'.")
-                    };
-
-                    let frame = CallFrame::new(self.stack_top, closure.code);
-                    frames.push_back(frame);
-                }
 
                 Op::Return => {
                     let values_count = frame.read_byte();
@@ -411,34 +375,6 @@ impl VM
                         panic!("Frame value of incorrect type. Expected 'Function'.");
                     };
 
-                    // TODO: make this not positional, rather push the location of the function
-                    // as a part of the opcode.
-
-                    // OLD PART
-
-                    // let value = frame.get_value(
-                    //     self.stack_top - args - frame.position - 1,
-                    //     &self.stack
-                    // );
-                    //
-                    // let Value::Function { arity, closure, .. } = value else {
-                    //     panic!("Frame value of incorrect type. Expected 'Function'.");
-                    // };
-
-                    // END OF OLD PART
-
-                    // Moves back the start of the callframe by the function arity
-                    // to capture all the parameter values.
-
-                    // 1. fn variable
-                    // 2. Op::Call sites
-                    // 3. Op::Return sites (emit_return)
-                    // 4. RIGHT HERE DUMMY!
-
-                    // To the future Emanuel - maybe this will work. Take this into account,
-                    // it could be that the new CallFrame is not properly set up as the function could
-                    // be in the incorrect place on the stack. Long shot but might help!
-                    // let frame =
                     frames.push_back(CallFrame::new(self.stack_top - arity, closure.code));
                 },
 
@@ -523,7 +459,6 @@ impl VM
                     self.print_constant_op(frame, "GET_LOCAL", &value);
                 },
                 Op::SetLocal => {
-                    // let index = frame.peek_op(frame.i - 1) as usize;
                     let value = self.peek(0);
 
                     self.print_constant_op(frame, "SET_LOCAL", value);
@@ -531,10 +466,8 @@ impl VM
                 Op::GetUpvalue => {
                     let value = self.peek(0);
                     self.print_constant_op(frame, "GET_UPVALUE", value);
-                    // self.print_byte_op(frame, "GET_UPVALUE")
                 },
                 Op::SetUpvalue => {
-                    // let index = frame.peek_op(frame.i - 1) as usize;
                     let value = self.peek(0);
 
                     self.print_constant_op(frame, "SET_UPVALUE", value);

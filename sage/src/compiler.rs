@@ -394,13 +394,9 @@ impl Compiler
     // This is bad and it should be implemented in more reusable, functional way.
     fn code_block(&mut self)
     {
-        // self.begin_scope();
-
         // Compile code until the end of the block or the end of the program is reached.
-        // let mut count = 0;
         while !self.parser.check_token(TokenKind::RightBracket) && !self.parser.check_token(TokenKind::End) {
             self.declaration();
-            // count += 1;
         }
 
         // Blocks are expression - this captures if the block contains a value,
@@ -412,12 +408,7 @@ impl Compiler
 
         // TODO: should probably pop the values that are not the result of the expression.
 
-        // self.parser.match_token(TokenKind::RightBracket);
-        // TODO: think about this
         self.parser.consume(TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
-
-        // self.emit_return(count);
-        // self.end_scope()
     }
 
     fn binary(&mut self)
@@ -523,10 +514,9 @@ impl Compiler
             return
         }
 
-        // TODO: potentially remove.
         if let Some(next) = self.parser.peek(0) {
             if discriminant(&next.kind) == discriminant(&TokenKind::LeftParen) {
-                // This is a function call, do nothing in this case, the call will handle it.
+                // This is a function call, do nothing in this case, 'call' will handle it.
                 self.parser.match_token(TokenKind::Semicolon);
                 return
             }
@@ -653,9 +643,9 @@ impl Compiler
         let function_name = function_token.value.clone();
 
         if self.variable_exists(&function_name) {
-            self.parser.error_at_current(
-                &format!("Cannot redeclare function with name '{}'", function_name)
-            );
+            return self
+                .parser
+                .error_at_current(&format!("Cannot redeclare function with name '{}'", function_name));
         }
 
         // Compile the expression and then jump after the block
@@ -684,8 +674,8 @@ impl Compiler
             .variables
             .push(variable);
 
-        let variable_index = self.current_mut()
-            .current_scope_mut()
+        let variable_index = self.current()
+            .current_scope()
             .variables
             .iter()
             .position(|v| v.name.value == variable_name)
@@ -773,7 +763,6 @@ impl Compiler
 
     fn variable_exists(&self, name: &str) -> bool
     {
-        let mut exists          = false;
         let mut current_program = self.current_program;
 
         loop {
@@ -798,7 +787,7 @@ impl Compiler
                     .position(|v| v.name.value == name);
 
                 if variable_index.is_some() {
-                    exists = true;
+                    return true
                 }
             }
 
@@ -806,7 +795,7 @@ impl Compiler
             current_program -= 1;
         }
 
-        exists
+        false
     }
 
     fn variable_declaration(&mut self, variable_key: u8)
@@ -983,7 +972,7 @@ impl Compiler
                     arity
                 );
 
-                self.parser.error_at_current(&error_message);
+                return self.parser.error_at_current(&error_message);
             }
         }
 
