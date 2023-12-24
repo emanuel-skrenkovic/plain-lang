@@ -177,7 +177,7 @@ impl Parser
         }
     }
 
-    fn advance(&mut self)
+    fn advance(&mut self) -> Result<(), CompilerError>
     {
         self.previous = self.current.clone();
 
@@ -203,18 +203,20 @@ impl Parser
                 break;
             }
 
-            self.error_at("Scanner error.", &self.current.clone());
+            return Err(self.error_at("Scanner error.", &self.current.clone()))
         }
+
+        Ok(())
     }
 
-    fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
+    fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, CompilerError>
     {
         if self.current.kind.discriminant() != token_kind.discriminant() {
-            return false
+            return Ok(false)
         }
 
-        self.advance();
-        true
+        self.advance()?;
+        Ok(true)
     }
 
     fn check_token(&self, token_kind: scan::TokenKind) -> bool
@@ -222,12 +224,14 @@ impl Parser
         self.current.kind.discriminant() == token_kind.discriminant()
     }
 
-    // TODO: this needs to somehow push the error into the compiler.
-    // Maybe the parser should hold its own errors. To think about.
-    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str)
+    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), CompilerError>
     {
-        if !self.match_token(token_kind) {
-            self.error_at(error_message, &self.current.clone());
+        match self.match_token(token_kind) {
+            Ok(value) => match value {
+                true => Ok(()),
+                false => Err(self.error_at(error_message, &self.current.clone()))
+            }
+            Err(err) => Err(err)
         }
     }
 
@@ -354,7 +358,7 @@ impl Compiler
     pub fn compile(&mut self, tokens: Vec<scan::Token>) -> Result<Program, ()>
     {
         self.parser = Parser::new(self.source.clone(), tokens);
-        self.parser.advance();
+        let _ = self.parser.advance().map_err(|e| self.error(e));
 
         // TODO: should probably enclose program itself.
 
@@ -392,7 +396,7 @@ impl Compiler
 
     fn parse_precedence(&mut self, prec: Precedence)
     {
-        self.parser.advance();
+        let _ = self.parser.advance().map_err(|e| self.error(e));
 
         match get_rule(self.parser.previous.kind).prefix {
             Some(prefix) => prefix(self),
@@ -405,7 +409,7 @@ impl Compiler
         }
 
         while prec.discriminator() <= get_rule(self.parser.current.kind).precedence.discriminator() {
-            self.parser.advance();
+            let _ = self.parser.advance().map_err(|e| self.error(e));
 
             let Some(infix_rule) = get_rule(self.parser.previous.kind).infix else {
                 return self.error_at("Failed to get infix rule.", &self.parser.previous.clone());
@@ -431,7 +435,7 @@ impl Compiler
 
         // TODO
         self.code_block();
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
 
         self.end_scope();
     }
@@ -457,7 +461,7 @@ impl Compiler
 
         // TODO: should probably pop the values that are not the result of the expression.
 
-        self.parser.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
     }
 
     fn binary(&mut self)
@@ -485,13 +489,13 @@ impl Compiler
             _ => { 0 }
         };
 
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
     }
 
     fn left_angle(&mut self)
     {
-        if self.parser.match_token(scan::TokenKind::Identifier) {
-            self.parser.match_token(scan::TokenKind::RightAngle);
+        if self.match_token(scan::TokenKind::Identifier) {
+            self.match_token(scan::TokenKind::RightAngle);
             // TODO generics
         } else {
             self.binary();
@@ -512,22 +516,22 @@ impl Compiler
         }
 
         // Eat the semicolon only if present;
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
     }
 
     fn declaration(&mut self)
     {
         match self.parser.current.kind {
             scan::TokenKind::Func => {
-                self.parser.advance();
+                let _ = self.parser.advance().map_err(|e| self.error(e));
                 self.function_decl();
             }
             scan::TokenKind::While => {
-                self.parser.advance();
+                let _ = self.parser.advance().map_err(|e| self.error(e));
                 self._while();
             },
             scan::TokenKind::For => {
-                self.parser.advance();
+                let _ = self.parser.advance().map_err(|e| self.error(e));
                 self._for();
             }
             _ => self.expression_statement(),
@@ -543,7 +547,7 @@ impl Compiler
             let variable_token = self.parser.previous.clone();
             let variable_name  = variable_token.value.clone();
 
-            self.parser.match_token(
+            self.match_token(
                 if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon }
             );
 
@@ -557,14 +561,14 @@ impl Compiler
             let index = self.declare_variable(variable_token, mutable);
             self.variable_definition(index);
 
-            self.parser.match_token(scan::TokenKind::Semicolon);
+            self.match_token(scan::TokenKind::Semicolon);
             return
         }
 
         if let Some(next) = self.parser.peek(0) {
             if next.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() {
                 // This is a function call, do nothing in this case, 'call' will handle it.
-                self.parser.match_token(scan::TokenKind::Semicolon);
+                self.match_token(scan::TokenKind::Semicolon);
                 return
             }
         }
@@ -574,12 +578,12 @@ impl Compiler
                 .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
         }
 
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
     }
 
     fn function(&mut self, name: &str) -> block::Value
     {
-        self.parser.consume(scan::TokenKind::LeftParen, "Expected '(' after function declaration.");
+        self.consume(scan::TokenKind::LeftParen, "Expected '(' after function declaration.");
         self.begin_function();
 
         let mut arity = 0;
@@ -588,7 +592,7 @@ impl Compiler
             loop {
                 arity += 1;
 
-                self.parser.consume(
+                self.consume(
                     scan::TokenKind::Identifier,
                     "Expect parameter identifier after '('."
                 );
@@ -596,16 +600,16 @@ impl Compiler
                 let parameter_name_token = self.parser.previous.clone();
                 self.declare_variable(parameter_name_token, false);
 
-                if !self.parser.match_token(scan::TokenKind::Comma) {
+                if !self.match_token(scan::TokenKind::Comma) {
                     break
                 }
             }
         }
 
-        self.parser.consume(scan::TokenKind::RightParen, "Expected ')' after function parameters.");
+        self.consume(scan::TokenKind::RightParen, "Expected ')' after function parameters.");
 
         // Parse the block expression that defines the function.
-        self.parser.consume(scan::TokenKind::LeftBracket, "Expected '{' before function body.");
+        self.consume(scan::TokenKind::LeftBracket, "Expected '{' before function body.");
 
         let mut count = 0;
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
@@ -615,8 +619,8 @@ impl Compiler
         let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
         let count = if has_value && count > 0 { count - 1 } else { count };
 
-        self.parser.match_token(scan::TokenKind::RightBracket);
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::RightBracket);
+        self.match_token(scan::TokenKind::Semicolon);
 
         // TODO: think about semantics.
         // If the function returns nothing, return Unit instead.
@@ -653,12 +657,12 @@ impl Compiler
             loop {
                 arity += 1;
 
-                self.parser.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
+                self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
                 self.declare_variable(parameter_name_token, false);
 
-                if !self.parser.match_token(scan::TokenKind::Comma) {
+                if !self.match_token(scan::TokenKind::Comma) {
                     break
                 }
             }
@@ -666,7 +670,7 @@ impl Compiler
 
         self.declare_variable(self.parser.previous.clone(), false);
 
-        self.parser.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
+        self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
         self.expression();
         self.emit_return(arity);
@@ -683,7 +687,7 @@ impl Compiler
 
     fn function_decl(&mut self)
     {
-        self.parser.consume(scan::TokenKind::Identifier, "Cannot declare function without name.");
+        self.consume(scan::TokenKind::Identifier, "Cannot declare function without name.");
 
         let function_token = self.parser.previous.clone();
         let function_name = function_token.value.clone();
@@ -776,7 +780,7 @@ impl Compiler
         };
 
         // If the following token is '=', then it's an assignment.
-        if self.parser.match_token(scan::TokenKind::Equal) {
+        if self.match_token(scan::TokenKind::Equal) {
             if program_idx == self.current_program {
                 if !self.current().scopes[scope].variables[index].mutable {
                     self.parser
@@ -879,7 +883,7 @@ impl Compiler
         let else_jump = self.emit_jump(block::Op::Jump);
         self.patch_jump(then_jump);
 
-        if self.parser.match_token(scan::TokenKind::Else) {
+        if self.match_token(scan::TokenKind::Else) {
             self.declaration();
         }
 
@@ -894,7 +898,7 @@ impl Compiler
         let break_jump = self.emit_jump(block::Op::CondJump);
 
         // Body
-        self.parser.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
+        self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
         let mut values = 0;
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
@@ -903,7 +907,7 @@ impl Compiler
         }
         for _ in 0..values { self.emit_byte(block::Op::Pop); }
 
-        self.parser.match_token(scan::TokenKind::RightBracket);
+        self.match_token(scan::TokenKind::RightBracket);
 
         self.emit_loop(loop_start);
         self.patch_jump(break_jump);
@@ -916,7 +920,7 @@ impl Compiler
     {
         // loop variable
 
-        if self.parser.match_token(scan::TokenKind::Identifier) {
+        if self.match_token(scan::TokenKind::Identifier) {
             self.variable();
         } else {
             self.expression();
@@ -949,7 +953,7 @@ impl Compiler
 
         // body
 
-        self.parser.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
+        self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
         // Compile code until the end of the block or the end of the program is reached.
         let mut count = 0;
@@ -962,7 +966,7 @@ impl Compiler
         let count = if has_value && count > 0 { count - 1 } else { count };
         for _ in 0..count { self.emit_byte(block::Op::Pop); }
 
-        self.parser.match_token(scan::TokenKind::RightBracket);
+        self.match_token(scan::TokenKind::RightBracket);
 
         self.emit_loop(loop_start);
         self.patch_jump(exit_jump);
@@ -993,10 +997,10 @@ impl Compiler
                 arguments += 1;
                 self.expression();
 
-                if !self.parser.match_token(scan::TokenKind::Comma) { break }
+                if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
-        self.parser.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
+        self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
 
         let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name) else {
             return self
@@ -1030,7 +1034,7 @@ impl Compiler
         self.emit((self.current_program - program_idx) as u8);
         self.emit(index as u8);
 
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
     }
 
     // TODO: So far the piping into a function is only supported with function
@@ -1091,7 +1095,7 @@ impl Compiler
         self.emit((self.current_program - program_idx) as u8);
         self.emit(index as u8);
 
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
     }
 
     fn begin_scope(&mut self)
@@ -1144,7 +1148,7 @@ impl Compiler
 
     fn semicolon(&mut self)
     {
-        self.parser.match_token(scan::TokenKind::Semicolon);
+        self.match_token(scan::TokenKind::Semicolon);
     }
 
     fn emit_return(&mut self, values_count: usize)
@@ -1206,9 +1210,32 @@ impl Compiler
         self.current().block.code.len()
     }
 
+    fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
+    {
+        if self.parser.current.kind.discriminant() != token_kind.discriminant() {
+            return false
+        }
+
+        let _ = self.parser.advance().map_err(|e| self.error(e));
+        true
+    }
+
+    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str)
+    {
+        let _ = self
+            .parser
+            .consume(token_kind, error_message)
+            .map_err(|e| self.error(e));
+    }
+
     fn error_at(&mut self, msg: &str, token: &scan::Token)
     {
         let err = self.parser.error_at(msg, token);
         self.errors.push(err);
+    }
+
+    fn error(&mut self, err: CompilerError)
+    {
+        self.errors.push(err)
     }
 }
