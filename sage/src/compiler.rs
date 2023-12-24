@@ -1,7 +1,40 @@
+use std::fmt;
 use std::mem::discriminant;
 
 use crate::block::{Block, Closure, Op, Value};
 use crate::scan::{Token, TokenKind};
+
+#[derive(Debug)]
+pub enum CompilerErrorKind
+{
+    ParseError
+}
+
+#[derive(Debug)]
+pub struct CompilerError
+{
+    pub line: usize,
+    pub source_line: String,
+    pub token: String,
+    pub msg: String,
+    pub kind: CompilerErrorKind
+}
+
+impl fmt::Display for CompilerError
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
+    {
+        write!(
+            f,
+            "\n{} | {:?}: {}\nat token: '{}'\nline: {}",
+            self.line,
+            self.kind,
+            self.msg,
+            self.token,
+            self.source_line,
+        )
+    }
+}
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
@@ -112,6 +145,10 @@ fn get_rule(token_kind: TokenKind) -> ParseRule
 
 pub struct Parser
 {
+    // Also keep the source in the parser for better error reporting.
+    // Feel like this solution is bad, and that I should avoid cloning the source so much.
+    // Got no other ideas, just feels that way currently.
+    source: String,
     tokens: Vec<Token>,
     scanned_tokens: Vec<Token>,
 
@@ -127,9 +164,10 @@ pub struct Parser
 impl Parser
 {
     #[must_use]
-    pub fn new(tokens: Vec<Token>) -> Parser
+    pub fn new(source: String, tokens: Vec<Token>) -> Parser
     {
         Parser {
+            source,
             tokens,
             scanned_tokens: vec![],
             current_index: 0,
@@ -166,7 +204,7 @@ impl Parser
                 break;
             }
 
-            self.error_at_current("Scanner error.");
+            self.error_at("Scanner error.", &self.current.clone());
         }
     }
 
@@ -185,24 +223,33 @@ impl Parser
         discriminant(&self.current.kind) == discriminant(&token_kind)
     }
 
+    // TODO: this needs to somehow push the error into the compiler.
+    // Maybe the parser should hold its own errors. To think about.
     fn consume(&mut self, token_kind: TokenKind, error_message: &str)
     {
         if !self.match_token(token_kind) {
-            self.error_at_current(error_message);
+            self.error_at(error_message, &self.current.clone());
         }
     }
 
-    fn error_at_current(&mut self, message: &str)
+    fn error_at(&mut self, message: &str, token: &Token) -> CompilerError
     {
         self.panic = true;
         self.error = true;
 
-        eprintln!(
-            "[line {}] Error at token '{}\n{}'",
-            self.current.line,
-            self.current.value,
-            message
-        );
+        let lines: Vec<String> = self
+            .source
+            .lines()
+            .map(String::from)
+            .collect();
+
+        CompilerError {
+            msg: message.to_owned(),
+            line: token.line,
+            source_line: lines[token.line - 1].clone(),
+            token: token.value.clone(),
+            kind: CompilerErrorKind::ParseError,
+        }
     }
 
     // TODO: horrible and I should be publicly shamed
@@ -278,9 +325,13 @@ impl Program
 
 pub struct Compiler
 {
+    // Keep the source for error reporting to be better.
+    source: String,
     parser: Parser,
     programs: Vec<Program>,
     current_program: usize,
+
+    pub errors: Vec<CompilerError>,
 }
 
 // TODO: refactor to pass the entire scanned/parsed data
@@ -289,18 +340,21 @@ pub struct Compiler
 impl Compiler
 {
     #[must_use]
-    pub fn new() -> Compiler
+    pub fn new(source: String) -> Compiler
     {
+        let source_clone = source.clone();
         Compiler {
-            parser: Parser::new(vec![]),
+            source,
+            parser: Parser::new(source_clone, vec![]),
             programs: vec![Program::new()],
-            current_program: 0
+            current_program: 0,
+            errors: vec![],
         }
     }
 
     pub fn compile(&mut self, tokens: Vec<Token>) -> Result<Program, ()>
     {
-        self.parser = Parser::new(tokens);
+        self.parser = Parser::new(self.source.clone(), tokens);
         self.parser.advance();
 
         // TODO: should probably enclose program itself.
@@ -350,7 +404,7 @@ impl Compiler
                     return
                 }
 
-                self.parser.error_at_current("Expect expression.");
+                self.parser.error_at("Expect expression.", &self.parser.current.clone());
                 panic!();
             }
         }
@@ -501,8 +555,7 @@ impl Compiler
 
             if self.variable_exists(&variable_name) {
                 return self
-                    .parser
-                    .error_at_current(&format!("Cannot redeclare variable with name '{}'.", variable_name));
+                    .error_at(&format!("Cannot redeclare variable with name '{}'.", &variable_token), &variable_token.clone());
             }
 
             self.expression();
@@ -524,8 +577,7 @@ impl Compiler
 
         if self.parse_variable().is_none() {
             return self
-                .parser
-                .error_at_current(&format!("Variable '{}' is not declared.", &self.parser.previous.value));
+                .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
         }
 
         self.parser.match_token(TokenKind::Semicolon);
@@ -644,8 +696,7 @@ impl Compiler
 
         if self.variable_exists(&function_name) {
             return self
-                .parser
-                .error_at_current(&format!("Cannot redeclare function with name '{}'", function_name));
+                .error_at(&format!("Cannot redeclare function with name '{}'", function_name), &function_token);
         }
 
         // Compile the expression and then jump after the block
@@ -734,7 +785,8 @@ impl Compiler
         if self.parser.match_token(TokenKind::Equal) {
             if program_idx == self.current_program {
                 if !self.current().scopes[scope].variables[index].mutable {
-                    self.parser.error_at_current("Cannot reassign value of an immutable variable.");
+                    self.parser
+                        .error_at("Cannot reassign value of an immutable variable.", &self.parser.previous.clone());
                 }
 
                 self.expression();
@@ -928,9 +980,16 @@ impl Compiler
 
     fn function_invocation(&mut self)
     {
-        let Some(function_name_token) = self.parser.peek(-2) else {
-            return self.parser.error_at_current("Failed to parse function - no function name found.");
-        };
+        let token = self.parser.peek(-2);
+        if token.is_none() {
+            // TODO: it's not really at self.parser.previous, but the one before that,
+            // but since it could not get it, then I guess previous is the next best thing.
+            return self
+                .error_at("Failed to parse function - no function name found.", &self.parser.previous.clone());
+        }
+
+        // Unwrap + clone to deal with ownership fuckery.
+        let function_name_token = token.unwrap().clone();
 
         let function_name = function_name_token.value.clone();
 
@@ -940,17 +999,14 @@ impl Compiler
                 arguments += 1;
                 self.expression();
 
-                if !self.parser.match_token(TokenKind::Comma) {
-                    break
-                }
+                if !self.parser.match_token(TokenKind::Comma) { break }
             }
         }
         self.parser.consume(TokenKind::RightParen, "Expect ')' after function arguments.");
 
         let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name) else {
             return self
-                .parser
-                .error_at_current(&format!("Failed to find function '{}'.", &function_name));
+                .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
         };
 
         // Get the scope of the variable, then find it by name in the scopes constants.
@@ -963,7 +1019,7 @@ impl Compiler
                 _ => false
             });
 
-        if let Some(Value::Function { name, arity, closure: _ }) = function {
+        if let Some(Value::Function { name, arity, .. }) = function {
             if arity != &arguments {
                 let error_message = format!(
                     "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
@@ -972,7 +1028,7 @@ impl Compiler
                     arity
                 );
 
-                return self.parser.error_at_current(&error_message);
+                return self.error_at(&error_message, &function_name_token.clone());
             }
         }
 
@@ -999,20 +1055,20 @@ impl Compiler
     {
         if discriminant(&self.parser.previous.kind) != discriminant(&TokenKind::Pipe) {
             return self
-                .parser
-                .error_at_current(&format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value));
+                .error_at(
+                    &format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value),
+                    &self.parser.previous.clone()
+                );
         }
 
         let Some(function_name) = self.parser.peek(0) else {
             return self
-                .parser
-                .error_at_current("Failed to parse function name - no function name found.");
+                .error_at("Failed to parse function name - no function name found.", &self.parser.current.clone());
         };
 
         let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name.value) else {
             return self
-                .parser
-                .error_at_current(&format!("Failed to find function '{}'.", &function_name.value));
+                .error_at(&format!("Failed to find function '{}'.", &function_name.value), &function_name.clone());
         };
 
         // Get the scope of the variable, then find it by name in the scopes constants.
@@ -1029,14 +1085,12 @@ impl Compiler
             // TODO: how are parse errors handled? How is compilation stopped? Do I even
             // stop compilation? Should I?
             return self
-                .parser
-                .error_at_current(&format!("Function with name '{}' not in scope", &function_name.value));
+                .error_at(&format!("Function with name '{}' not in scope", &function_name.value), &function_name.clone());
         };
 
         if arity != &1 {
             return self
-                .parser
-                .error_at_current("Function must take only one argument to be able to work with pipes.");
+                .error_at("Function must take only one argument to be able to work with pipes.", &function_name.clone());
         }
 
         self.emit_byte(Op::Call);
@@ -1156,5 +1210,11 @@ impl Compiler
     fn position(&self) -> usize
     {
         self.current().block.code.len()
+    }
+
+    fn error_at(&mut self, msg: &str, token: &Token)
+    {
+        let err = self.parser.error_at(msg, token);
+        self.errors.push(err);
     }
 }

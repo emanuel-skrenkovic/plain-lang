@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{stdin, stdout, Write};
+use std::io::{stdin, stdout, stderr, Write};
 
 use sage::compiler::Compiler;
 use sage::scan::Scanner;
@@ -20,8 +20,15 @@ fn main() {
             let mut scanner = Scanner::new(input.clone());
             let tokens = scanner.scan_tokens();
 
-            let mut compiler = Compiler::new();
+            let mut compiler = Compiler::new(input.clone());
             let program = compiler.compile(tokens);
+            if !compiler.errors.is_empty() {
+                for err in compiler.errors {
+                    writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+                }
+                stderr().flush().unwrap();
+                std::process::exit(1);
+            }
             let program = program.unwrap();
 
             let mut vm = VM::new(program);
@@ -30,8 +37,8 @@ fn main() {
     } else {
         let source = fs::read_to_string(&args[1]).unwrap();
 
-        let mut scanner = Scanner::new(source);
-        let mut compiler = Compiler::new();
+        let mut scanner = Scanner::new(source.clone());
+        let mut compiler = Compiler::new(source.clone());
 
         let tokens = scanner.scan_tokens();
         let program = compiler.compile(tokens);
