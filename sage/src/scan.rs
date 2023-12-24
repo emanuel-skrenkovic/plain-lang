@@ -1,5 +1,5 @@
 use std::fmt;
-use std::mem::discriminant;
+use std::mem::{discriminant, Discriminant};
 
 #[derive(Debug, Clone, Copy)]
 pub enum TokenKind
@@ -15,6 +15,16 @@ pub enum TokenKind
     Func, Struct, Interface, Literal,
     Identifier,
     Error, End
+}
+
+impl TokenKind
+{
+    // TODO: not sure about this. Feels slightly better though.
+    // Also seems more in line with how Rust usually does things.
+    pub fn discriminant(&self) -> Discriminant<TokenKind>
+    {
+        std::mem::discriminant(self)
+    }
 }
 
 #[derive(Debug)]

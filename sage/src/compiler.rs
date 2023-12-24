@@ -1,5 +1,4 @@
 use std::fmt;
-use std::mem::discriminant;
 
 use crate::block;
 use crate::scan;
@@ -210,7 +209,7 @@ impl Parser
 
     fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
     {
-        if discriminant(&self.current.kind) != discriminant(&token_kind) {
+        if self.current.kind.discriminant() != token_kind.discriminant() {
             return false
         }
 
@@ -220,7 +219,7 @@ impl Parser
 
     fn check_token(&self, token_kind: scan::TokenKind) -> bool
     {
-        discriminant(&self.current.kind) == discriminant(&token_kind)
+        self.current.kind.discriminant() == token_kind.discriminant()
     }
 
     // TODO: this needs to somehow push the error into the compiler.
@@ -388,41 +387,37 @@ impl Compiler
 
     fn is_at_end(&self) -> bool
     {
-        discriminant(&self.parser.current.kind) == discriminant(&scan::TokenKind::End)
+        self.parser.current.kind.discriminant() == scan::TokenKind::End.discriminant()
     }
 
-    fn parse_precedence(&mut self, precedence: Precedence)
+    fn parse_precedence(&mut self, prec: Precedence)
     {
         self.parser.advance();
 
-        let prefix_rule  = get_rule(self.parser.previous.kind).prefix;
-
-        match prefix_rule {
+        match get_rule(self.parser.previous.kind).prefix {
             Some(prefix) => prefix(self),
             _ => {
-                if self.is_at_end() {
-                    return
-                }
+                if self.is_at_end() { return }
 
                 self.parser.error_at("Expect expression.", &self.parser.current.clone());
                 panic!();
             }
         }
 
-        while precedence.discriminator() <= get_rule(self.parser.current.kind)
-                                                    .precedence
-                                                    .discriminator() {
+        while prec.discriminator() <= get_rule(self.parser.current.kind).precedence.discriminator() {
             self.parser.advance();
 
-            let infix_rule = get_rule(self.parser.previous.kind).infix;
-            infix_rule.unwrap()(self);
+            let Some(infix_rule) = get_rule(self.parser.previous.kind).infix else {
+                return self.error_at("Failed to get infix rule.", &self.parser.previous.clone());
+            };
+
+            infix_rule(self);
         }
     }
 
     fn expression_statement(&mut self)
     {
         self.expression();
-        // TODO
     }
 
     fn expression(&mut self)
@@ -508,7 +503,6 @@ impl Compiler
         match self.parser.previous.kind {
             scan::TokenKind::True  => self.emit_constant(block::Value::Bool{ val: true }),
             scan::TokenKind::False => self.emit_constant(block::Value::Bool { val: false }),
-
             _ => {
                 let value = block::Value::Number {
                     val: self.parser.previous.value.parse::<i32>().unwrap()
@@ -568,7 +562,7 @@ impl Compiler
         }
 
         if let Some(next) = self.parser.peek(0) {
-            if discriminant(&next.kind) == discriminant(&scan::TokenKind::LeftParen) {
+            if next.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() {
                 // This is a function call, do nothing in this case, 'call' will handle it.
                 self.parser.match_token(scan::TokenKind::Semicolon);
                 return
@@ -1053,7 +1047,7 @@ impl Compiler
     // calls, again again).
     fn pipe(&mut self)
     {
-        if discriminant(&self.parser.previous.kind) != discriminant(&scan::TokenKind::Pipe) {
+        if self.parser.previous.kind.discriminant() != scan::TokenKind::Pipe.discriminant() {
             return self
                 .error_at(
                     &format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value),

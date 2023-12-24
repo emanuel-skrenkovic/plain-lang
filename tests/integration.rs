@@ -2138,7 +2138,8 @@ mod while_loop {
 }
 
 #[cfg(test)]
-mod pipe {
+mod pipe
+{
     use super::*;
     use sage::scan::Scanner;
 
