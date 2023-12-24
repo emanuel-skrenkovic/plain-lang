@@ -494,18 +494,15 @@ impl Compiler
 
     fn left_angle(&mut self)
     {
-        if self.match_token(scan::TokenKind::Identifier) {
-            self.match_token(scan::TokenKind::RightAngle);
-            // TODO generics
-        } else {
-            self.binary();
-        }
+        // TODO generics
+        if self.match_token(scan::TokenKind::Identifier) { self.match_token(scan::TokenKind::RightAngle); }
+        else                                             { self.binary(); }
     }
 
     fn literal(&mut self)
     {
         match self.parser.previous.kind {
-            scan::TokenKind::True  => self.emit_constant(block::Value::Bool{ val: true }),
+            scan::TokenKind::True  => self.emit_constant(block::Value::Bool { val: true }),
             scan::TokenKind::False => self.emit_constant(block::Value::Bool { val: false }),
             _ => {
                 let value = block::Value::Number {
@@ -552,8 +549,11 @@ impl Compiler
             );
 
             if self.variable_exists(&variable_name) {
-                return self
-                    .error_at(&format!("Cannot redeclare variable with name '{}'.", &variable_token), &variable_token.clone());
+                return self.error_at
+                (
+                    &format!("Cannot redeclare variable with name '{}'.", &variable_token),
+                    &variable_token.clone()
+                );
             }
 
             self.expression();
@@ -920,11 +920,8 @@ impl Compiler
     {
         // loop variable
 
-        if self.match_token(scan::TokenKind::Identifier) {
-            self.variable();
-        } else {
-            self.expression();
-        }
+        if self.match_token(scan::TokenKind::Identifier) { self.variable() }
+        else                                             { self.expression() };
 
         let mut loop_start = self.position();
 
@@ -1210,6 +1207,9 @@ impl Compiler
         self.current().block.code.len()
     }
 
+    // This section basically implements the parser methods, the difference is that the
+    // errors are pushed into the compiler error vec. This is so the caller doesn't need to
+    // manually bother with this stuff all the time.
     fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
     {
         if self.parser.current.kind.discriminant() != token_kind.discriminant() {
@@ -1227,6 +1227,8 @@ impl Compiler
             .consume(token_kind, error_message)
             .map_err(|e| self.error(e));
     }
+
+    //
 
     fn error_at(&mut self, msg: &str, token: &scan::Token)
     {

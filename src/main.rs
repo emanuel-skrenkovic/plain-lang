@@ -5,9 +5,12 @@ use std::io::{stdin, stdout, stderr, Write};
 use sage::compiler::Compiler;
 use sage::scan::Scanner;
 use sage::vm::VM;
+use sage::llvm;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
+
+    unsafe { llvm::llvm_test(); }
 
     if args.len() <= 1 {
         let mut input = String::new();
