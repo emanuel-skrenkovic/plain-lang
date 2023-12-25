@@ -3,4 +3,4 @@ pub mod scan;
 pub mod block;
 pub mod types;
 pub mod compiler;
-pub mod llvm;
+pub mod compiler_llvm;

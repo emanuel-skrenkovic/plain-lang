@@ -274,9 +274,9 @@ impl Parser
 #[derive(Clone, Debug)]
 pub struct Variable
 {
-    name: scan::Token,
-    mutable: bool,
-    defined: bool
+    pub name: scan::Token,
+    pub mutable: bool,
+    pub defined: bool
 }
 
 #[derive(Clone, Debug)]
@@ -559,6 +559,7 @@ impl Compiler
             self.expression();
 
             let index = self.declare_variable(variable_token, mutable);
+            self.variable_declaration(index);
             self.variable_definition(index);
 
             self.match_token(scan::TokenKind::Semicolon);
@@ -858,6 +859,7 @@ impl Compiler
             .defined = false;
 
         self.emit_byte(block::Op::DeclareVariable);
+        self.emit(variable_key);
     }
 
     fn variable_definition(&mut self, variable_key: u8)

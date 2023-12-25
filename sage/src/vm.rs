@@ -5,14 +5,14 @@ use crate::types::Equatable;
 use crate::compiler::Program;
 use crate::block::{Block, Op, Value};
 
-const STACK_SIZE: usize = 1024;
+pub const STACK_SIZE: usize = 1024;
 
 // Cache eviction on every scope change?
-struct CallFrame
+pub struct CallFrame
 {
-    position: usize,
-    i: usize,
-    block: Block
+    pub position: usize,
+    pub i: usize,
+    pub block: Block
 }
 
 impl CallFrame
@@ -27,17 +27,17 @@ impl CallFrame
         }
     }
 
-    fn get_value(&self, index: usize, stack: &VecDeque<Value>) -> Value
+    pub fn get_value(&self, index: usize, stack: &VecDeque<Value>) -> Value
     {
         stack[index + self.position].clone()
     }
 
-    fn set_value(&mut self, index: usize, value: Value, stack: &mut VecDeque<Value>)
+    pub fn set_value(&mut self, index: usize, value: Value, stack: &mut VecDeque<Value>)
     {
         stack[index + self.position] = value;
     }
 
-    fn read_byte(&mut self) -> u8
+    pub fn read_byte(&mut self) -> u8
     {
         let ip = self.block.code[self.i];
         self.i += 1;
@@ -45,12 +45,12 @@ impl CallFrame
         ip
     }
 
-    fn read_constant(&mut self, index: usize) -> Value
+    pub fn read_constant(&mut self, index: usize) -> Value
     {
         self.block.constants[index].clone()
     }
 
-    fn peek_op(&self, index: usize) -> u8
+    pub fn peek_op(&self, index: usize) -> u8
     {
         self.block.code[index]
     }
@@ -287,7 +287,9 @@ impl VM
                 }
 
                 Op::DeclareVariable => {
-                    // TODO: section intentionally left blank
+                    // Intentionally leaving it alone. The variable index is being emitted by
+                    // the compiler, but it is not needed in this implementation.
+                    let _ = frame.read_byte();
                 },
 
                 Op::SetLocal => {
