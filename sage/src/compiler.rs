@@ -294,7 +294,7 @@ pub struct Program
     pub block: block::Block,
     pub scopes: Vec<Scope>,
     pub current_scope: usize,
-    pub scope_depth: usize
+    pub scope_depth: usize,
 }
 
 impl Program
@@ -505,10 +505,27 @@ impl Compiler
             scan::TokenKind::True  => self.emit_constant(block::Value::Bool { val: true }),
             scan::TokenKind::False => self.emit_constant(block::Value::Bool { val: false }),
             _ => {
-                let value = block::Value::Number {
-                    val: self.parser.previous.value.parse::<i32>().unwrap()
-                };
-                self.emit_constant(value);
+                // Determine the type of the literal and create a matching value.
+                let t = self.parser.previous.value.clone();
+
+                // I don't like if else-if chains. >:(
+                if t.starts_with("\"") {
+                    // Removing the first and last chars because the token value contains the
+                    // starting and ending quotes.
+                    let val = t.clone()[1..t.len()-1].to_string();
+                    self.emit_constant(block::Value::String { val });
+                } else if let Some(first) = t.chars().nth(0) {
+                    // This is incorrect - should be part of the outer if-else conditions.
+                    if char::is_numeric(first) {
+                        let Ok(val) = t.parse::<i32>() else {
+                            return self.error_at("Expected number.", &self.parser.previous.clone());
+                        };
+
+                        self.emit_constant(block::Value::Number { val });
+                    }
+                } else {
+                    return self.error_at("Failed to parse token as a literal.", &self.parser.previous.clone());
+                }
             }
         }
 

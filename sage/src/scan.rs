@@ -170,6 +170,15 @@ impl Scanner
 
                 self.emit(TokenKind::Bang)
             }
+            '"' => {
+                while self.peek() != '\"' && !self.source_end() {
+                    self.advance();
+                }
+                // Get the ending quotes as well.
+                self.advance();
+
+                self.emit(TokenKind::Literal)
+            }
             '='  => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::EqualEqual)
