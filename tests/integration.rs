@@ -465,11 +465,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name: _,
-                arity: _,
-                closure: _,
-            } => {}
+            Value::Function { .. } => {}
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -493,11 +489,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name: _,
-                arity: _,
-                closure: _,
-            } => {}
+            Value::Function { .. } => {}
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -521,11 +513,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name: _,
-                arity,
-                closure: _,
-            } => debug_assert_eq!(arity, 2),
+            Value::Function { arity, .. } => debug_assert_eq!(arity, 2),
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -549,11 +537,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name,
-                arity: _,
-                closure: _,
-            } => debug_assert_eq!(name, "test"),
+            Value::Function { name, .. } => debug_assert_eq!(name, "test"),
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -835,13 +819,7 @@ mod function {
 
         let value = vm.pop();
         match value {
-            Value::Function {
-                name,
-                arity: _,
-                closure: _,
-            } => {
-                debug_assert_eq!(name, "test")
-            }
+            Value::Function { name, .. } => debug_assert_eq!(name, "test"),
             _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
@@ -1373,6 +1351,39 @@ mod function {
         match value {
             // 3 + 2 + 3 + 3 + 2 + 1 = 14
             Value::Number { val } => debug_assert_eq!(val, 14),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+
+    #[test]
+    fn called_function_return_type_defined()
+    {
+        // Arrange
+        let source = "
+            add :: (a, b, c): number { a + b * c };
+            result :: add(1, 2, 3);
+            result;
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_string());
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Assert
+        match &program.block.constants[0] {
+            Value::Function { return_type_name, .. } => debug_assert_eq!(return_type_name, "number"),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            // 3 + 2 + 3 + 3 + 2 + 1 = 14
+            Value::Number { val } => debug_assert_eq!(val, 7),
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }

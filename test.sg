@@ -1,1 +1,1 @@
-a : string = "Hello, World!";
+a :: (): number { 2 };

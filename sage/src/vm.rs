@@ -518,7 +518,7 @@ impl VM
                     let value = enclosing_scope.get_value(index, &self.stack);
 
                     let function_name = match value {
-                        Value::Function { name, closure: _, arity: _ } => name,
+                        Value::Function { name, .. } => name,
                         _ => panic!("Frame value of incorrect type. Expected 'Function'.")
                     };
 

@@ -405,7 +405,7 @@ impl Compiler
                 if self.is_at_end() { return }
 
                 self.parser.error_at("Expect expression.", &self.parser.current.clone());
-                panic!();
+                panic!()
             }
         }
 
@@ -687,6 +687,9 @@ impl Compiler
             name: name.to_owned(),
             arity,
             closure: block::Closure { code: function_code },
+
+            // TODO: type
+            return_type_name: "TODO: FIXME".to_string(),
         };
 
         function
@@ -724,21 +727,42 @@ impl Compiler
         }
 
         // TODO: type
-        self.declare_variable(self.parser.previous.clone(), false, None);
-
+        let function_token = self.parser.previous.clone();
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
+
+        let mut return_type_name: Option<String> = None;
+
+        // TODO: need to parse return type here
+        // Like with variables, if the type is defined here, fill out the return type of
+        // the function at this point. Otherwise, infer the type during type checking.
+        // (Again, I see a lot of problems potentially popping up regarding type inference.)
+        if self.match_token(scan::TokenKind::Colon) {
+            if !self.match_token(scan::TokenKind::Identifier) {
+                return self.error_at("Expected type identifier.", &self.parser.current.clone());
+            }
+
+            return_type_name = Some(self.parser.previous.clone().value);
+        }
+
+        // TODO: type
+        self.declare_variable(function_token, false, None);
 
         self.expression();
         self.emit_return(arity);
 
+        let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
+        else                                                             { "unit".to_string() };
         let expression_block = self.end_function();
-        let function = block::Value::Function {
-            name: variable_name,
-            arity,
-            closure: block::Closure { code: expression_block },
-        };
 
-        self.emit_constant(function)
+        self.emit_constant
+        (
+            block::Value::Function {
+                name: variable_name,
+                arity,
+                closure: block::Closure { code: expression_block },
+                return_type_name,
+            }
+        );
     }
 
     fn function_decl(&mut self)
@@ -746,7 +770,7 @@ impl Compiler
         self.consume(scan::TokenKind::Identifier, "Cannot declare function without name.");
 
         let function_token = self.parser.previous.clone();
-        let function_name = function_token.value.clone();
+        let function_name  = function_token.value.clone();
 
         if self.variable_exists(&function_name) {
             return self
@@ -1194,8 +1218,7 @@ impl Compiler
     }
 
     /// Gives away ownership of the block after the scope is finished.
-    fn end_function(&mut self) -> block::Block
-    {
+    fn end_function(&mut self) -> block::Block{
         let nested = self.programs.pop().unwrap();
         self.current_program = self.programs.len() - 1;
         nested.block
