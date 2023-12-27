@@ -579,11 +579,8 @@ impl Compiler
         let variable_decl = type_definition || immutable || mutable;
 
         if type_definition {
-            let _ = self.parser.match_token(scan::TokenKind::Colon);
-
-            if !self.match_token(scan::TokenKind::Identifier) {
-                return self.error_at("Expected identifier", &self.parser.current.clone());
-            }
+            let _ = self.match_token(scan::TokenKind::Colon);
+            self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
             maybe_type_name = Some(self.parser.previous.clone().value);
 
@@ -717,8 +714,14 @@ impl Compiler
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
-                // TODO: type
-                self.declare_variable(parameter_name_token, false, None);
+                let mut maybe_type_name  = None;
+
+                if self.match_token(scan::TokenKind::Colon) {
+                    self.consume(scan::TokenKind::Identifier, "Expected identifier");
+                    maybe_type_name = Some(self.parser.previous.clone().value);
+                }
+
+                self.declare_variable(parameter_name_token, false, maybe_type_name);
 
                 if !self.match_token(scan::TokenKind::Comma) {
                     break
