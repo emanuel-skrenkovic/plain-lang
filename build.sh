@@ -1,6 +1,6 @@
 #! /bin/bash
 
-#set -e
+# set -e
 
 cargo run test.sg
 llc -filetype=obj -o bin/a.o bin/a.bc

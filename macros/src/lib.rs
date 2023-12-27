@@ -13,7 +13,7 @@ pub fn binary_cstr(input: proc_macro::TokenStream) -> proc_macro::TokenStream
     let output = quote::quote! {
         {
             const CSTR: &'static [u8] = #cstr.as_bytes();
-            CSTR.as_ptr() as *const _
+            CSTR.as_ptr() as *const i8
         }
     };
 

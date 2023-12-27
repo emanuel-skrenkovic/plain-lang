@@ -72,10 +72,28 @@ impl TryFrom<u8> for Op
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct TypeInfo
+{
+    name: String,
+    kind: TypeKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeKind
+{
+    Bool,
+    Number,
+    String,
+    // Struct,
+}
+
+#[derive(Clone, Debug)]
 pub struct Block
 {
     pub code: Vec<u8>,
-    pub constants: Vec<Value>
+    pub constants: Vec<Value>,
+    pub type_info: Vec<TypeInfo>,
 }
 
 impl Block
@@ -84,7 +102,8 @@ impl Block
     {
         Block {
             code: Vec::with_capacity(capacity),
-            constants: vec![]
+            constants: vec![],
+            type_info: vec![],
         }
     }
 

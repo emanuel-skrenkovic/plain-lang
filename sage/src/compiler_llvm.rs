@@ -1,3 +1,6 @@
+// TODO: think about pulling this out and removing the llvm dependency from the
+// compiler itself.
+
 extern crate llvm_sys as llvm;
 
 use std::collections::{VecDeque, HashMap};
@@ -7,10 +10,6 @@ use macros::binary_cstr;
 use crate::vm;
 use crate::block;
 use crate::compiler;
-
-// llc -o a.s a.bc
-// gcc -o a.o a.s
-// gcc -o a a.o
 
 // TODO: const strings for now. I'll need to get into memory management for the C strings and
 // I don't want to do that right now. :( :) :( :)
@@ -298,7 +297,41 @@ impl Backend
                 self.disassemble_instruction(ip);
             }
 
-            let return_value = llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(self.context), 0, 0);
+            let a = self.state.variables.get(&0).unwrap()[0];
+
+            let global_format_str = llvm::core::LLVMBuildGlobalStringPtr(
+                self.builder,
+                binary_cstr!("%s\n"),
+                binary_cstr!("format_str"),
+            );
+
+            let printf_type = llvm
+                ::core
+                ::LLVMFunctionType
+                (
+                    llvm::core::LLVMInt32TypeInContext(self.context),
+                    [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(self.context), 0)].as_mut_ptr(),
+                    1,
+                    1,
+                );
+
+            let printf = llvm
+                ::core
+                ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
+
+            let mut param_values = [global_format_str, a];
+            llvm::core::LLVMBuildCall2(
+                self.builder,
+                printf_type,
+                printf,
+                param_values.as_mut_ptr(),
+                param_values.len() as u32,
+                binary_cstr!("printf_call"),
+            );
+
+            let return_value = llvm
+                ::core
+                ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(self.context), 0, 0);
             llvm::core::LLVMBuildRet(self.builder, return_value);
 
             let failure_action = llvm
@@ -307,15 +340,14 @@ impl Backend
 
             let mut error: *mut i8 = std::ptr::null_mut();
             if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {
-                let error_message = std::ffi::CStr::from_ptr(error).to_string_lossy();
-                eprintln!("Analysis error: {}", error_message);
+                eprintln!("Analysis error: {}", std::ffi::CStr::from_ptr(error).to_string_lossy());
                 llvm::core::LLVMDisposeMessage(error);
                 return;
             }
 
             let result = llvm
                 ::bit_writer
-                ::LLVMWriteBitcodeToFile(self.modules[0], "bin/a.bc\0".as_ptr() as *const i8);
+                ::LLVMWriteBitcodeToFile(self.modules[0], binary_cstr!("bin/a.bc"));
             if result != 0 {
                 eprintln!("Failed to output bitcode.");
                 return
@@ -384,10 +416,10 @@ impl Backend
                     llvm::core::LLVMAddFunction(self.modules[0], name.as_ptr() as *const _, type_ref)
                 }
 
-                // TODO: I don't even have strings in the parser. sadface
-                // block::Value::String { val } => {
-                //     llvm::core::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 1)
-                // }
+                // TODO: I now have strings in the compiler/parser! happyface
+                block::Value::String { val } => {
+                    llvm::core::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 1)
+                }
 
                 _ => panic!() // TODO: Result I guess. :/
             }
