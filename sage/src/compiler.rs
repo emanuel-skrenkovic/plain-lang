@@ -276,7 +276,8 @@ pub struct Variable
 {
     pub name: scan::Token,
     pub mutable: bool,
-    pub defined: bool
+    pub defined: bool,
+    pub type_name: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -552,19 +553,50 @@ impl Compiler
         }
     }
 
+    // If the variable type is specified, then assign the variable type here.
+    // Otherwise, infer the type (if possible) from the value assigned to the variable
+    // during type checking.
+    // I can already see problems forming with this inferrence system. sadface
     fn variable(&mut self)
     {
-        let immutable = self.parser.check_token(scan::TokenKind::ColonColon);
-        let mutable   = self.parser.check_token(scan::TokenKind::ColonEquals);
+        let variable_token = self.parser.previous.clone();
+        let variable_name  = variable_token.value.clone();
 
-        if mutable || immutable {
-            let variable_token = self.parser.previous.clone();
-            let variable_name  = variable_token.value.clone();
+        let mut maybe_type_name: Option<String> = None;
 
+        let type_definition = self.parser.check_token(scan::TokenKind::Colon);
+        let immutable       = self.parser.check_token(scan::TokenKind::ColonColon);
+        let mutable         = self.parser.check_token(scan::TokenKind::ColonEquals);
+
+        // We look at the next token to check if the variable is being declared,
+        // or if it is being used.
+        // If the next token is one of Token::Colon, Token::ColonColon or Token::ColonEquals,
+        // then the variable is being declared.
+        // Examples with completely random values:
+        // a : number = 42069;
+        // a :: 42069;
+        // a := 42069;
+        let variable_decl = type_definition || immutable || mutable;
+
+        if type_definition {
+            let _ = self.parser.match_token(scan::TokenKind::Colon);
+
+            if !self.match_token(scan::TokenKind::Identifier) {
+                return self.error_at("Expected identifier", &self.parser.current.clone());
+            }
+
+            maybe_type_name = Some(self.parser.previous.clone().value);
+
+            if !self.match_token(scan::TokenKind::Equal) {
+                return self.error_at("Expected token '='.", &self.parser.current.clone());
+            }
+        } else if mutable || immutable {
             self.match_token(
                 if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon }
             );
+        }
 
+        if variable_decl {
             if self.variable_exists(&variable_name) {
                 return self.error_at
                 (
@@ -575,7 +607,8 @@ impl Compiler
 
             self.expression();
 
-            let index = self.declare_variable(variable_token, mutable);
+            // TODO: type
+            let index = self.declare_variable(variable_token, mutable, maybe_type_name);
             self.variable_declaration(index);
             self.variable_definition(index);
 
@@ -583,6 +616,8 @@ impl Compiler
             return
         }
 
+        // This handles the case where the variable is used as an expression as opposed to
+        // being defined (which the code above handles).
         if let Some(next) = self.parser.peek(0) {
             if next.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() {
                 // This is a function call, do nothing in this case, 'call' will handle it.
@@ -616,7 +651,8 @@ impl Compiler
                 );
 
                 let parameter_name_token = self.parser.previous.clone();
-                self.declare_variable(parameter_name_token, false);
+                // TODO: type
+                self.declare_variable(parameter_name_token, false, None);
 
                 if !self.match_token(scan::TokenKind::Comma) {
                     break
@@ -678,7 +714,8 @@ impl Compiler
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
-                self.declare_variable(parameter_name_token, false);
+                // TODO: type
+                self.declare_variable(parameter_name_token, false, None);
 
                 if !self.match_token(scan::TokenKind::Comma) {
                     break
@@ -686,7 +723,8 @@ impl Compiler
             }
         }
 
-        self.declare_variable(self.parser.previous.clone(), false);
+        // TODO: type
+        self.declare_variable(self.parser.previous.clone(), false, None);
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
@@ -717,7 +755,7 @@ impl Compiler
 
         // Compile the expression and then jump after the block
         // to avoid executing the code during function _declaration_.
-        let variable_key = self.declare_variable(function_token, false);
+        let variable_key = self.declare_variable(function_token, false, None);
         self.variable_declaration(variable_key);
 
         let function = self.function(&function_name);
@@ -726,14 +764,15 @@ impl Compiler
         self.variable_definition(variable_key);
     }
 
-    fn declare_variable(&mut self, token: scan::Token, mutable: bool) -> u8
+    fn declare_variable(&mut self, token: scan::Token, mutable: bool, type_name: Option<String>) -> u8
     {
         let variable_name = token.value.clone();
 
         let variable = Variable {
             name: token,
             mutable,
-            defined: true
+            defined: true,
+            type_name,
         };
 
         self.current_mut()

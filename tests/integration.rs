@@ -2170,3 +2170,67 @@ mod pipe
         }
     }
 }
+
+#[cfg(test)]
+mod type_definition
+{
+    use super::*;
+    use sage::scan::Scanner;
+
+    #[test]
+    fn variable_type()
+    {
+        let source = "
+            test : string = \"HI THERE\";
+            test;
+        ".to_owned();
+
+        let tokens = Scanner::new(source.clone()).scan_tokens();
+        println!("{:?}", tokens);
+        // Act
+        let program = Compiler::new(source.clone())
+            .compile(tokens);
+
+        // Assert
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::String { val } => debug_assert_eq!(val, "HI THERE"),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+
+    #[test]
+    fn addition_with_types()
+    {
+        let source = "
+            a : int = 5;
+            b : int = 6;
+            a + b;
+        ".to_owned();
+
+        let tokens = Scanner::new(source.clone()).scan_tokens();
+        println!("{:?}", tokens);
+        // Act
+        let program = Compiler::new(source.clone())
+            .compile(tokens);
+
+        // Assert
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 11),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+}
