@@ -648,8 +648,10 @@ impl Compiler
                 );
 
                 let parameter_name_token = self.parser.previous.clone();
+
                 // TODO: type
-                self.declare_variable(parameter_name_token, false, None);
+                let variable_key = self.declare_variable(parameter_name_token, false, None);
+                self.variable_declaration(variable_key);
 
                 if !self.match_token(scan::TokenKind::Comma) {
                     break
@@ -685,7 +687,9 @@ impl Compiler
             arity,
             closure: block::Closure { code: function_code },
 
+
             // TODO: type
+            argument_type_names: vec![],
             return_type_name: "TODO: FIXME".to_string(),
         };
 
@@ -706,6 +710,8 @@ impl Compiler
             .value
             .clone();
 
+        let mut argument_type_names: Vec<Option<String>> = vec![];
+
         let mut arity = 0;
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -721,7 +727,10 @@ impl Compiler
                     maybe_type_name = Some(self.parser.previous.clone().value);
                 }
 
-                self.declare_variable(parameter_name_token, false, maybe_type_name);
+                argument_type_names.push(maybe_type_name.clone());
+
+                let variable_key = self.declare_variable(parameter_name_token, false, maybe_type_name);
+                self.variable_declaration(variable_key);
 
                 if !self.match_token(scan::TokenKind::Comma) {
                     break
@@ -763,6 +772,7 @@ impl Compiler
                 name: variable_name,
                 arity,
                 closure: block::Closure { code: expression_block },
+                argument_type_names,
                 return_type_name,
             }
         );

@@ -1387,6 +1387,42 @@ mod function {
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
+
+    #[test]
+    fn nested()
+    {
+        // Arrange
+        let source = "
+            add :: (a, b, c): number {
+                plus :: (d, f): number { d * f };
+                a + b * c  + plus(a, b)
+            };
+            result :: add(1, 2, 3);
+            result;
+        ".to_owned();
+
+        // Act
+        let mut compiler = Compiler::new(source.to_string());
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Assert
+        match &program.block.constants[0] {
+            Value::Function { return_type_name, .. } => debug_assert_eq!(return_type_name, "number"),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            // 3 + 2 + 3 + 3 + 2 + 1 = 14
+            Value::Number { val } => debug_assert_eq!(val, 7),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
 }
 
 #[cfg(test)]

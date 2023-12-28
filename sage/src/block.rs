@@ -6,7 +6,14 @@ pub enum Value
     String { val: String },
     Number { val: i32 },
     Bool   { val: bool },
-    Function { name: String, arity: usize, closure: Closure, return_type_name: String },
+    Function {
+        name: String,
+        arity: usize,
+        closure: Closure,
+        argument_type_names:
+        Vec<Option<String>>,
+        return_type_name: String
+    },
     Closure { val: Closure },
     Unit
 }
