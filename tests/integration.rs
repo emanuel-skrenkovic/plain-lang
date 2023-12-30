@@ -1418,8 +1418,9 @@ mod function {
 
         let value = vm.pop();
         match value {
-            // 3 + 2 + 3 + 3 + 2 + 1 = 14
-            Value::Number { val } => debug_assert_eq!(val, 7),
+            // 1 + 2 * 3 + (1 * 2) = 9
+            // Python3 says 9 is the correct answer.
+            Value::Number { val } => debug_assert_eq!(val, 9),
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
@@ -2262,7 +2263,6 @@ mod type_definition
         ".to_owned();
 
         let tokens = Scanner::new(source.clone()).scan_tokens();
-        println!("{:?}", tokens);
         // Act
         let program = Compiler::new(source.clone())
             .compile(tokens);

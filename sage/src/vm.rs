@@ -269,7 +269,7 @@ impl VM
                     self.push(Value::Bool { val: !val });
                 }
 
-                Op::Constant => { // Constant
+                Op::Constant => {
                     let index = frame.read_byte();
                     let value = frame.read_constant(index as usize);
                     self.push(value);
@@ -413,7 +413,12 @@ impl VM
         let b = self.pop();
 
         if discriminant(&a) != discriminant(&b) {
-            panic!("Binary operation with two different types is not supported.");
+            panic!
+            (
+                "Binary operation with two different types is not supported. Type A: {:?} Type B: {:?}",
+                discriminant(&a),
+                discriminant(&b),
+            );
         }
 
         (a, b)

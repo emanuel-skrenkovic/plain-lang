@@ -286,44 +286,77 @@ pub struct Scope
     pub index: usize,
     pub path: Vec<usize>,
     pub variables: Vec<Variable>,
-    pub scope_depth: usize
+    pub scope_depth: usize,
+    pub parent_function: Option<usize>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+pub struct Closure
+{
+    pub function: Function,
+    pub upvalues: Vec<usize>, // TOOD: maybe
+    pub scopes: Vec<Scope>,
+    pub scope_depth: usize,
+}
+
+// TODO: I think I should start focusing on the LLVM implementation rather than the
+// custom interpreter. This was always going to be a compiled language, and it is likely
+// that the semantics of the LLVM implementation will stay more relevant.
+#[derive(Clone, Debug)]
+pub struct Function
+{
+    // pub parent_scope: usize,
+    pub parent_function_index: Option<usize>,
+
+    pub block: block::Block,
+
+    pub scopes: Vec<usize>,
+    pub scope_depth: usize,
+}
+
+impl Function
+{
+    pub fn new(entry_scope_index: usize, parent_function_index: Option<usize>) -> Self
+    {
+        Self {
+            parent_function_index,
+            block: block::Block::new(1024),
+            scope_depth: 0,
+            scopes: vec![entry_scope_index],
+        }
+    }
+}
+
+// I feel like I have to simulate relational data with functions and scopes.
+
+#[derive(Clone, Debug)]
 pub struct Program
 {
     pub block: block::Block,
     pub scopes: Vec<Scope>,
-    pub current_scope: usize,
-    pub scope_depth: usize,
+    pub functions: Vec<Function>,
 }
 
-impl Program
+impl Default for Program
 {
-    fn new() -> Program
+    fn default() -> Self
     {
-        let starting_scope = Scope {
-            index: 0,
-            path: vec![],
-            variables: vec![],
-            scope_depth: 0,
-        };
-        Program {
+        Self {
             block: block::Block::new(1024),
-            scopes: vec![starting_scope],
-            current_scope: 0,
-            scope_depth: 0
+
+            scopes: vec!
+            [
+                Scope {
+                    index: 0,
+                    path: vec![],
+                    variables: vec![],
+                    scope_depth: 0,
+                    parent_function: None,
+                }
+            ],
+
+            functions: vec![],
         }
-    }
-
-    fn current_scope(&self) -> &Scope
-    {
-        &self.scopes[self.current_scope]
-    }
-
-    fn current_scope_mut(&mut self) -> &mut Scope
-    {
-        &mut self.scopes[self.current_scope]
     }
 }
 
@@ -332,15 +365,15 @@ pub struct Compiler
     // Keep the source for error reporting to be better.
     source: String,
     parser: Parser,
-    programs: Vec<Program>,
-    current_program: usize,
+
+    program: Program,
+
+    current_scope_index: usize,
+    current_function: Option<usize>,
 
     pub errors: Vec<CompilerError>,
 }
 
-// TODO: refactor to pass the entire scanned/parsed data
-// structure from parser/scanner.
-// A data pipeline.
 impl Compiler
 {
     #[must_use]
@@ -350,13 +383,16 @@ impl Compiler
         Compiler {
             source,
             parser: Parser::new(source_clone, vec![]),
-            programs: vec![Program::new()],
-            current_program: 0,
+            program: Program::default(),
+
+            current_scope_index: 0,
+            current_function: None,
+
             errors: vec![],
         }
     }
 
-    pub fn compile(&mut self, tokens: Vec<scan::Token>) -> Result<Program, ()>
+    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Program, ()>
     {
         self.parser = Parser::new(self.source.clone(), tokens);
         let _ = self.parser.advance().map_err(|e| self.error(e));
@@ -374,20 +410,37 @@ impl Compiler
             return Err(())
         }
 
-        assert!(self.programs.len() == 1);
-        Ok(self.programs
-           .pop()
-           .unwrap())
+        Ok(self.program)
     }
 
-    fn current(&self) -> &Program
+    // TOOD: Currently we are experienceing the "main" problem.
+    // Getting the current executing function does not work because I don't expect a function to
+    // be there already, since globals and type definitions do/will exist.
+    // But that means that the implicit assumption that we can get "current()" does not hold
+    // and stuff breaks.
+    // I have to find a way to deal with these two separate lexical scopes - global and within a function.
+    fn current(&self) -> &Function
     {
-        &self.programs[self.current_program]
+        // TODO: Remove unwrap, I think this break stuff!
+        &self.program.functions[self.current_function.unwrap()]
     }
 
-    fn current_mut(&mut self) -> &mut Program
+    fn current_mut(&mut self) -> &mut Function
     {
-        &mut self.programs[self.current_program]
+        // TODO: Remove unwrap, I think this break stuff!
+        &mut self.program.functions[self.current_function.unwrap()]
+    }
+
+    fn current_scope(&self) -> &Scope
+    {
+        let index = self.current_scope_index;
+        &self.program.scopes[index]
+    }
+
+    fn current_scope_mut(&mut self) -> &mut Scope
+    {
+        let scope = self.current_scope_index;
+        &mut self.program.scopes[scope]
     }
 
     fn is_at_end(&self) -> bool
@@ -453,7 +506,7 @@ impl Compiler
             self.declaration();
         }
 
-        // Blocks are expression - this captures if the block contains a value,
+        // Blocks are expressions - this captures if the block contains a value,
         // or returns 'Unit'.
         // If the final statement in the block is a semicolon, then treat it
         // like a value-less block, else, return the last value in the block.
@@ -669,8 +722,9 @@ impl Compiler
             self.declaration();
             count += 1;
         }
+
         let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
-        let count = if has_value && count > 0 { count - 1 } else { count };
+        let count     = if has_value && count > 0 { count - 1 } else { count };
 
         self.match_token(scan::TokenKind::RightBracket);
         self.match_token(scan::TokenKind::Semicolon);
@@ -703,12 +757,8 @@ impl Compiler
         // a :: ()
         // ^ __
         // 3 21
-        let variable_name = self.parser
-            .peek(-3)
-            .clone()
-            .unwrap()
-            .value
-            .clone();
+        let function_token = self.parser.peek(-3).unwrap().clone();
+        let function_name = function_token.value.clone();
 
         let mut argument_type_names: Vec<Option<String>> = vec![];
 
@@ -738,8 +788,6 @@ impl Compiler
             }
         }
 
-        // TODO: type
-        let function_token = self.parser.previous.clone();
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
         let mut return_type_name: Option<String> = None;
@@ -756,20 +804,24 @@ impl Compiler
             return_type_name = Some(self.parser.previous.clone().value);
         }
 
-        // TODO: type
-        self.declare_variable(function_token, false, None);
+        self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
-        self.expression();
+        // TODO: should this be an expression?
+        // self.expression();
+        self.code_block();
         self.emit_return(arity);
 
         let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
-        else                                                             { "unit".to_string() };
+                               else                                      { "unit".to_string() };
         let expression_block = self.end_function();
+
+        // // TODO: type
+        // self.declare_variable(function_token, false, None);
 
         self.emit_constant
         (
             block::Value::Function {
-                name: variable_name,
+                name: function_name,
                 arity,
                 closure: block::Closure { code: expression_block },
                 argument_type_names,
@@ -812,53 +864,42 @@ impl Compiler
             type_name,
         };
 
-        self.current_mut()
-            .current_scope_mut()
-            .variables
-            .push(variable);
-
-        let variable_index = self.current()
+        // TODO: maybe have the insert return the index.
+        self.current_scope_mut().variables.push(variable);
+        let variable_index = self
             .current_scope()
             .variables
             .iter()
             .position(|v| v.name.value == variable_name)
             .unwrap();
+        // I guess unwrap is ok here. I literally just inserted the thing in the line above.
 
         variable_index as u8
     }
 
-    fn find_variable_by_name(&self, name: &str) -> Option<(usize, usize, usize)>
+    fn find_variable_by_name(&self, name: &str) -> Option<(Option<usize>, usize, usize)>
     {
-        let mut current_program = self.current_program;
+        let current_scope = self.current_scope();
 
-        loop {
-            let program = &self.programs[current_program];
+        let variable_index = current_scope
+            .variables
+            .iter()
+            .position(|v| v.name.value == name);
 
-            let variable_index = program
-                .current_scope()
+        if let Some(position) = variable_index {
+            return Some((self.current_function, 0, position));
+        }
+
+        for scope_index in &current_scope.path {
+            let scope = &self.program.scopes[*scope_index];
+            let variable_index = scope
                 .variables
                 .iter()
                 .position(|v| v.name.value == name);
 
             if let Some(position) = variable_index {
-                return Some((current_program, self.current().current_scope, position))
+                return Some((scope.parent_function, *scope_index, position))
             }
-
-            for s in program.current_scope().path.iter() {
-                let scope = &program.scopes[*s];
-
-                let variable_index = scope
-                    .variables
-                    .iter()
-                    .position(|v| v.name.value == name);
-
-                if let Some(position) = variable_index {
-                    return Some((current_program, scope.index, position))
-                }
-            }
-
-            if current_program == 0 { break }
-            current_program -= 1;
         }
 
         None
@@ -869,34 +910,33 @@ impl Compiler
         let previous         = self.parser.previous.value.clone();
         let variable_indices = self.find_variable_by_name(&previous);
 
-        let Some((program_idx, scope, index)) = variable_indices else {
+        let Some((function_index, scope, index)) = variable_indices else {
             return None
         };
 
+        let scope_distance = self.function_distance(self.current_function, function_index);
+
         // If the following token is '=', then it's an assignment.
         if self.match_token(scan::TokenKind::Equal) {
-            if program_idx == self.current_program {
-                if !self.current().scopes[scope].variables[index].mutable {
+            if scope_distance == 0 {
+                if !self.program.scopes[scope].variables[index].mutable {
                     self.parser
                         .error_at("Cannot reassign value of an immutable variable.", &self.parser.previous.clone());
                 }
 
                 self.expression();
-
                 self.emit_byte(block::Op::SetLocal);
             } else {
                 // Emit program distance -> vm will move frames by this distance.
                 self.emit_byte(block::Op::SetUpvalue);
-                let scope_distance = self.current_program - program_idx;
                 self.emit(scope_distance as u8);
             }
         } else {
-            if program_idx == self.current_program {
+            if scope_distance == 0 {
                 self.emit_byte(block::Op::GetLocal);
             } else {
                 // Emit program distance -> vm will move frames by this distance.
                 self.emit_byte(block::Op::GetUpvalue);
-                let scope_distance = self.current_program - program_idx;
                 self.emit(scope_distance as u8);
             }
         }
@@ -907,36 +947,23 @@ impl Compiler
 
     fn variable_exists(&self, name: &str) -> bool
     {
-        let mut current_program = self.current_program;
+        let current_scope = self.current_scope();
 
-        loop {
-            let program = &self.programs[current_program];
+        let variable_index = current_scope
+            .variables
+            .iter()
+            .position(|v| &v.name.value == name);
 
-            let variable_index = program
-                .current_scope()
+        if variable_index.is_some() { return true }
+
+        for scope_index in &current_scope.path {
+            let scope = &self.program.scopes[*scope_index];
+            let variable_index = scope
                 .variables
                 .iter()
                 .position(|v| v.name.value == name);
 
-            if variable_index.is_some() {
-                return true
-            }
-
-            for s in program.current_scope().path.iter() {
-                let scope = &program.scopes[*s];
-
-                let variable_index = scope
-                    .variables
-                    .iter()
-                    .position(|v| v.name.value == name);
-
-                if variable_index.is_some() {
-                    return true
-                }
-            }
-
-            if current_program == 0 { break }
-            current_program -= 1;
+            if variable_index.is_some() { return true }
         }
 
         false
@@ -944,8 +971,7 @@ impl Compiler
 
     fn variable_declaration(&mut self, variable_key: u8)
     {
-        self.current_mut()
-            .current_scope_mut()
+        self.current_scope_mut()
             .variables
             .get_mut(variable_key as usize)
             .unwrap()
@@ -957,8 +983,7 @@ impl Compiler
 
     fn variable_definition(&mut self, variable_key: u8)
     {
-        self.current_mut()
-            .current_scope_mut()
+        self.current_scope_mut()
             .variables
             .get_mut(variable_key as usize)
             .unwrap()
@@ -1094,14 +1119,21 @@ impl Compiler
         }
         self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
 
-        let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name) else {
+        let Some((function_index, _, index)) = self.find_variable_by_name(&function_name) else {
             return self
                 .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
         };
 
+        let scope_distance = self.function_distance(self.current_function, function_index);
+
+        let block = if let Some(variable_function_index) = function_index {
+            &self.program.functions[variable_function_index].block
+        } else {
+            &self.program.block
+        };
+
         // Get the scope of the variable, then find it by name in the scopes constants.
-        let function = self.programs[scope]
-            .block
+        let function = block
             .constants
             .iter()
             .find(|c| match c {
@@ -1123,13 +1155,13 @@ impl Compiler
         }
 
         self.emit_byte(block::Op::Call);
-        self.emit((self.current_program - program_idx) as u8);
+        self.emit(scope_distance as u8);
         self.emit(index as u8);
 
         self.match_token(scan::TokenKind::Semicolon);
     }
 
-    // TODO: So far the piping into a function is only supported with function
+    // TODO: So far, piping into a function is only supported with functions
     // with arity of 1.
     // Because of the different order of operations when using the pipe operator as opposed to
     // regular function invocation, I've had to change the way functions are being called.
@@ -1156,14 +1188,21 @@ impl Compiler
                 .error_at("Failed to parse function name - no function name found.", &self.parser.current.clone());
         };
 
-        let Some((program_idx, scope, index)) = self.find_variable_by_name(&function_name.value) else {
+        let Some((function_index, _, index)) = self.find_variable_by_name(&function_name.value) else {
             return self
                 .error_at(&format!("Failed to find function '{}'.", &function_name.value), &function_name.clone());
         };
 
+        let (scope_distance, block) = if let Some(variable_function_index) = function_index {
+            let scope_distance = self.function_distance(self.current_function, function_index);
+            let block          = &self.program.functions[variable_function_index].block;
+            (scope_distance, block)
+        } else {
+            (0, &self.program.block)
+        };
+
         // Get the scope of the variable, then find it by name in the scopes constants.
-        let function = self.programs[scope]
-            .block
+        let function = block
             .constants
             .iter()
             .find(|c| match c {
@@ -1172,8 +1211,6 @@ impl Compiler
             });
 
         let Some(block::Value::Function { arity, ..}) = function else {
-            // TODO: how are parse errors handled? How is compilation stopped? Do I even
-            // stop compilation? Should I?
             return self
                 .error_at(&format!("Function with name '{}' not in scope", &function_name.value), &function_name.clone());
         };
@@ -1184,57 +1221,94 @@ impl Compiler
         }
 
         self.emit_byte(block::Op::Call);
-        self.emit((self.current_program - program_idx) as u8);
+        self.emit(scope_distance as u8);
         self.emit(index as u8);
 
         self.match_token(scan::TokenKind::Semicolon);
     }
 
-    fn begin_scope(&mut self)
+    fn begin_scope(&mut self) -> usize
     {
-        self.current_mut().scope_depth += 1;
+        let parent_scope = self.current_scope();
 
-        let previous = &self.current().current_scope();
+        // New scope path will contain the parent as well, so extending with the
+        // index of the parent.
+        let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
+        new_scope_path.extend_from_slice(&parent_scope.path);
+        new_scope_path.push(parent_scope.index);
 
-        let mut scope_path = previous.path.clone();
-        scope_path.push(previous.index);
-
-        let scope = Scope {
-            index: self.current().scopes.len() - 1,
-            path: scope_path,
+        let new_scope = Scope {
+            index: 0,
+            path: new_scope_path,
             variables: vec![],
-            scope_depth: self.current().scope_depth,
+            scope_depth: parent_scope.scope_depth + 1,
+            parent_function: self.current_function,
         };
 
-        let idx = self.current().scopes.len();
-        self.current_mut().scopes.push(scope);
-        self.current_mut().current_scope = idx;
+        // Push the new scope and get it's index. Use it as the ID of the Scope struct.
+        self.program.scopes.push(new_scope);
+
+        let new_scope_index = self.program.scopes.len() - 1;
+        self.program.scopes[new_scope_index].index = new_scope_index;
+
+        self.current_scope_index = new_scope_index;
+
+        new_scope_index
     }
 
     fn end_scope(&mut self)
     {
-        self.current_mut().scope_depth -= 1;
-
-        let scope_idx = self.current()
-            .current_scope()
-            .path
-            .last()
-            .unwrap_or(&0);
-
-        self.current_mut().current_scope = *scope_idx;
+        let scope                = self.current_scope();
+        let parent_scope         = scope.path.last().unwrap();
+        self.current_scope_index = *parent_scope;
     }
 
     fn begin_function(&mut self)
     {
-        self.programs.push(Program::new());
-        self.current_program = self.programs.len() - 1;
+        let scope_index = self.begin_scope();
+
+        self.program.functions.push(Function::new(scope_index, self.current_function));
+        self.current_function = Some(self.program.functions.len() - 1);
     }
 
-    /// Gives away ownership of the block after the scope is finished.
-    fn end_function(&mut self) -> block::Block{
-        let nested = self.programs.pop().unwrap();
-        self.current_program = self.programs.len() - 1;
-        nested.block
+    fn end_function(&mut self) -> block::Block
+    {
+        assert!(self.current_function.is_some());
+
+        self.end_scope();
+
+        let func         = self.current();
+        let parent_index = func.parent_function_index;
+        let block        = func.block.clone();
+
+        self.current_function = parent_index;
+
+        block
+    }
+
+    fn function_distance(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
+    {
+        let mut distance = 0;
+        let Some(starting_index) = starting_index else {
+            return distance;
+        };
+
+        let mut current_function = &self.program.functions[starting_index];
+
+        loop {
+            let next = current_function.parent_function_index;
+
+            // Not sure why, but it looks like this is broken.
+            if next.is_none() && ending_index.is_none() { return distance + 1 }
+
+            let Some(next_index) = next else                   { break };
+            if ending_index.map_or(false, |e| e == next_index) { break };
+
+            distance += 1;
+            current_function = &self.program.functions[next_index];
+        }
+
+        distance
     }
 
     fn semicolon(&mut self)
@@ -1250,18 +1324,26 @@ impl Compiler
 
     fn patch(&mut self, index: usize, byte: u8)
     {
-        self.current_mut().block.write_at(index, byte);
+        let block = if self.current_function.is_none() { &mut self.program.block }
+                    else                               { &mut self.current_mut().block };
+        block.write_at(index, byte);
     }
 
     fn patch_jump(&mut self, index: usize)
     {
-        let code_len = self.current().block.code.len();
+        let code_len = if self.current_function.is_none() { self.program.block.code.len() }
+                       else                               { self.current_mut().block.code.len() };
+
+        // let code_len = self.current().block.code.len();
         self.patch(index, (code_len - 1 - index) as u8);
     }
 
     fn emit_loop(&mut self, loop_start: usize)
     {
-        let loop_end = self.current().block.code.len();
+        // let loop_end = self.current().block.code.len();
+        let loop_end = if self.current_function.is_none() { self.program.block.code.len() }
+                       else                               { self.current_mut().block.code.len() };
+
         self.emit_byte(block::Op::LoopJump);
         self.emit((loop_end - loop_start + 2) as u8);
     }
@@ -1274,31 +1356,55 @@ impl Compiler
 
     fn emit_byte(&mut self, op: block::Op) -> usize
     {
-        self.current_mut().block.write_op(op)
+        let block = if self.current_function.is_none() { &mut self.program.block }
+                    else                               { &mut self.current_mut().block };
+        block.write_op(op)
+        // self.current_mut().block.write_op(op)
     }
 
     fn emit(&mut self, byte: u8) -> usize
     {
-        self.current_mut().block.write(byte as u8)
+        let block = if self.current_function.is_none() { &mut self.program.block }
+                    else                               { &mut self.current_mut().block };
+
+        block.write(byte)
+        // self.current_mut().block.write(byte as u8)
     }
 
     fn emit_bytes(&mut self, a: block::Op, b: block::Op) -> usize
     {
-        self.current_mut().block.write_op(a);
-        self.current_mut().block.write_op(b)
+        let block = if self.current_function.is_none() { &mut self.program.block }
+                    else                               { &mut self.current_mut().block };
+
+        block.write_op(a);
+        block.write_op(b)
+        // self.current_mut().block.write_op(a);
+        // self.current_mut().block.write_op(b)
     }
 
     fn emit_constant(&mut self, value: block::Value)
     {
-        let i = self.current_mut().block.write_constant(value);
+        let block = if self.current_function.is_none() { &mut self.program.block }
+                    else                               { &mut self.current_mut().block };
 
-        self.current_mut().block.write_op(block::Op::Constant);
-        self.current_mut().block.write(i as u8);
+        let i = block.write_constant(value);
+        block.write_op(block::Op::Constant);
+        block.write(i as u8);
+
+
+        // let i = self.current_mut().block.write_constant(value);
+
+        // self.current_mut().block.write_op(block::Op::Constant);
+        // self.current_mut().block.write(i as u8);
     }
 
     fn position(&self) -> usize
     {
-        self.current().block.code.len()
+        let block = if self.current_function.is_none() { &self.program.block }
+                    else                               { &self.current().block };
+
+        // self.current().block.code.len()
+        block.code.len()
     }
 
     // This section basically implements the parser methods, the difference is that the

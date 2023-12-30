@@ -1,5 +1,7 @@
 add :: (a: number, b: number): number {
     a + b
-};
+}
 
-add(2, 3);
+main :: () {
+     c :number = add(2, 3);
+};
