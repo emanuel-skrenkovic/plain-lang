@@ -487,7 +487,6 @@ impl Compiler
     {
         self.begin_scope();
 
-        // TODO
         self.code_block();
         self.match_token(scan::TokenKind::Semicolon);
 
@@ -657,7 +656,6 @@ impl Compiler
 
             self.expression();
 
-            // TODO: type
             let index = self.declare_variable(variable_token, mutable, maybe_type_name);
             self.variable_declaration(index);
             self.variable_definition(index);
@@ -770,21 +768,18 @@ impl Compiler
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
-                let mut maybe_type_name  = None;
 
-                if self.match_token(scan::TokenKind::Colon) {
+                let maybe_type_name: Option<String> = if self.match_token(scan::TokenKind::Colon) {
                     self.consume(scan::TokenKind::Identifier, "Expected identifier");
-                    maybe_type_name = Some(self.parser.previous.clone().value);
-                }
+                    Some(self.parser.previous.clone().value)
+                } else {
+                    None
+                };
 
                 argument_type_names.push(maybe_type_name.clone());
+                self.declare_variable(parameter_name_token, false, maybe_type_name);
 
-                let variable_key = self.declare_variable(parameter_name_token, false, maybe_type_name);
-                self.variable_declaration(variable_key);
-
-                if !self.match_token(scan::TokenKind::Comma) {
-                    break
-                }
+                if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
 
@@ -792,7 +787,6 @@ impl Compiler
 
         let mut return_type_name: Option<String> = None;
 
-        // TODO: need to parse return type here
         // Like with variables, if the type is defined here, fill out the return type of
         // the function at this point. Otherwise, infer the type during type checking.
         // (Again, I see a lot of problems potentially popping up regarding type inference.)
@@ -814,9 +808,6 @@ impl Compiler
         let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
                                else                                      { "unit".to_string() };
         let expression_block = self.end_function();
-
-        // // TODO: type
-        // self.declare_variable(function_token, false, None);
 
         self.emit_constant
         (
@@ -979,6 +970,8 @@ impl Compiler
 
         self.emit_byte(block::Op::DeclareVariable);
         self.emit(variable_key);
+        // This is kinda poopy.
+        self.emit(self.current_scope_index as u8);
     }
 
     fn variable_definition(&mut self, variable_key: u8)

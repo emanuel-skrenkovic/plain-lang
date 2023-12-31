@@ -2,6 +2,4 @@ add :: (a: number, b: number): number {
     a + b
 }
 
-main :: () {
-     c :number = add(2, 3);
-};
+c :number = add(2, 3);

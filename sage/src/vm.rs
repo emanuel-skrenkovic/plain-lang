@@ -290,6 +290,7 @@ impl VM
                     // Intentionally leaving it alone. The variable index is being emitted by
                     // the compiler, but it is not needed in this implementation.
                     let _ = frame.read_byte();
+                    let _ = frame.read_byte();
                 },
 
                 Op::SetLocal => {
