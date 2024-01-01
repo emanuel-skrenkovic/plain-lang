@@ -45,6 +45,36 @@ pub enum ValueInfo
     CompiledFunction,
 }
 
+pub struct Branch
+{
+    pub cond: llvm::prelude::LLVMValueRef,
+    pub then_block: Option<llvm::prelude::LLVMBasicBlockRef>,
+    pub else_block: Option<llvm::prelude::LLVMBasicBlockRef>,
+}
+
+pub fn build_branch
+
+(
+    builder: llvm::prelude::LLVMBuilderRef,
+    branch: Branch
+) -> Result<llvm::prelude::LLVMValueRef, String>
+{
+    let Some(then_branch) = branch.then_block else {
+        return Err("Then block not built.".to_string())
+    };
+
+    let Some(else_branch) = branch.else_block else {
+        return Err("Else block not built.".to_string())
+    };
+
+    unsafe {
+        Ok
+        (
+            llvm::core::LLVMBuildCondBr(builder, branch.cond, then_branch, else_branch)
+        )
+    }
+}
+
 pub struct Context
 {
     // HashMap of variables per scope. Scope index is the key, variables are in the vec.
@@ -181,7 +211,7 @@ impl Backend
         self.walk_source(builder, module, &program, &mut frames);
 
         // START PRINTF CALL
-        // self.add_printf(module, builder);
+        self.add_printf(module, builder);
         // END PRINTF CALL
 
         let return_value = llvm
@@ -193,11 +223,9 @@ impl Backend
             ::analysis
             ::LLVMVerifierFailureAction::LLVMAbortProcessAction;
 
-        let module_text = llvm::core::LLVMPrintModuleToString(module);
-        println!("MODULE: \n{}", std::ffi::CStr::from_ptr(module_text).to_str().unwrap());
-
         let mut error: *mut i8 = std::ptr::null_mut();
         if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {
+            self.print_module(module);
             eprintln!("Analysis error: {}", std::ffi::CStr::from_ptr(error).to_string_lossy());
             llvm::core::LLVMDisposeMessage(error);
             return;
@@ -216,7 +244,7 @@ impl Backend
     // TODO: REMOVE THIS! This is just for playing around.
     pub unsafe fn add_printf(&self, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
     {
-        let a = self.compilation_context.variables[0][2];
+        let a = self.compilation_context.variables[0][1];
 
         let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(self.context), a, binary_cstr!("a"));
 
@@ -285,9 +313,105 @@ impl Backend
             match operation {
                 block::Op::Pop => { self.pop(); }
 
+                block::Op::Add => {
+                    let (rhs, lhs) = self.binary_op();
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildAdd(builder, lhs, rhs, binary_cstr!("_add_result"));
+
+                    self.push(result);
+                },
+
+                block::Op::Subtract => {
+                    let (rhs, lhs) = self.binary_op();
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildSub(builder, lhs, rhs, binary_cstr!("_sub_result"));
+
+                    self.push(result);
+                },
+
+                block::Op::Multiply => {
+                    let (rhs, lhs) = self.binary_op();
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildMul(builder, lhs, rhs, binary_cstr!("_mul_result"));
+
+                    self.push(result);
+                }
+
+                block::Op::Divide => {
+                    let (rhs, lhs) = self.binary_op();
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildSDiv(builder, lhs, rhs, binary_cstr!("_div_result"));
+
+                    self.push(result);
+                }
+
+                block::Op::Equal => {
+                    let (rhs, lhs) = self.binary_op();
+                    let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildFCmp(builder, predicate,lhs, rhs, binary_cstr!("_eqcomp"));
+                    self.push(result);
+                }
+
+                block::Op::Less => {
+                    let (rhs, lhs) = self.binary_op();
+                    let predicate  = llvm::LLVMRealPredicate::LLVMRealOLT;
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildFCmp(builder, predicate,lhs, rhs, binary_cstr!("_ltcomp"));
+                    self.push(result);
+                }
+
+                block::Op::Greater => {
+                    let (rhs, lhs) = self.binary_op();
+                    let predicate  = llvm::LLVMRealPredicate::LLVMRealOGT;
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildFCmp(builder, predicate,lhs, rhs, binary_cstr!("_gtcomp"));
+                    self.push(result);
+                }
+
+                block::Op::LessEqual => {
+                    let (rhs, lhs) = self.binary_op();
+                    let predicate  = llvm::LLVMRealPredicate::LLVMRealOLE;
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildFCmp(builder, predicate,lhs, rhs, binary_cstr!("_lecomp"));
+                    self.push(result);
+                }
+
+                block::Op::GreaterEqual => {
+                    let (rhs, lhs) = self.binary_op();
+                    let predicate  = llvm::LLVMRealPredicate::LLVMRealOGE;
+
+                    let result = llvm
+                    ::core
+                    ::LLVMBuildFCmp(builder, predicate,lhs, rhs, binary_cstr!("_gecomp"));
+                    self.push(result);
+                }
+
+                block::Op::Not => {
+                    let value = self.pop();
+                    let result = llvm::core::LLVMBuildNeg(builder, value, binary_cstr!("_neg"));
+                    self.push(result);
+                }
+
                 block::Op::Constant => {
-                    let index     = frame.read_byte();
-                    let value     = frame.read_constant(index as usize);
+                    let index = frame.read_byte();
+                    let value = frame.read_constant(index as usize);
 
                     let value_ref = match value {
                         block::Value::Number { val } =>
@@ -329,34 +453,11 @@ impl Backend
                     self.push(value_ref);
                 }
 
-                block::Op::Add => {
-                    let (rhs, lhs) = self.binary_op();
+                block::Op::GetLocal => {
+                    let index = frame.read_byte() as usize;
+                    let value = frame.get_value(index, &self.stack);
 
-                    let result = llvm
-                    ::core
-                    ::LLVMBuildAdd(builder, lhs, rhs, binary_cstr!("_add_result"));
-
-                    self.push(result);
-                },
-
-                block::Op::Multiply => {
-                    let (rhs, lhs) = self.binary_op();
-
-                    let result = llvm
-                    ::core
-                    ::LLVMBuildMul(builder, lhs, rhs, binary_cstr!("_mul_result"));
-
-                    self.push(result);
-                }
-
-                block::Op::Equal => {
-                    let (rhs, lhs) = self.binary_op();
-                    let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
-
-                    let result = llvm
-                    ::core
-                    ::LLVMBuildFCmp(builder, predicate,lhs, rhs, binary_cstr!("_eqcomp"));
-                    self.push(result);
+                    self.push(value);
                 }
 
                 block::Op::DeclareVariable => {
@@ -382,17 +483,9 @@ impl Backend
                     self.compilation_context.variables[frame_index][index] = variable;
                 }
 
-                block::Op::GetLocal => {
-                    let index = frame.read_byte() as usize;
-                    let value = frame.get_value(index, &self.stack);
-
-                    self.push(value);
-                }
-
                 block::Op::SetLocal => {
                     let value = self.peek(0).clone();
                     let index = frame.read_byte() as usize;
-
 
                     let variable_ref = self.compilation_context.variables[frame_index][index];
                     llvm::core::LLVMBuildStore(builder, value, variable_ref);
@@ -422,20 +515,48 @@ impl Backend
                     enclosing_scope.set_value(index, value, &mut self.stack);
                 },
 
-                // TODO: Run LLVMBuildRet here?
                 block::Op::Return => {
-                    let values_count = frame.read_byte();
-                    let result       = self.pop();
+                    let _      = frame.read_byte();
+                    let result = self.pop();
 
-                    for _ in 0..values_count {
-                        self.pop();
-                    }
+                    // TODO: think about this!
+                    // We don't need to pop the params in the LLVM implementation
+                    // because they will be values controlled by the outer scope.
+                    // This feels wrong in some way though.
+                    // for _ in 0..values_count {
+                    //     self.pop();
+                    // }
 
                     if frames.is_empty() { break }
                     frames.pop();
 
                     llvm::core::LLVMBuildRet(builder, result);
+
                     self.push(result);
+                }
+
+                // JUMP
+                block::Op::Jump => {
+                    // TODO: I think  I need to do both - jump the stack while
+                    // evaluating my bytecode and create a jump in the LLVM IR.
+                    let jump = frame.read_byte() as usize;
+                    frame.i += jump;
+
+                    let block = llvm
+                        ::core
+                        ::LLVMCreateBasicBlockInContext(self.context, binary_cstr!("_jumpbb"));
+                }
+
+                block::Op::CondJump => {
+                    let _jump      = frame.read_byte() as usize;
+                    let _condition = self.pop();
+
+                    // TODO: I think that in the LLVM implementation I have to skip the jump
+                    // at this point so I go through all the branches because I have to build
+                    // the code for each of the branches.
+                    // if !val {
+                    //     frame.i += jump;
+                    // }
                 }
 
                 block::Op::Call => {
@@ -471,7 +592,6 @@ impl Backend
                     }
 
                     let mut args: Vec<llvm::prelude::LLVMValueRef> = (0..info.arity)
-                        // .map(|i| llvm::core::LLVMBuildLoad2(builder, info.param_types[i], self.peek(i), binary_cstr!("_test")))
                         .map(|i| self.peek(i))
                         .collect();
 
@@ -535,7 +655,8 @@ impl Backend
         let return_type = match return_type_name.as_str() {
             "unit"   => llvm::core::LLVMVoidTypeInContext(self.context),
             "number" => llvm::core::LLVMInt32TypeInContext(self.context),
-            _        => panic!() // TODO
+            "bool"   => llvm::core::LLVMInt8TypeInContext(self.context),
+            _        => panic!("Unknown return type.") // TODO
         };
 
         let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_names
@@ -544,7 +665,8 @@ impl Backend
             .map(|arg| match arg.as_str() {
                 "unit"   => llvm::core::LLVMVoidTypeInContext(self.context),
                 "number" => llvm::core::LLVMInt32TypeInContext(self.context),
-                _        => panic!(), // TODO
+                "bool"   => llvm::core::LLVMInt8TypeInContext(self.context),
+                _        => panic!("Unknown param type."), // TODO
             }).collect();
 
         let function_type_ref = llvm
@@ -562,9 +684,15 @@ impl Backend
             param_types,
             return_type: return_type,
             code,
-
-            // TODO: not sure about this one.
             compiled: false,
+        }
+    }
+
+    fn print_module(&self, module: llvm::prelude::LLVMModuleRef)
+    {
+        unsafe {
+            let module_text = llvm::core::LLVMPrintModuleToString(module);
+            println!("MODULE: \n{}", std::ffi::CStr::from_ptr(module_text).to_str().unwrap());
         }
     }
 

@@ -93,48 +93,49 @@ struct ParseRule
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 41] = [
-    ParseRule { prefix: Some(Compiler::function_expression),           infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // RightParen
-    ParseRule { prefix: Some(Compiler::block_expression),              infix: None,                                precedence: Precedence::None }, // LeftBracket
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // RightBracket
-    ParseRule { prefix: None,                                          infix: Some(Compiler::left_angle),          precedence: Precedence::Comparison }, // LeftAngle
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // RightAngle
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: Some(Compiler::semicolon),                     infix: None,                                precedence: Precedence::None }, // Semicolon
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Colon
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // ColonColon
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // ColonEquals
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Plus
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Minus
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Star
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Slash
-    ParseRule { prefix: None,                                          infix: Some(Compiler::pipe),                precedence: Precedence::Call }, // Pipe
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Comma
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Bang
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // BandEqual
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // EqualEqual
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // GreaterEqual
-    ParseRule { prefix: None,                                          infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // LessEqual
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Equal
-    ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // True
-    ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // False
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // This
-    ParseRule { prefix: Some(Compiler::_if),                           infix: None,                                precedence: Precedence::None }, // If
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Else
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Break
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Continue
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Switch
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Case
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // For
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // While
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Func
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Struct
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Interface
-    ParseRule { prefix: Some(Compiler::literal),                       infix: None,                                precedence: Precedence::None }, // Literal
-    ParseRule { prefix: Some(Compiler::variable),                      infix: None,                                precedence: Precedence::None }, // Identifier
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }, // Error
-    ParseRule { prefix: None,                                          infix: None,                                precedence: Precedence::None }  // End
+static RULES: [ParseRule; 41] =
+[
+    ParseRule { prefix: Some(Compiler::function_expression), infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // RightParen
+    ParseRule { prefix: Some(Compiler::block_expression),    infix: None,                                precedence: Precedence::None }, // LeftBracket
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // RightBracket
+    ParseRule { prefix: None,                                infix: Some(Compiler::left_angle),          precedence: Precedence::Comparison }, // LeftAngle
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // RightAngle
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Questionmark
+    ParseRule { prefix: Some(Compiler::semicolon),           infix: None,                                precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Colon
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // ColonColon
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // ColonEquals
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Plus
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Minus
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Star
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Slash
+    ParseRule { prefix: None,                                infix: Some(Compiler::pipe),                precedence: Precedence::Call }, // Pipe
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Comma
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Bang
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // BandEqual
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // EqualEqual
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // GreaterEqual
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // LessEqual
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Equal
+    ParseRule { prefix: Some(Compiler::literal),             infix: None,                                precedence: Precedence::None }, // True
+    ParseRule { prefix: Some(Compiler::literal),             infix: None,                                precedence: Precedence::None }, // False
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // This
+    ParseRule { prefix: Some(Compiler::_if),                 infix: None,                                precedence: Precedence::None }, // If
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Else
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Break
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Continue
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Switch
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Case
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // For
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // While
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Func
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Struct
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Interface
+    ParseRule { prefix: Some(Compiler::literal),             infix: None,                                precedence: Precedence::None }, // Literal
+    ParseRule { prefix: Some(Compiler::variable),            infix: None,                                precedence: Precedence::None }, // Identifier
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Error
+    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }  // End
 ];
 
 fn get_rule(token_kind: scan::TokenKind) -> ParseRule
@@ -392,7 +393,7 @@ impl Compiler
         }
     }
 
-    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Program, ()>
+    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Program, Vec<CompilerError>>
     {
         self.parser = Parser::new(self.source.clone(), tokens);
         let _ = self.parser.advance().map_err(|e| self.error(e));
@@ -402,12 +403,12 @@ impl Compiler
         loop {
             match self.parser.current.kind {
                 scan::TokenKind::End => break,
-                _              => self.declaration()
+                _                    => self.declaration()
             }
         }
 
         if self.parser.panic {
-            return Err(())
+            return Err(self.errors)
         }
 
         Ok(self.program)
@@ -805,8 +806,11 @@ impl Compiler
         self.code_block();
         self.emit_return(arity);
 
+        // TODO: I think I should just pass on the token here instead of having
+        // the name in a string like a dummy.
         let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
                                else                                      { "unit".to_string() };
+
         let expression_block = self.end_function();
 
         self.emit_constant
@@ -1088,18 +1092,13 @@ impl Compiler
 
     fn function_invocation(&mut self)
     {
-        let token = self.parser.peek(-2);
-        if token.is_none() {
-            // TODO: it's not really at self.parser.previous, but the one before that,
-            // but since it could not get it, then I guess previous is the next best thing.
+        let Some(token) = self.parser.peek(-2) else {
             return self
                 .error_at("Failed to parse function - no function name found.", &self.parser.previous.clone());
-        }
+        };
 
-        // Unwrap + clone to deal with ownership fuckery.
-        let function_name_token = token.unwrap().clone();
-
-        let function_name = function_name_token.value.clone();
+        let function_name_token = token.clone();
+        let function_name       = function_name_token.value.clone();
 
         let mut arguments: usize = 0;
         if !self.parser.check_token(scan::TokenKind::RightParen) {
@@ -1134,17 +1133,25 @@ impl Compiler
                 _ => false
             });
 
-        if let Some(block::Value::Function { name, arity, .. }) = function {
-            if arity != &arguments {
-                let error_message = format!(
-                    "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
-                    arguments,
-                    name,
-                    arity
-                );
+        println!("{:?}", function.unwrap());
 
-                return self.error_at(&error_message, &function_name_token.clone());
-            }
+        // This is stupid - if the function is indirected through a variable,
+        // then this doesn't work. Because of that, we have no way of checking the
+        // function arity in that case.
+        let Some(block::Value::Function { name, arity, .. }) = function else {
+            return self
+                .error_at(&format!("Function with name '{}' not in scope", &function_name), &function_name_token.clone());
+        };
+
+        if arity != &arguments {
+            let error_message = format!(
+                "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
+                arguments,
+                name,
+                arity
+            );
+
+            return self.error_at(&error_message, &function_name_token.clone());
         }
 
         self.emit_byte(block::Op::Call);
@@ -1169,11 +1176,11 @@ impl Compiler
     fn pipe(&mut self)
     {
         if self.parser.previous.kind.discriminant() != scan::TokenKind::Pipe.discriminant() {
-            return self
-                .error_at(
-                    &format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value),
-                    &self.parser.previous.clone()
-                );
+            return self.error_at
+            (
+                &format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value),
+                &self.parser.previous.clone()
+            );
         }
 
         let Some(function_name) = self.parser.peek(0) else {
@@ -1186,12 +1193,12 @@ impl Compiler
                 .error_at(&format!("Failed to find function '{}'.", &function_name.value), &function_name.clone());
         };
 
-        let (scope_distance, block) = if let Some(variable_function_index) = function_index {
-            let scope_distance = self.function_distance(self.current_function, function_index);
-            let block          = &self.program.functions[variable_function_index].block;
-            (scope_distance, block)
+        let scope_distance = self.function_distance(self.current_function, function_index);
+
+        let block = if let Some(variable_function_index) = function_index {
+            &self.program.functions[variable_function_index].block
         } else {
-            (0, &self.program.block)
+            &self.program.block
         };
 
         // Get the scope of the variable, then find it by name in the scopes constants.
@@ -1291,9 +1298,7 @@ impl Compiler
         loop {
             let next = current_function.parent_function_index;
 
-            // Not sure why, but it looks like this is broken.
-            if next.is_none() && ending_index.is_none() { return distance + 1 }
-
+            if next.is_none() && ending_index.is_none()        { return distance + 1 }
             let Some(next_index) = next else                   { break };
             if ending_index.map_or(false, |e| e == next_index) { break };
 
@@ -1327,13 +1332,11 @@ impl Compiler
         let code_len = if self.current_function.is_none() { self.program.block.code.len() }
                        else                               { self.current_mut().block.code.len() };
 
-        // let code_len = self.current().block.code.len();
         self.patch(index, (code_len - 1 - index) as u8);
     }
 
     fn emit_loop(&mut self, loop_start: usize)
     {
-        // let loop_end = self.current().block.code.len();
         let loop_end = if self.current_function.is_none() { self.program.block.code.len() }
                        else                               { self.current_mut().block.code.len() };
 
@@ -1352,7 +1355,6 @@ impl Compiler
         let block = if self.current_function.is_none() { &mut self.program.block }
                     else                               { &mut self.current_mut().block };
         block.write_op(op)
-        // self.current_mut().block.write_op(op)
     }
 
     fn emit(&mut self, byte: u8) -> usize
@@ -1361,7 +1363,6 @@ impl Compiler
                     else                               { &mut self.current_mut().block };
 
         block.write(byte)
-        // self.current_mut().block.write(byte as u8)
     }
 
     fn emit_bytes(&mut self, a: block::Op, b: block::Op) -> usize
@@ -1371,8 +1372,6 @@ impl Compiler
 
         block.write_op(a);
         block.write_op(b)
-        // self.current_mut().block.write_op(a);
-        // self.current_mut().block.write_op(b)
     }
 
     fn emit_constant(&mut self, value: block::Value)
@@ -1380,15 +1379,9 @@ impl Compiler
         let block = if self.current_function.is_none() { &mut self.program.block }
                     else                               { &mut self.current_mut().block };
 
-        let i = block.write_constant(value);
+        let i: u8 = block.write_constant(value);
         block.write_op(block::Op::Constant);
-        block.write(i as u8);
-
-
-        // let i = self.current_mut().block.write_constant(value);
-
-        // self.current_mut().block.write_op(block::Op::Constant);
-        // self.current_mut().block.write(i as u8);
+        block.write(i);
     }
 
     fn position(&self) -> usize
@@ -1396,7 +1389,6 @@ impl Compiler
         let block = if self.current_function.is_none() { &self.program.block }
                     else                               { &self.current().block };
 
-        // self.current().block.code.len()
         block.code.len()
     }
 

@@ -1,5 +1,5 @@
 use std::{env, fs};
-use std::io::{stdin, stdout, Write};
+use std::io::{stdin, stderr, stdout, Write};
 
 use sage::compiler;
 use sage::compiler_llvm;
@@ -7,28 +7,32 @@ use sage::scan;
 use sage::vm;
 
 fn main() {
+    #[allow(unused)]
     let args: Vec<String> = env::args().collect();
+    // let source = fs::read_to_string(&args[1]).unwrap();
 
-    let source = fs::read_to_string(&args[1]).unwrap();
+    let source = include_str!("../test.sg").to_string();
 
     let mut scanner = scan::Scanner::new(source.clone());
     let tokens = scanner.scan_tokens();
 
     let compiler = compiler::Compiler::new(source.clone());
-    let program = compiler.compile(tokens);
-    // if !compiler.errors.is_empty() {
-    //     for err in compiler.errors {
-    //         writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
-    //     }
-    //     stderr().flush().unwrap();
-    //     std::process::exit(1);
-    // }
-    let program = program.unwrap();
+    let code = match compiler.compile(tokens) {
+        Ok(program) =>  {
+            unsafe { compiler_llvm::Backend::new().compile(program); }
+            0
+        }
+        Err(errors) => {
+            for err in errors {
+                writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+            }
+            stderr().flush().unwrap();
+            1
+        }
+    };
 
-    let mut llvm = compiler_llvm::Backend::new();
-    unsafe { llvm.compile(program); }
+    std::process::exit(code);
 
-    std::process::exit(1);
 
     // TODO: Below is the regular compiler, this split is just for me to test the llvm implementation.
     // TODO: Remove above code.

@@ -1,5 +1,5 @@
-add :: (a: number, b: number): number {
-    a + b
+div :: (a: number, b: number): number {
+    a / b
 }
 
-c :number = add(2, 3);
+c : number = div(2, 2);

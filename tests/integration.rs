@@ -935,7 +935,7 @@ mod function {
 
         let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
-        debug_assert!(program.is_ok());
+        // debug_assert!(program.is_ok());
         let program = program.unwrap();
 
         // Act
@@ -2293,11 +2293,13 @@ mod llvm
     fn llvm()
     {
         let source = "
-            add :: (a: number, b: number): number {
-                a + b
-            }
+            add :: (a: number): number {
+                a + 11
+            };
 
-            c :number = add(2, 3);
+            b :: add;
+
+            c :number = 2 |> b;
         ".to_owned();
 
         let tokens = Scanner::new(source.clone()).scan_tokens();
