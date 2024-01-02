@@ -176,6 +176,19 @@ pub struct Current<'a>
     pub frames: &'a mut Vec<StackFrame>,
 }
 
+impl <'a> Current<'a>
+{
+    pub fn current_frame(&self) -> &StackFrame
+    {
+        &self.frames[self.frame_index]
+    }
+
+    pub fn current_frame_mut(&mut self) -> &mut StackFrame
+    {
+        &mut self.frames[self.frame_index]
+    }
+}
+
 pub struct Context
 {
     pub llvm_ctx: llvm::prelude::LLVMContextRef,
@@ -288,7 +301,7 @@ impl ProgramCompiler
             }
 
             let mut current = Current { builder, module, frame_index, frames: &mut frames };
-            let ip = current.frames[current.frame_index].read_byte();
+            let ip = current.current_frame_mut().read_byte();
             disassemble_instruction(ip);
 
             let Ok(operation) = ip.try_into() else {
@@ -297,7 +310,7 @@ impl ProgramCompiler
 
             match get_op(operation) {
                 Some(op) => op(ctx, &mut stack, &mut current),
-                None     => current.frames[current.frame_index].move_forward(),
+                None     => current.current_frame_mut().move_forward(),
             }
         }
 
@@ -382,7 +395,7 @@ impl FunctionCompiler
             }
 
             let mut current = Current { builder, module, frame_index, frames };
-            let ip = current.frames[current.frame_index].read_byte();
+            let ip = current.current_frame_mut().read_byte();
             disassemble_instruction(ip);
 
             let Ok(operation) = ip.try_into() else {
@@ -390,7 +403,7 @@ impl FunctionCompiler
             };
             match get_op(operation) {
                 Some(op) => op(ctx, stack, &mut current),
-                None     => current.frames[current.frame_index].move_forward(),
+                None     => current.current_frame_mut().move_forward(),
             }
         }
     }
@@ -516,7 +529,7 @@ pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
 pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame = &mut current.frames[current.frame_index];
+    let frame = current.current_frame_mut();
     let index = frame.read_byte();
     let value = frame.read_constant(index as usize);
 
@@ -560,7 +573,7 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
 
 pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame = &mut current.frames[current.frame_index];
+    let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
     let value = frame.get_value(index, &stack.stack);
 
@@ -569,7 +582,7 @@ pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut 
 
 pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
-    let frame = &mut current.frames[current.frame_index];
+    let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
     let scope = frame.read_byte() as usize;
 
@@ -596,18 +609,23 @@ pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
 {
     let value = stack.peek(0).clone();
 
-    let frame = &mut current.frames[current.frame_index];
+    // These two are copied first because 'current' is borrowed to
+    // get the frame.
+    let frame_index = current.frame_index;
+    let builder     = current.builder;
+
+    let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
 
-    let variable_ref = ctx.compilation_state.variables[current.frame_index][index];
-    llvm::core::LLVMBuildStore(current.builder, value, variable_ref);
+    let variable_ref = ctx.compilation_state.variables[frame_index][index];
+    llvm::core::LLVMBuildStore(builder, value, variable_ref);
 
     frame.set_value(index, value, &mut stack.stack);
 }
 
 pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame          = &mut current.frames[current.frame_index];
+    let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
     let index          = frame.read_byte() as usize;
 
@@ -619,14 +637,16 @@ pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mu
 
 pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame          = &mut current.frames[current.frame_index];
+    let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
     let index          = frame.read_byte() as usize;
 
     let value = stack.peek(0).clone();
-    let enclosing_scope = &mut current.frames[current.frame_index - scope_distance];
 
-    let variable_ref = ctx.compilation_state.variables[current.frame_index - scope_distance][index];
+    let scope = current.frame_index - scope_distance;
+
+    let enclosing_scope = &mut current.frames[scope];
+    let variable_ref = ctx.compilation_state.variables[scope][index];
     llvm::core::LLVMBuildStore(current.builder, value, variable_ref);
 
     enclosing_scope.set_value(index, value, &mut stack.stack);
@@ -634,7 +654,7 @@ pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut
 
 pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame  = &mut current.frames[current.frame_index];
+    let frame  = current.current_frame_mut();
     let _      = frame.read_byte();
     let result = stack.pop();
 
@@ -658,7 +678,7 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
 {
     // TODO: I think  I need to do both - jump the stack while
     // evaluating my bytecode and create a jump in the LLVM IR.
-    let frame = &mut current.frames[current.frame_index];
+    let frame = current.current_frame_mut();
     let jump = frame.read_byte() as usize;
     frame.i += jump;
 
@@ -670,7 +690,7 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
 
 pub unsafe fn op_cond_jump(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame      = &mut current.frames[current.frame_index];
+    let frame      = current.current_frame_mut();
     let _jump      = frame.read_byte() as usize;
     let _condition = stack.pop();
 
@@ -684,19 +704,19 @@ pub unsafe fn op_cond_jump(_ctx: &mut Context, stack: &mut Stack, current: &mut 
 
 pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
-    let frame = &mut current.frames[current.frame_index];
+    let frame = current.current_frame_mut();
     let jump  = frame.read_byte() as usize;
     frame.i -= jump;
 }
 
 pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    let frame          = &mut current.frames[current.frame_index];
+    let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
     let index          = frame.read_byte() as usize;
 
-    let scope_index   = current.frame_index - scope_distance;
-    let function_info = ctx.compilation_state.info[scope_index][index].clone();
+    let scope         = current.frame_index - scope_distance;
+    let function_info = ctx.compilation_state.info[scope][index].clone();
 
     let ValueInfo::Function { mut info  } = function_info else {
         panic!("Expected function info")
@@ -737,7 +757,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         info.name.as_ptr() as *const _,
     );
 
-    ctx.compilation_state.info[scope_index][index] = ValueInfo::Function { info };
+    ctx.compilation_state.info[scope][index] = ValueInfo::Function { info };
 }
 
 unsafe fn build_function
