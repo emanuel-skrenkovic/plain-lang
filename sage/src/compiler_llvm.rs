@@ -47,7 +47,6 @@ pub struct CompilationState
     // HashMap of variables per scope. Scope index is the key, variables are in the vec.
     // TODO: think of how to do indexing of variable refs.
     pub variables: Vec<Vec<llvm::prelude::LLVMValueRef>>,
-    // pub variables: HashMap<usize, Vec<llvm::prelude::LLVMValueRef>>,
     pub info: Vec<Vec<ValueInfo>>,
 }
 
@@ -124,37 +123,36 @@ impl StackFrame
     }
 }
 
-
 pub struct Stack
 {
-    pub stack: Vec<llvm::prelude::LLVMValueRef>,
-    pub stack_top: usize,
+    pub buffer: Vec<llvm::prelude::LLVMValueRef>,
+    pub top: usize,
 }
 
 impl Stack
 {
     pub fn new() -> Self
     {
-        Self { stack: Vec::with_capacity(1024), stack_top: 0 }
+        Self { buffer: Vec::with_capacity(1024), top: 0 }
     }
 
     pub fn peek(&self, distance: usize) -> llvm::prelude::LLVMValueRef
     {
-        self.stack[self.stack_top - 1 - distance]
+        self.buffer[self.top - 1 - distance]
     }
 
     pub fn pop(&mut self) -> llvm::prelude::LLVMValueRef
     {
-        assert!(!self.stack.is_empty(), "Cannot pop empty stack.");
-        let value = self.stack.pop().unwrap();
-        self.stack_top -= 1;
+        assert!(!self.buffer.is_empty(), "Cannot pop empty stack.");
+        let value = self.buffer.pop().unwrap();
+        self.top -= 1;
         value
     }
 
     pub fn push(&mut self, value: llvm::prelude::LLVMValueRef)
     {
-        self.stack.push(value);
-        self.stack_top += 1;
+        self.buffer.push(value);
+        self.top += 1;
     }
 
     // TODO: how to handle differring types. Probably just don't check at all.
@@ -287,7 +285,7 @@ impl ProgramCompiler
         llvm::core::LLVMPositionBuilderAtEnd(builder, entry_block);
 
         let mut stack  = Stack::new();
-        let mut frames = vec![StackFrame::new(stack.stack_top, ctx.program.block.clone())];
+        let mut frames = vec![StackFrame::new(stack.top, ctx.program.block.clone())];
 
         // TODO: remove
         ctx.compilation_state.variables.push(vec![0 as *mut llvm::LLVMValue; 1024]);
@@ -575,7 +573,7 @@ pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut 
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
-    let value = frame.get_value(index, &stack.stack);
+    let value = frame.get_value(index, &stack.buffer);
 
     stack.push(value);
 }
@@ -620,7 +618,7 @@ pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
     let variable_ref = ctx.compilation_state.variables[frame_index][index];
     llvm::core::LLVMBuildStore(builder, value, variable_ref);
 
-    frame.set_value(index, value, &mut stack.stack);
+    frame.set_value(index, value, &mut stack.buffer);
 }
 
 pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -630,7 +628,7 @@ pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mu
     let index          = frame.read_byte() as usize;
 
     let enclosing_scope = &current.frames[current.frame_index - scope_distance];
-    let value = enclosing_scope.get_value(index, &stack.stack);
+    let value = enclosing_scope.get_value(index, &stack.buffer);
 
     stack.push(value);
 }
@@ -649,7 +647,7 @@ pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut
     let variable_ref = ctx.compilation_state.variables[scope][index];
     llvm::core::LLVMBuildStore(current.builder, value, variable_ref);
 
-    enclosing_scope.set_value(index, value, &mut stack.stack);
+    enclosing_scope.set_value(index, value, &mut stack.buffer);
 }
 
 pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -736,7 +734,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         // #horribleways
         let mut inner_frames = vec!
         [
-            StackFrame::new(stack.stack_top - info.arity, info.code.clone())
+            StackFrame::new(stack.top - info.arity, info.code.clone())
         ];
 
         FunctionCompiler::compile(ctx, stack, function_builder, current.module, &mut inner_frames);
