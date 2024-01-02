@@ -46,14 +46,14 @@ fn main() {
     let total = now.elapsed();
     println!
     (
-        "Total time {:?}.
-Tokenization took {:?}
-Compilation took: {:?}
-Outputting LLVM bytecode took: {:?}",
-        total,
-        after_scanning,
-        after_compiling,
-        after_llvm,
+        "Total time {:} seconds.
+Tokenization took {:} seconds.
+Compilation took: {:} seconds.
+Outputting LLVM bytecode took: {:} seconds.",
+        total.as_secs_f32(),
+        after_scanning.as_secs_f32(),
+        after_compiling.as_secs_f32(),
+        after_llvm.as_secs_f32(),
     );
 
     std::process::exit(0);

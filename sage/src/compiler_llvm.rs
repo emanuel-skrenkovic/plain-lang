@@ -19,29 +19,6 @@ pub enum ValueInfo
     CompiledFunction,
 }
 
-pub struct Branch
-{
-    pub cond: llvm::prelude::LLVMValueRef,
-    pub then_block: Option<llvm::prelude::LLVMBasicBlockRef>,
-    pub else_block: Option<llvm::prelude::LLVMBasicBlockRef>,
-}
-
-pub fn build_branch(builder: llvm::prelude::LLVMBuilderRef, branch: Branch)
-    -> Result<llvm::prelude::LLVMValueRef, String>
-{
-    let Some(then_branch) = branch.then_block else {
-        return Err("Then block not built.".to_string())
-    };
-
-    let Some(else_branch) = branch.else_block else {
-        return Err("Else block not built.".to_string())
-    };
-
-    unsafe {
-        Ok(llvm::core::LLVMBuildCondBr(builder, branch.cond, then_branch, else_branch))
-    }
-}
-
 pub struct CompilationState
 {
     // HashMap of variables per scope. Scope index is the key, variables are in the vec.
@@ -58,7 +35,7 @@ impl CompilationState
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StackFrame
 {
     pub position: usize,
@@ -165,13 +142,19 @@ impl Stack
     }
 }
 
+#[derive(Debug)]
 pub struct Current<'a>
 {
     pub builder: llvm::prelude::LLVMBuilderRef,
+    pub basic_block: llvm::prelude::LLVMBasicBlockRef,
+
     pub module: llvm::prelude::LLVMModuleRef,
+    pub function: llvm::prelude::LLVMValueRef,
 
     pub frame_index: usize,
     pub frames: &'a mut Vec<StackFrame>,
+
+    pub branch: Option<&'a mut Branch>,
 }
 
 impl <'a> Current<'a>
@@ -226,6 +209,9 @@ impl Drop for Context
 
 type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current);
 
+// The index of the operation corresponds with the u8 value of
+// the operation enum.
+// The order must be preserved! Otherwise, funny things happen.
 const OPERATIONS: [Option<EvalOp>; 25] =
 [
     Some(op_pop),
@@ -298,7 +284,15 @@ impl ProgramCompiler
                 break;
             }
 
-            let mut current = Current { builder, module, frame_index, frames: &mut frames };
+            let mut current = Current {
+                builder,
+                basic_block: entry_block,
+                module,
+                function: main_function,
+                frame_index,
+                frames: &mut frames,
+                branch: None
+            };
             let ip = current.current_frame_mut().read_byte();
             disassemble_instruction(ip);
 
@@ -321,18 +315,13 @@ impl ProgramCompiler
 
         verify_module(module);
 
-        let result = llvm
-            ::bit_writer
-            ::LLVMWriteBitcodeToFile(module, binary_cstr!("bin/a.bc"));
-        if result != 0 {
-            eprintln!("Failed to output bitcode.");
-        }
+        output_module_bitcode(module).unwrap();
     }
 
     // TODO: REMOVE THIS! This is just for playing around.
     pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
     {
-        let a = ctx.compilation_state.variables[0][1];
+        let a = ctx.compilation_state.variables[0][0];
 
         let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 
@@ -376,7 +365,9 @@ impl FunctionCompiler
     (
         ctx: &mut Context,
         stack: &mut Stack,
+        current: &Current,
         builder: llvm::prelude::LLVMBuilderRef,
+        basic_block: llvm::prelude::LLVMBasicBlockRef,
         module: llvm::prelude::LLVMModuleRef,
         frames: &mut Vec<StackFrame>,
     )
@@ -392,7 +383,15 @@ impl FunctionCompiler
                 break;
             }
 
-            let mut current = Current { builder, module, frame_index, frames };
+            let mut current = Current {
+                builder: builder,
+                basic_block,
+                module,
+                function: current.function,
+                frame_index,
+                frames,
+                branch: None
+            };
             let ip = current.current_frame_mut().read_byte();
             disassemble_instruction(ip);
 
@@ -407,7 +406,197 @@ impl FunctionCompiler
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct Branch
+{
+    pub cond: llvm::prelude::LLVMValueRef,
+
+    pub then_block: Option<llvm::prelude::LLVMBasicBlockRef>,
+    pub else_block: Option<llvm::prelude::LLVMBasicBlockRef>,
+
+    pub exit_counter: Option<usize>,
+
+    pub parent_builder: llvm::prelude::LLVMBuilderRef,
+    pub parent_block: llvm::prelude::LLVMBasicBlockRef,
+}
+
+impl Branch
+{
+    #[must_use]
+    pub fn new
+    (
+        cond: llvm::prelude::LLVMValueRef,
+        parent_builder: llvm::prelude::LLVMBuilderRef,
+        parent_block: llvm::prelude::LLVMBasicBlockRef,
+    ) -> Self
+    {
+        Self {
+            cond,
+
+            then_block: None,
+            else_block: None,
+
+            exit_counter: None,
+
+            parent_builder,
+            parent_block
+        }
+    }
+}
+
+pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch: Branch)
+    -> Result<llvm::prelude::LLVMValueRef, String>
+{
+    let Some(then_branch) = branch.then_block else {
+        return Err("Then block not built.".to_string())
+    };
+
+    let Some(else_branch) = branch.else_block else {
+        return Err("Else block not built.".to_string())
+    };
+
+    unsafe {
+        let end_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchend"));
+
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch.parent_block);
+        llvm::core::LLVMBuildCondBr(current.builder, branch.cond, then_branch, else_branch);
+
+        // After the code for each block is built, write the BR instructions for each block.
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_branch);
+        llvm::core::LLVMBuildBr(current.builder, end_block);
+
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_branch);
+        llvm::core::LLVMBuildBr(current.builder, end_block);
+
+        let (else_result, if_result) = stack.binary_op();
+        let mut incoming_values = [if_result, else_result];
+        let mut incoming_blocks = [then_branch, else_branch];
+
+        // Move the builder back to the parent block.
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
+
+        let phi_node = llvm
+            ::core
+            ::LLVMBuildPhi(current.builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), binary_cstr!("_branchphi"));
+
+        llvm::core::LLVMAddIncoming(phi_node, incoming_values.as_mut_ptr(), incoming_blocks.as_mut_ptr(), 2);
+
+        // As the result of the if/else, move the incoming values into a phi node and return it
+        // as the result of the branching expression.
+        Ok(phi_node)
+    }
+}
+
 pub struct BranchCompiler { }
+
+impl BranchCompiler
+{
+    // Look ma, I'm doing inheritance!
+    const BRANCH_OPERATIONS: [Option<EvalOp>; 25] =
+    [
+        Some(op_pop),
+        None,                      // OP True
+        None,                      // OP False
+        Some(op_not),
+        Some(op_add),
+        Some(op_subtract),
+        Some(op_multiply),
+        Some(op_divide),
+        Some(op_constant),
+        Some(op_equal),
+        Some(op_less),
+        Some(op_greater),
+        Some(op_greater_equal),
+        Some(op_less_equal),
+        Some(op_declare_variable),
+        Some(op_set_local),
+        Some(op_get_local),
+        Some(op_set_upvalue),
+        Some(op_get_upvalue),
+        None,                      // OP Frame
+        Some(op_return),
+        Some(BranchCompiler::op_jump),
+        Some(op_cond_jump),
+        Some(op_loop_jump),
+        Some(op_call),
+    ];
+
+    pub unsafe fn compile
+    (
+        ctx: &mut Context,
+        stack: &mut Stack,
+        current: &Current,
+        mut branch: Branch,
+        frames: &mut Vec<StackFrame>,
+    ) -> Option<Branch>
+    {
+        let then_block = llvm
+            ::core
+            ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_condjumpbb"));
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_block);
+        branch.then_block = Some(then_block);
+
+        loop {
+            let frame_index = frames.len() - 1;
+            if frames[frame_index].i == frames[frame_index].block.code.len() {
+                break None
+            }
+
+            // This is the problem!
+            // Branch gets replaced by the initial one on every instruction.
+            let mut current = Current {
+                builder: current.builder,
+                basic_block: then_block,
+                module: current.module,
+                function: current.function,
+                frame_index,
+                frames,
+                branch: Some(&mut branch)
+            };
+            let ip = current.current_frame_mut().read_byte();
+            disassemble_instruction(ip);
+
+            let Ok(operation) = TryInto::<block::Op>::try_into(ip) else {
+                panic!("Could not parse operation '{}'.", ip);
+            };
+
+            match BranchCompiler::BRANCH_OPERATIONS[operation as usize] {
+                Some(op) => op(ctx, stack, &mut current),
+                None     => current.current_frame_mut().move_forward(),
+            }
+
+            if let Some(exit_counter) = current.branch.as_ref().unwrap().exit_counter {
+                if exit_counter == 0 { current.frames.pop(); }
+                else                 { current.branch.as_mut().unwrap().exit_counter = Some(exit_counter - 1); }
+            }
+
+            if current.frames.len() == 0 {
+                return Some(branch)
+            }
+        }
+    }
+
+    // Replace Op::Jump and friends to be able to keep branching state while
+    // keeping track of the state and compiling all the branch paths.
+    pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
+    {
+        let frame = current.current_frame_mut();
+        let jump  = frame.read_byte() as usize;
+
+
+        let Some(branch) = current.branch.as_mut() else {
+            panic!("Branch not initiated.")
+        };
+
+        branch.exit_counter = Some(jump - 1);
+
+        let else_block = llvm
+            ::core
+            ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_jumpbb"));
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
+        branch.else_block = Some(else_block);
+    }
+}
 
 pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current)
 {
@@ -686,18 +875,126 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
         ::LLVMCreateBasicBlockInContext(ctx.llvm_ctx, binary_cstr!("_jumpbb"));
 }
 
-pub unsafe fn op_cond_jump(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
-{
-    let frame      = current.current_frame_mut();
-    let _jump      = frame.read_byte() as usize;
-    let _condition = stack.pop();
+/*
 
-    // TODO: I think that in the LLVM implementation I have to skip the jump
-    // at this point so I go through all the branches because I have to build
-    // the code for each of the branches.
-    // if !val {
-    //     frame.i += jump;
-    // }
+extern crate llvm_sys;
+
+use llvm_sys::core::*;
+use llvm_sys::prelude::*;
+use std::ffi::{CString, CStr};
+
+fn main() {
+    unsafe {
+        // Initialize LLVM
+        LLVMInitializeCore(LLVMGetGlobalPassRegistry());
+
+        // Create a context
+        let context = LLVMContextCreate();
+
+        // Create a module
+        let module_name = CString::new("example_module").expect("Failed to create CString");
+        let module = LLVMModuleCreateWithName(module_name.as_ptr());
+
+        // Create a function in the module
+        let function_type = LLVMFunctionType(LLVMInt32TypeInContext(context), std::ptr::null_mut(), 0, 0);
+        let function_name = CString::new("main").expect("Failed to create CString");
+        let function = LLVMAddFunction(module, function_name.as_ptr(), function_type);
+
+        // Create basic blocks for if and else
+        let entry_block = LLVMAppendBasicBlockInContext(context, function, c_str!("entry").as_ptr());
+        let if_block = LLVMAppendBasicBlockInContext(context, function, c_str!("if_block").as_ptr());
+        let else_block = LLVMAppendBasicBlockInContext(context, function, c_str!("else_block").as_ptr());
+        let end_block = LLVMAppendBasicBlockInContext(context, function, c_str!("end").as_ptr());
+
+        // Create a builder to build instructions
+        let builder = LLVMCreateBuilderInContext(context);
+
+        // Set the builder to start in the entry block
+        LLVMPositionBuilderAtEnd(builder, entry_block);
+
+        // Define a boolean variable
+        let condition = LLVMConstInt(LLVMInt1TypeInContext(context), 1, 0);
+
+        // Create a branch instruction based on the condition
+        LLVMBuildCondBr(builder, condition, if_block, else_block);
+
+        // Set the builder to start in the if block
+        LLVMPositionBuilderAtEnd(builder, if_block);
+
+        // Add instructions for the "if" branch
+        let if_result = LLVMConstInt(LLVMInt32TypeInContext(context), 42, 0);
+        LLVMBuildBr(builder, end_block);
+
+        // Set the builder to start in the else block
+        LLVMPositionBuilderAtEnd(builder, else_block);
+
+        // Add instructions for the "else" branch
+        let else_result = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
+        LLVMBuildBr(builder, end_block);
+
+        // Set the builder to start in the end block
+        LLVMPositionBuilderAtEnd(builder, end_block);
+
+        // Create a phi node to merge results from if and else blocks
+        let phi_node = LLVMBuildPhi(builder, LLVMInt32TypeInContext(context), c_str!("result").as_ptr());
+
+        // Add incoming values for the phi node
+        let incoming_values = [if_result, else_result];
+        let incoming_blocks = [if_block, else_block];
+        LLVMAddIncoming(phi_node, incoming_values.as_ptr(), incoming_blocks.as_ptr(), 2);
+
+        // Return the result of the phi node
+        LLVMBuildRet(builder, phi_node);
+
+        // Verify the module
+        let mut error_str = std::ptr::null_mut();
+        if LLVMVerifyModule(module, LLVMVerifierFailureAction, &mut error_str) != 0 {
+            let error_message = CStr::from_ptr(error_str).to_string_lossy().into_owned();
+            eprintln!("LLVM verification failed: {}", error_message);
+            LLVMDisposeMessage(error_str);
+        }
+
+        // Clean up resources
+        LLVMDisposeBuilder(builder);
+        LLVMDisposeModule(module);
+        LLVMContextDispose(context);
+    }
+}
+ */
+
+pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+{
+    let frame     = current.current_frame_mut();
+    let _jump     = frame.read_byte() as usize;
+    let condition = stack.pop();
+
+    let i1_condition = llvm::core::LLVMBuildTrunc
+    (
+        current.builder,
+        condition,
+        llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx),
+        binary_cstr!("_bool_convert")
+    );
+
+    let branch           = Branch::new(i1_condition, current.builder, current.basic_block);
+    let mut inner_frames = vec![current.frames[current.frame_index].clone()];
+
+    let compiled_branch = BranchCompiler::compile
+    (
+        ctx,
+        stack,
+        &current,
+        branch,
+        &mut inner_frames
+    );
+    let Some(compiled_branch) = compiled_branch else {
+        panic!("Failed to build branch code.")
+    };
+
+    // TODO: this feels off. Structure it better.
+    if let Ok(value) = write_branch(&ctx, stack, &current, compiled_branch) {
+        stack.push(value);
+    }
 }
 
 pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
@@ -737,7 +1034,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
             StackFrame::new(stack.top - info.arity, info.code.clone())
         ];
 
-        FunctionCompiler::compile(ctx, stack, function_builder, current.module, &mut inner_frames);
+        FunctionCompiler::compile(ctx, stack, &current, function_builder, entry_block, current.module, &mut inner_frames);
         info.compiled = true;
     }
 
@@ -806,11 +1103,11 @@ impl FunctionCall
             }).collect();
 
         let function_type_ref = llvm
-        ::core
-        ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
+            ::core
+            ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
         let function_ref = llvm
-        ::core
-        ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type_ref);
+            ::core
+            ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type_ref);
 
         FunctionCall {
             name,
@@ -825,11 +1122,23 @@ impl FunctionCall
     }
 }
 
+// TODO: remove - this is just for janky testing.
+pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Result<(), String>
+{
+    let result = llvm
+        ::bit_writer
+        ::LLVMWriteBitcodeToFile(module, binary_cstr!("bin/a.bc"));
+    if result != 0 {
+        return Err("Failed to output bitcode.".to_string())
+    }
+    Ok(())
+}
+
 pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 {
     let failure_action = llvm
     ::analysis
-    ::LLVMVerifierFailureAction::LLVMAbortProcessAction;
+    ::LLVMVerifierFailureAction::LLVMPrintMessageAction;
 
     let mut error: *mut i8 = std::ptr::null_mut();
     if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {

@@ -1,5 +1,5 @@
-div :: (a: number, b: number): number {
-    a / b
-}
-
-c : number = div(2, 2);
+a :: if false {
+    2 + 3
+} else {
+    3 * 5
+};
