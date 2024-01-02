@@ -197,7 +197,7 @@ impl Context
     {
         Self {
             llvm_ctx: llvm::core::LLVMContextCreate(),
-            modules: vec![],
+            modules: Vec::with_capacity(1),
             program,
             compilation_state: CompilationState::new()
         }
@@ -219,12 +219,7 @@ impl Drop for Context
     }
 }
 
-type EvalOp = unsafe fn
-(
-    &mut Context,
-    &mut Stack,
-    &mut Current,
-);
+type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current);
 
 const OPERATIONS: [Option<EvalOp>; 25] =
 [
@@ -286,62 +281,19 @@ impl ProgramCompiler
 
         let mut stack  = Stack::new();
         let mut frames = vec![StackFrame::new(stack.stack_top, ctx.program.block.clone())];
-        Self::walk_source(ctx, &mut stack, builder, module, &mut frames);
 
-        Self::add_printf(ctx, module, builder);
-
-        let return_value = llvm
-            ::core
-            ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 0);
-        llvm::core::LLVMBuildRet(builder, return_value);
-
-        Self::verify_module(module);
-
-        let result = llvm
-            ::bit_writer
-            ::LLVMWriteBitcodeToFile(module, binary_cstr!("bin/a.bc"));
-
-        if result != 0 {
-            eprintln!("Failed to output bitcode.");
-        }
-    }
-
-    pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
-    {
-        let failure_action = llvm
-            ::analysis
-            ::LLVMVerifierFailureAction::LLVMAbortProcessAction;
-
-        let mut error: *mut i8 = std::ptr::null_mut();
-        if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {
-            print_module(module);
-            eprintln!("Analysis error: {}", std::ffi::CStr::from_ptr(error).to_string_lossy());
-            llvm::core::LLVMDisposeMessage(error);
-        }
-    }
-
-    pub unsafe fn walk_source
-    (
-        ctx: &mut Context,
-        stack: &mut Stack,
-        builder: llvm::prelude::LLVMBuilderRef,
-        module: llvm::prelude::LLVMModuleRef,
-        frames: &mut Vec<StackFrame>,
-    )
-    {
         // TODO: remove
         ctx.compilation_state.variables.push(vec![0 as *mut llvm::LLVMValue; 1024]);
 
         loop {
             if frames.len() == 0 { break }
-            println!("FRAMES LEN: {}", frames.len());
 
             let frame_index = frames.len() - 1;
             if frames[frame_index].i == frames[frame_index].block.code.len() {
                 break;
             }
 
-            let mut current = Current { builder, module, frame_index, frames };
+            let mut current = Current { builder, module, frame_index, frames: &mut frames };
             let ip = current.frames[current.frame_index].read_byte();
             disassemble_instruction(ip);
 
@@ -350,9 +302,25 @@ impl ProgramCompiler
             };
 
             match get_op(operation) {
-                Some(op) => op(ctx, stack, &mut current),
+                Some(op) => op(ctx, &mut stack, &mut current),
                 None     => current.frames[current.frame_index].move_forward(),
             }
+        }
+
+        Self::add_printf(ctx, module, builder);
+
+        let return_value = llvm
+            ::core
+            ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 0);
+        llvm::core::LLVMBuildRet(builder, return_value);
+
+        verify_module(module);
+
+        let result = llvm
+            ::bit_writer
+            ::LLVMWriteBitcodeToFile(module, binary_cstr!("bin/a.bc"));
+        if result != 0 {
+            eprintln!("Failed to output bitcode.");
         }
     }
 
@@ -412,8 +380,7 @@ impl FunctionCompiler
         ctx.compilation_state.variables.push(vec![0 as *mut llvm::LLVMValue; 1024]);
 
         loop {
-            if frames.len() == 0 { println!("BREAKING"); break }
-            println!("FRAMES LEN: {}", frames.len());
+            if frames.len() == 0 { break }
 
             let frame_index = frames.len() - 1;
             if frames[frame_index].i == frames[frame_index].block.code.len() {
@@ -439,13 +406,11 @@ pub struct BranchCompiler { }
 
 pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current)
 {
-    println!("POP");
     stack.pop();
 }
 
 pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("ADD");
     let (rhs, lhs) = stack.binary_op();
 
     let result = llvm
@@ -457,7 +422,6 @@ pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
 pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("SUBTRACT");
     let (rhs, lhs) = stack.binary_op();
 
     let result = llvm
@@ -469,7 +433,6 @@ pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut C
 
 pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("MULTIPLY");
     let (rhs, lhs) = stack.binary_op();
 
     let result = llvm
@@ -481,7 +444,6 @@ pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut C
 
 pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("DIVIDE");
     let (rhs, lhs) = stack.binary_op();
 
     let result = llvm
@@ -493,7 +455,6 @@ pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
 
 pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("EQUAL");
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
 
@@ -506,7 +467,6 @@ pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Curr
 
 pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("LESS");
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOLT;
 
@@ -519,7 +479,6 @@ pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Curre
 
 pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("GREATER");
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGT;
 
@@ -532,7 +491,6 @@ pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Cu
 
 pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("LESS_EQUAL");
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOLE;
 
@@ -545,7 +503,6 @@ pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut
 
 pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("GREATER_EQUAL");
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGE;
 
@@ -558,7 +515,6 @@ pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &
 
 pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("NOT");
     let value = stack.pop();
     let result = llvm::core::LLVMBuildNeg(current.builder, value, binary_cstr!("_neg"));
     stack.push(result);
@@ -566,7 +522,6 @@ pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
 pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("CONSTANT");
     let frame = &mut current.frames[current.frame_index];
     let index = frame.read_byte();
     let value = frame.read_constant(index as usize);
@@ -611,7 +566,6 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
 
 pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("GET_LCOAL");
     let frame = &mut current.frames[current.frame_index];
     let index = frame.read_byte() as usize;
     let value = frame.get_value(index, &stack.stack);
@@ -621,7 +575,6 @@ pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut 
 
 pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
-    println!("DECLARE_VARIABLE");
     let frame = &mut current.frames[current.frame_index];
     let index = frame.read_byte() as usize;
     let scope = frame.read_byte() as usize;
@@ -647,7 +600,6 @@ pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current
 
 pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("SET_LCOAL");
     let value = stack.peek(0).clone();
 
     let frame = &mut current.frames[current.frame_index];
@@ -661,7 +613,6 @@ pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
 
 pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("GET_UPVALUE");
     let frame          = &mut current.frames[current.frame_index];
     let scope_distance = frame.read_byte() as usize;
     let index          = frame.read_byte() as usize;
@@ -674,7 +625,6 @@ pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mu
 
 pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("SET_UPVALUE");
     let frame          = &mut current.frames[current.frame_index];
     let scope_distance = frame.read_byte() as usize;
     let index          = frame.read_byte() as usize;
@@ -690,7 +640,6 @@ pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut
 
 pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("RETURN");
     let frame  = &mut current.frames[current.frame_index];
     let _      = frame.read_byte();
     let result = stack.pop();
@@ -713,7 +662,6 @@ pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
 
 pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
-    println!("JUMP");
     // TODO: I think  I need to do both - jump the stack while
     // evaluating my bytecode and create a jump in the LLVM IR.
     let frame = &mut current.frames[current.frame_index];
@@ -728,7 +676,6 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
 
 pub unsafe fn op_cond_jump(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("COND_JUMP");
     let frame      = &mut current.frames[current.frame_index];
     let _jump      = frame.read_byte() as usize;
     let _condition = stack.pop();
@@ -743,7 +690,6 @@ pub unsafe fn op_cond_jump(_ctx: &mut Context, stack: &mut Stack, current: &mut 
 
 pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
-    println!("LOOP_JUMP");
     let frame = &mut current.frames[current.frame_index];
     let jump  = frame.read_byte() as usize;
     frame.i -= jump;
@@ -751,7 +697,6 @@ pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut
 
 pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
-    println!("CALL");
     let frame          = &mut current.frames[current.frame_index];
     let scope_distance = frame.read_byte() as usize;
     let index          = frame.read_byte() as usize;
@@ -848,11 +793,6 @@ unsafe fn build_function
     }
 }
 
-// TOOD: create a program compiler, function compiler, and branch compiler.
-// Have the common values (program, module, context, etc, in a common Context struct)
-// and pass that around.
-// Have the functionality only be associated functions.
-
 // TODO: cache this function call somewhere per function so it can be
 // pulled and used per call.
 // TODO: remove the clone. I hate cloning everything.
@@ -868,6 +808,20 @@ pub struct FunctionCall
     pub code: block::Block,
 
     pub compiled: bool,
+}
+
+pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
+{
+    let failure_action = llvm
+    ::analysis
+    ::LLVMVerifierFailureAction::LLVMAbortProcessAction;
+
+    let mut error: *mut i8 = std::ptr::null_mut();
+    if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {
+        print_module(module);
+        eprintln!("Analysis error: {}", std::ffi::CStr::from_ptr(error).to_string_lossy());
+        llvm::core::LLVMDisposeMessage(error);
+    }
 }
 
 fn print_module(module: llvm::prelude::LLVMModuleRef)
