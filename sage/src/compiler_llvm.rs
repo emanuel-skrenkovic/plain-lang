@@ -3,8 +3,6 @@
 
 extern crate llvm_sys as llvm;
 
-use std::collections::VecDeque;
-
 use macros::binary_cstr;
 
 use crate::block;
@@ -28,12 +26,8 @@ pub struct Branch
     pub else_block: Option<llvm::prelude::LLVMBasicBlockRef>,
 }
 
-pub fn build_branch
-
-(
-    builder: llvm::prelude::LLVMBuilderRef,
-    branch: Branch
-) -> Result<llvm::prelude::LLVMValueRef, String>
+pub fn build_branch(builder: llvm::prelude::LLVMBuilderRef, branch: Branch)
+    -> Result<llvm::prelude::LLVMValueRef, String>
 {
     let Some(then_branch) = branch.then_block else {
         return Err("Then block not built.".to_string())
@@ -89,7 +83,7 @@ impl StackFrame
     (
         &self,
         index: usize,
-        stack: &VecDeque<llvm::prelude::LLVMValueRef>
+        stack: &[llvm::prelude::LLVMValueRef]
     ) -> llvm::prelude::LLVMValueRef
     {
         stack[index + self.position].clone()
@@ -100,7 +94,7 @@ impl StackFrame
         &mut self,
         index: usize,
         value: llvm::prelude::LLVMValueRef,
-        stack: &mut VecDeque<llvm::prelude::LLVMValueRef>
+        stack: &mut Vec<llvm::prelude::LLVMValueRef>
     )
     {
         stack[index + self.position] = value;
@@ -133,7 +127,7 @@ impl StackFrame
 
 pub struct Stack
 {
-    pub stack: VecDeque<llvm::prelude::LLVMValueRef>,
+    pub stack: Vec<llvm::prelude::LLVMValueRef>,
     pub stack_top: usize,
 }
 
@@ -141,7 +135,7 @@ impl Stack
 {
     pub fn new() -> Self
     {
-        Self { stack: VecDeque::new(), stack_top: 0 }
+        Self { stack: Vec::with_capacity(1024), stack_top: 0 }
     }
 
     pub fn peek(&self, distance: usize) -> llvm::prelude::LLVMValueRef
@@ -152,14 +146,14 @@ impl Stack
     pub fn pop(&mut self) -> llvm::prelude::LLVMValueRef
     {
         assert!(!self.stack.is_empty(), "Cannot pop empty stack.");
-        let value = self.stack.pop_back().unwrap();
+        let value = self.stack.pop().unwrap();
         self.stack_top -= 1;
         value
     }
 
     pub fn push(&mut self, value: llvm::prelude::LLVMValueRef)
     {
-        self.stack.push_back(value);
+        self.stack.push(value);
         self.stack_top += 1;
     }
 
