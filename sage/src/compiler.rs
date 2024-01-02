@@ -1133,8 +1133,6 @@ impl Compiler
                 _ => false
             });
 
-        println!("{:?}", function.unwrap());
-
         // This is stupid - if the function is indirected through a variable,
         // then this doesn't work. Because of that, we have no way of checking the
         // function arity in that case.

@@ -19,7 +19,10 @@ fn main() {
     let compiler = compiler::Compiler::new(source.clone());
     let code = match compiler.compile(tokens) {
         Ok(program) =>  {
-            unsafe { compiler_llvm::Backend::new().compile(program); }
+            unsafe {
+                let mut ctx = compiler_llvm::Context::new(program);
+                compiler_llvm::ProgramCompiler::compile(&mut ctx);
+            }
             0
         }
         Err(errors) => {
