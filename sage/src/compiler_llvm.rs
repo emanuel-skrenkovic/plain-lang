@@ -968,6 +968,8 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
     let _jump     = frame.read_byte() as usize;
     let condition = stack.pop();
 
+    // For some reason, I store the booleans a i8, so, to work with
+    // llvm conditions, I have to convert them to i1.
     let i1_condition = llvm::core::LLVMBuildTrunc
     (
         current.builder,
@@ -976,25 +978,23 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         binary_cstr!("_bool_convert")
     );
 
-    let branch           = Branch::new(i1_condition, current.builder, current.basic_block);
+    let branch = Branch::new(i1_condition, current.builder, current.basic_block);
+
+    // TODO: I think that this **cannot** be a clone.
+    // Seems like it should mutate the existing frame in order to avoid repeating code.
     let mut inner_frames = vec![current.frames[current.frame_index].clone()];
 
-    let compiled_branch = BranchCompiler::compile
-    (
-        ctx,
-        stack,
-        &current,
-        branch,
-        &mut inner_frames
-    );
+    let compiled_branch = BranchCompiler::compile(ctx, stack, &current, branch, &mut inner_frames);
     let Some(compiled_branch) = compiled_branch else {
         panic!("Failed to build branch code.")
     };
 
     // TODO: this feels off. Structure it better.
-    if let Ok(value) = write_branch(&ctx, stack, &current, compiled_branch) {
-        stack.push(value);
-    }
+    let Ok(value) = write_branch(&ctx, stack, &current, compiled_branch) else {
+        panic!("Failed to write branch code");
+    };
+
+    stack.push(value);
 }
 
 pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
@@ -1033,6 +1033,11 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         [
             StackFrame::new(stack.top - info.arity, info.code.clone())
         ];
+
+        // TODO: find a better place for this.
+        // I'm still deciding what should be whose responsibility, and the Current
+        // struct seems like a terrible solution.
+        current.function = info.function;
 
         FunctionCompiler::compile(ctx, stack, &current, function_builder, entry_block, current.module, &mut inner_frames);
         info.compiled = true;

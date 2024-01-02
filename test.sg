@@ -1,5 +1,9 @@
-a :: if false {
-    2 + 3
-} else {
-    3 * 5
-};
+cmp :: (a: number, b: number): number {
+    if a == b {
+        2 + 3
+    } else {
+        3 * 5
+    };
+}
+
+c :: cmp(2, 3)
