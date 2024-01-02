@@ -12,29 +12,51 @@ fn main() {
     // let source = fs::read_to_string(&args[1]).unwrap();
 
     let source = include_str!("../test.sg").to_string();
-
     let mut scanner = scan::Scanner::new(source.clone());
-    let tokens = scanner.scan_tokens();
-
     let compiler = compiler::Compiler::new(source.clone());
-    let code = match compiler.compile(tokens) {
-        Ok(program) =>  {
-            unsafe {
-                let mut ctx = compiler_llvm::Context::new(program);
-                compiler_llvm::ProgramCompiler::compile(&mut ctx);
-            }
-            0
-        }
+
+    let now = std::time::Instant::now();
+
+    let now_scan = std::time::Instant::now();
+    let tokens = scanner.scan_tokens();
+    let after_scanning = now_scan.elapsed();
+
+    let now_compile = std::time::Instant::now();
+    let program = compiler.compile(tokens);
+    let after_compiling = now_compile.elapsed();
+
+    let program = match program {
+        Ok(program) => program,
         Err(errors) => {
             for err in errors {
                 writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
             }
             stderr().flush().unwrap();
-            1
+            std::process::exit(1);
         }
     };
 
-    std::process::exit(code);
+    let after_llvm = unsafe {
+        let now_llvm = std::time::Instant::now();
+        let mut ctx = compiler_llvm::Context::new(program);
+        compiler_llvm::ProgramCompiler::compile(&mut ctx);
+        now_llvm.elapsed()
+    };
+
+    let total = now.elapsed();
+    println!
+    (
+        "Total time {:?}.
+Tokenization took {:?}
+Compilation took: {:?}
+Outputting LLVM bytecode took: {:?}",
+        total,
+        after_scanning,
+        after_compiling,
+        after_llvm,
+    );
+
+    std::process::exit(0);
 
 
     // TODO: Below is the regular compiler, this split is just for me to test the llvm implementation.
