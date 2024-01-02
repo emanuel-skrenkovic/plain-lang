@@ -548,7 +548,7 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
             ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 1),
 
         block::Value::Function { name, arity, argument_type_names, return_type_name, closure } => {
-            let function_call = build_function(ctx.llvm_ctx, current.module, name, arity, argument_type_names, return_type_name, closure.code);
+            let function_call = FunctionCall::build(ctx.llvm_ctx, current.module, name, arity, argument_type_names, return_type_name, closure.code);
             let function_ref  = function_call.function;
 
             // TODO: fix this.
@@ -758,53 +758,6 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     ctx.compilation_state.info[scope][index] = ValueInfo::Function { info };
 }
 
-unsafe fn build_function
-(
-    context_ref: llvm::prelude::LLVMContextRef,
-    module: llvm::prelude::LLVMModuleRef,
-    name: String,
-    arity: usize,
-    argument_type_names: Vec<Option<String>>,
-    return_type_name: String,
-    code: block::Block,
-) -> FunctionCall
-{
-    let return_type = match return_type_name.as_str() {
-        "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
-        "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
-        "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
-        _        => panic!("Unknown return type.") // TODO
-    };
-
-    let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_names
-        .iter()
-        .filter_map(Option::as_ref)
-        .map(|arg| match arg.as_str() {
-            "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
-            "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
-            "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
-            _        => panic!("Unknown param type."), // TODO
-        }).collect();
-
-    let function_type_ref = llvm
-        ::core
-        ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
-    let function_ref = llvm
-        ::core
-        ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type_ref);
-
-    FunctionCall {
-        name,
-        function: function_ref,
-        function_type: function_type_ref,
-        arity: arity,
-        param_types,
-        return_type: return_type,
-        code,
-        compiled: false,
-    }
-}
-
 // TODO: cache this function call somewhere per function so it can be
 // pulled and used per call.
 // TODO: remove the clone. I hate cloning everything.
@@ -820,6 +773,56 @@ pub struct FunctionCall
     pub code: block::Block,
 
     pub compiled: bool,
+}
+
+impl FunctionCall
+{
+    unsafe fn build
+    (
+        context_ref: llvm::prelude::LLVMContextRef,
+        module: llvm::prelude::LLVMModuleRef,
+        name: String,
+        arity: usize,
+        argument_type_names: Vec<Option<String>>,
+        return_type_name: String,
+        code: block::Block,
+    ) -> FunctionCall
+    {
+        let return_type = match return_type_name.as_str() {
+            "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
+            "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
+            "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
+            _        => panic!("Unknown return type.") // TODO
+        };
+
+        let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_names
+            .iter()
+            .filter_map(Option::as_ref)
+            .map(|arg| match arg.as_str() {
+                "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
+                "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
+                "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
+                _        => panic!("Unknown param type."), // TODO
+            }).collect();
+
+        let function_type_ref = llvm
+        ::core
+        ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
+        let function_ref = llvm
+        ::core
+        ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type_ref);
+
+        FunctionCall {
+            name,
+            function: function_ref,
+            function_type: function_type_ref,
+            arity: arity,
+            param_types,
+            return_type: return_type,
+            code,
+            compiled: false,
+        }
+    }
 }
 
 pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
