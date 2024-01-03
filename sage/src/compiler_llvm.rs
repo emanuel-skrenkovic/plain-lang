@@ -206,7 +206,7 @@ impl Drop for Context
     }
 }
 
-type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current) -> bool;
+type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current);
 
 // The index of the operation corresponds with the u8 value of
 // the operation enum.
@@ -299,12 +299,9 @@ impl ProgramCompiler
                 panic!("Could not parse operation '{}'.", ip);
             };
 
-            let break_loop = match get_op(operation) {
+            match get_op(operation) {
                 Some(op) => op(ctx, &mut stack, &mut current),
-                None     => { current.current_frame_mut().move_forward(); false },
-            };
-            if break_loop {
-                break
+                None     => current.current_frame_mut().move_forward()
             }
         }
 
@@ -399,12 +396,9 @@ impl FunctionCompiler
             let Ok(operation) = ip.try_into() else {
                 panic!("Could not parse operation '{}'.", ip);
             };
-            let break_loop = match get_op(operation) {
+            match get_op(operation) {
                 Some(op) => op(ctx, stack, &mut current),
-                None     => { current.current_frame_mut().move_forward(); false } ,
-            };
-            if break_loop {
-                break
+                None     => current.current_frame_mut().move_forward(),
             }
         }
     }
@@ -588,7 +582,7 @@ impl BranchCompiler
 
     // Replace Op::Jump and friends to be able to keep branching state while
     // keeping track of the state and compiling all the branch paths.
-    pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
+    pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
     {
         let frame = current.current_frame_mut();
         let _     = frame.read_byte() as usize;
@@ -602,18 +596,15 @@ impl BranchCompiler
             ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_jumpbb"));
         llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
         branch.else_block = Some(else_block);
-
-        false
     }
 }
 
-pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current) -> bool
+pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current)
 {
     stack.pop();
-    false
 }
 
-pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -622,10 +613,9 @@ pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         ::LLVMBuildAdd(current.builder, lhs, rhs, binary_cstr!("_add_result"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -634,10 +624,9 @@ pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut C
         ::LLVMBuildSub(current.builder, lhs, rhs, binary_cstr!("_sub_result"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -646,10 +635,9 @@ pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut C
         ::LLVMBuildMul(current.builder, lhs, rhs, binary_cstr!("_mul_result"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -658,23 +646,21 @@ pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
         ::LLVMBuildSDiv(current.builder, lhs, rhs, binary_cstr!("_div_result"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
 
     let result = llvm
         ::core
-        ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_eqcomp"));
+        ::LLVMBuildFCmp(current.builder, predicate, lhs, rhs, binary_cstr!("_eqcomp"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOLT;
@@ -684,10 +670,9 @@ pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Curre
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_ltcomp"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGT;
@@ -697,10 +682,9 @@ pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Cu
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_gtcomp"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOLE;
@@ -710,10 +694,9 @@ pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_lecomp"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGE;
@@ -723,18 +706,16 @@ pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_gecomp"));
 
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let value = stack.pop();
     let result = llvm::core::LLVMBuildNeg(current.builder, value, binary_cstr!("_neg"));
     stack.push(result);
-    false
 }
 
-pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte();
@@ -776,21 +757,18 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
     };
 
     stack.push(value_ref);
-    false
 }
 
-pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
     let value = frame.get_value(index, &stack.buffer);
 
     stack.push(value);
-
-    false
 }
 
-pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
@@ -813,10 +791,9 @@ pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current
         ::LLVMBuildAlloca(current.builder, type_ref, variable_name as *const _);
 
     ctx.compilation_state.variables[current.frame_index][index] = variable;
-    false
 }
 
-pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let value = stack.peek(0);
 
@@ -832,10 +809,9 @@ pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
     llvm::core::LLVMBuildStore(builder, value, variable_ref);
 
     frame.set_value(index, value, &mut stack.buffer);
-    false
 }
 
-pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
@@ -845,11 +821,9 @@ pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mu
     let value = enclosing_scope.get_value(index, &stack.buffer);
 
     stack.push(value);
-
-    false
 }
 
-pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
@@ -864,10 +838,9 @@ pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut
     llvm::core::LLVMBuildStore(current.builder, value, variable_ref);
 
     enclosing_scope.set_value(index, value, &mut stack.buffer);
-    false
 }
 
-pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame         = current.current_frame_mut();
     let _values_count = frame.read_byte();
@@ -878,24 +851,22 @@ pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
     // and when it's called, it will be through LLVM and won't touch this
     // part of the code.
 
-    if current.frames.is_empty() { return false }
+    if current.frames.is_empty() { return }
     current.frames.pop();
 
     llvm::core::LLVMBuildRet(current.builder, result);
-    false
 }
 
 // TODO: this is not used. The *Compiler thing I have going is probably not
 // the best approach - it would be simpler to simply have compile_x instead.
 // All the operations are independend of context, at least for now.
-pub unsafe fn op_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let _jump = frame.read_byte() as usize;
-    todo!()
 }
 
-pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame     = current.current_frame_mut();
     let jump      = frame.read_byte() as usize;
@@ -922,19 +893,16 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
     };
 
     stack.push(value);
-
-    false
 }
 
-pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let jump  = frame.read_byte() as usize;
     frame.i -= jump;
-    false
 }
 
-pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
+pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
@@ -991,7 +959,6 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     stack.push(result);
 
     ctx.compilation_state.info[scope][index] = ValueInfo::Function { info };
-    false
 }
 
 #[derive(Clone, Debug)]
