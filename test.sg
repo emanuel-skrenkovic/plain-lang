@@ -6,4 +6,7 @@ cmp :: (a: number, b: number): number {
     };
 }
 
-c :: cmp(2, 3)
+c :: cmp(2, 5)
+d :: cmp(5, 3);
+
+f :: c == d;

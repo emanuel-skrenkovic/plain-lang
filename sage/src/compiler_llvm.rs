@@ -8,7 +8,7 @@ use macros::binary_cstr;
 use crate::block;
 use crate::compiler;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum ValueInfo
 {
     Unit,
@@ -100,6 +100,7 @@ impl StackFrame
     }
 }
 
+#[derive(Clone)]
 pub struct Stack
 {
     pub buffer: Vec<llvm::prelude::LLVMValueRef>,
@@ -132,8 +133,6 @@ impl Stack
         self.top += 1;
     }
 
-    // TODO: how to handle differring types. Probably just don't check at all.
-    // Hoping to do all the type checking earlier.
     fn binary_op(&mut self) -> (llvm::prelude::LLVMValueRef, llvm::prelude::LLVMValueRef)
     {
         let a = self.pop();
@@ -207,7 +206,7 @@ impl Drop for Context
     }
 }
 
-type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current);
+type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current) -> bool;
 
 // The index of the operation corresponds with the u8 value of
 // the operation enum.
@@ -300,9 +299,12 @@ impl ProgramCompiler
                 panic!("Could not parse operation '{}'.", ip);
             };
 
-            match get_op(operation) {
+            let break_loop = match get_op(operation) {
                 Some(op) => op(ctx, &mut stack, &mut current),
-                None     => current.current_frame_mut().move_forward(),
+                None     => { current.current_frame_mut().move_forward(); false },
+            };
+            if break_loop {
+                break
             }
         }
 
@@ -321,7 +323,7 @@ impl ProgramCompiler
     // TODO: REMOVE THIS! This is just for playing around.
     pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
     {
-        let a = ctx.compilation_state.variables[0][0];
+        let a = ctx.compilation_state.variables[0][3];
 
         let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 
@@ -368,7 +370,6 @@ impl FunctionCompiler
         current: &Current,
         builder: llvm::prelude::LLVMBuilderRef,
         basic_block: llvm::prelude::LLVMBasicBlockRef,
-        module: llvm::prelude::LLVMModuleRef,
         frames: &mut Vec<StackFrame>,
     )
     {
@@ -384,9 +385,9 @@ impl FunctionCompiler
             }
 
             let mut current = Current {
-                builder: builder,
+                builder,
                 basic_block,
-                module,
+                module: current.module,
                 function: current.function,
                 frame_index,
                 frames,
@@ -398,9 +399,12 @@ impl FunctionCompiler
             let Ok(operation) = ip.try_into() else {
                 panic!("Could not parse operation '{}'.", ip);
             };
-            match get_op(operation) {
+            let break_loop = match get_op(operation) {
                 Some(op) => op(ctx, stack, &mut current),
-                None     => current.current_frame_mut().move_forward(),
+                None     => { current.current_frame_mut().move_forward(); false } ,
+            };
+            if break_loop {
+                break
             }
         }
     }
@@ -414,7 +418,7 @@ pub struct Branch
     pub then_block: Option<llvm::prelude::LLVMBasicBlockRef>,
     pub else_block: Option<llvm::prelude::LLVMBasicBlockRef>,
 
-    pub exit_counter: Option<usize>,
+    pub branching_end_counter: usize,
 
     pub parent_builder: llvm::prelude::LLVMBuilderRef,
     pub parent_block: llvm::prelude::LLVMBasicBlockRef,
@@ -425,6 +429,7 @@ impl Branch
     #[must_use]
     pub fn new
     (
+        end_counter: usize,
         cond: llvm::prelude::LLVMValueRef,
         parent_builder: llvm::prelude::LLVMBuilderRef,
         parent_block: llvm::prelude::LLVMBasicBlockRef,
@@ -436,7 +441,7 @@ impl Branch
             then_block: None,
             else_block: None,
 
-            exit_counter: None,
+            branching_end_counter: end_counter,
 
             parent_builder,
             parent_block
@@ -472,6 +477,11 @@ pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch:
         let mut incoming_values = [if_result, else_result];
         let mut incoming_blocks = [then_branch, else_branch];
 
+        let count = incoming_values.len() as u32;
+
+        let incoming_values = incoming_values.as_mut_ptr();
+        let incoming_blocks = incoming_blocks.as_mut_ptr();
+
         // Move the builder back to the parent block.
         llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
 
@@ -479,7 +489,7 @@ pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch:
             ::core
             ::LLVMBuildPhi(current.builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), binary_cstr!("_branchphi"));
 
-        llvm::core::LLVMAddIncoming(phi_node, incoming_values.as_mut_ptr(), incoming_blocks.as_mut_ptr(), 2);
+        llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
 
         // As the result of the if/else, move the incoming values into a phi node and return it
         // as the result of the branching expression.
@@ -489,6 +499,9 @@ pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch:
 
 pub struct BranchCompiler { }
 
+// TODO: I don't think this is needed.
+// It would probably be better to make it simpler and have everything
+// use the same OPERATIONS definitions. Currently, they are context independen
 impl BranchCompiler
 {
     // Look ma, I'm doing inheritance!
@@ -525,9 +538,8 @@ impl BranchCompiler
     (
         ctx: &mut Context,
         stack: &mut Stack,
-        current: &Current,
+        current: &mut Current,
         mut branch: Branch,
-        frames: &mut Vec<StackFrame>,
     ) -> Option<Branch>
     {
         let then_block = llvm
@@ -537,20 +549,18 @@ impl BranchCompiler
         branch.then_block = Some(then_block);
 
         loop {
-            let frame_index = frames.len() - 1;
-            if frames[frame_index].i == frames[frame_index].block.code.len() {
+            let frame_index = current.frames.len() - 1;
+            if current.frames[frame_index].i == current.frames[frame_index].block.code.len() {
                 break None
             }
 
-            // This is the problem!
-            // Branch gets replaced by the initial one on every instruction.
             let mut current = Current {
                 builder: current.builder,
                 basic_block: then_block,
                 module: current.module,
                 function: current.function,
                 frame_index,
-                frames,
+                frames: current.frames,
                 branch: Some(&mut branch)
             };
             let ip = current.current_frame_mut().read_byte();
@@ -561,16 +571,16 @@ impl BranchCompiler
             };
 
             match BranchCompiler::BRANCH_OPERATIONS[operation as usize] {
-                Some(op) => op(ctx, stack, &mut current),
-                None     => current.current_frame_mut().move_forward(),
-            }
-
-            if let Some(exit_counter) = current.branch.as_ref().unwrap().exit_counter {
-                if exit_counter == 0 { current.frames.pop(); }
-                else                 { current.branch.as_mut().unwrap().exit_counter = Some(exit_counter - 1); }
+                Some(op) => { op(ctx, stack, &mut current); },
+                None     => { current.current_frame_mut().move_forward() },
             }
 
             if current.frames.len() == 0 {
+                return Some(branch)
+            }
+
+            branch.branching_end_counter -= 1;
+            if branch.branching_end_counter == 0 {
                 return Some(branch)
             }
         }
@@ -578,32 +588,32 @@ impl BranchCompiler
 
     // Replace Op::Jump and friends to be able to keep branching state while
     // keeping track of the state and compiling all the branch paths.
-    pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
+    pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
     {
         let frame = current.current_frame_mut();
-        let jump  = frame.read_byte() as usize;
-
+        let _     = frame.read_byte() as usize;
 
         let Some(branch) = current.branch.as_mut() else {
             panic!("Branch not initiated.")
         };
-
-        branch.exit_counter = Some(jump - 1);
 
         let else_block = llvm
             ::core
             ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_jumpbb"));
         llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
         branch.else_block = Some(else_block);
+
+        false
     }
 }
 
-pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current)
+pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current) -> bool
 {
     stack.pop();
+    false
 }
 
-pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -612,9 +622,10 @@ pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         ::LLVMBuildAdd(current.builder, lhs, rhs, binary_cstr!("_add_result"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -623,9 +634,10 @@ pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut C
         ::LLVMBuildSub(current.builder, lhs, rhs, binary_cstr!("_sub_result"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -634,9 +646,10 @@ pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut C
         ::LLVMBuildMul(current.builder, lhs, rhs, binary_cstr!("_mul_result"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
 
@@ -645,9 +658,10 @@ pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
         ::LLVMBuildSDiv(current.builder, lhs, rhs, binary_cstr!("_div_result"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
@@ -657,9 +671,10 @@ pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Curr
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_eqcomp"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOLT;
@@ -669,9 +684,10 @@ pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Curre
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_ltcomp"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGT;
@@ -681,9 +697,10 @@ pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Cu
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_gtcomp"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOLE;
@@ -693,9 +710,10 @@ pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_lecomp"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let (rhs, lhs) = stack.binary_op();
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGE;
@@ -705,16 +723,18 @@ pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &
         ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_gecomp"));
 
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_not(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let value = stack.pop();
     let result = llvm::core::LLVMBuildNeg(current.builder, value, binary_cstr!("_neg"));
     stack.push(result);
+    false
 }
 
-pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte();
@@ -756,18 +776,21 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
     };
 
     stack.push(value_ref);
+    false
 }
 
-pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
     let value = frame.get_value(index, &stack.buffer);
 
     stack.push(value);
+
+    false
 }
 
-pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
@@ -790,11 +813,12 @@ pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current
         ::LLVMBuildAlloca(current.builder, type_ref, variable_name as *const _);
 
     ctx.compilation_state.variables[current.frame_index][index] = variable;
+    false
 }
 
-pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
-    let value = stack.peek(0).clone();
+    let value = stack.peek(0);
 
     // These two are copied first because 'current' is borrowed to
     // get the frame.
@@ -808,9 +832,10 @@ pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
     llvm::core::LLVMBuildStore(builder, value, variable_ref);
 
     frame.set_value(index, value, &mut stack.buffer);
+    false
 }
 
-pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
@@ -820,9 +845,11 @@ pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mu
     let value = enclosing_scope.get_value(index, &stack.buffer);
 
     stack.push(value);
+
+    false
 }
 
-pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
@@ -837,138 +864,44 @@ pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut
     llvm::core::LLVMBuildStore(current.builder, value, variable_ref);
 
     enclosing_scope.set_value(index, value, &mut stack.buffer);
+    false
 }
 
-pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
-    let frame  = current.current_frame_mut();
-    let _      = frame.read_byte();
-    let result = stack.pop();
+    let frame         = current.current_frame_mut();
+    let _values_count = frame.read_byte();
+    let result        = stack.pop();
 
-    // TODO: think about this!
     // We don't need to pop the params in the LLVM implementation
-    // because they will be values controlled by the outer scope.
-    // This feels wrong in some way though.
-    // for _ in 0..values_count {
-    //     self.pop();
-    // }
+    // because, when compiling the function, it will have its own stack,
+    // and when it's called, it will be through LLVM and won't touch this
+    // part of the code.
 
-    if current.frames.is_empty() { return }
+    if current.frames.is_empty() { return false }
     current.frames.pop();
 
     llvm::core::LLVMBuildRet(current.builder, result);
-
-    stack.push(result);
+    false
 }
 
-pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
+// TODO: this is not used. The *Compiler thing I have going is probably not
+// the best approach - it would be simpler to simply have compile_x instead.
+// All the operations are independend of context, at least for now.
+pub unsafe fn op_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
 {
-    // TODO: I think  I need to do both - jump the stack while
-    // evaluating my bytecode and create a jump in the LLVM IR.
     let frame = current.current_frame_mut();
-    let jump = frame.read_byte() as usize;
-    frame.i += jump;
-
-    // TODO: This is not finished.
-    let _block = llvm
-        ::core
-        ::LLVMCreateBasicBlockInContext(ctx.llvm_ctx, binary_cstr!("_jumpbb"));
+    let _jump = frame.read_byte() as usize;
+    todo!()
 }
 
-/*
-
-extern crate llvm_sys;
-
-use llvm_sys::core::*;
-use llvm_sys::prelude::*;
-use std::ffi::{CString, CStr};
-
-fn main() {
-    unsafe {
-        // Initialize LLVM
-        LLVMInitializeCore(LLVMGetGlobalPassRegistry());
-
-        // Create a context
-        let context = LLVMContextCreate();
-
-        // Create a module
-        let module_name = CString::new("example_module").expect("Failed to create CString");
-        let module = LLVMModuleCreateWithName(module_name.as_ptr());
-
-        // Create a function in the module
-        let function_type = LLVMFunctionType(LLVMInt32TypeInContext(context), std::ptr::null_mut(), 0, 0);
-        let function_name = CString::new("main").expect("Failed to create CString");
-        let function = LLVMAddFunction(module, function_name.as_ptr(), function_type);
-
-        // Create basic blocks for if and else
-        let entry_block = LLVMAppendBasicBlockInContext(context, function, c_str!("entry").as_ptr());
-        let if_block = LLVMAppendBasicBlockInContext(context, function, c_str!("if_block").as_ptr());
-        let else_block = LLVMAppendBasicBlockInContext(context, function, c_str!("else_block").as_ptr());
-        let end_block = LLVMAppendBasicBlockInContext(context, function, c_str!("end").as_ptr());
-
-        // Create a builder to build instructions
-        let builder = LLVMCreateBuilderInContext(context);
-
-        // Set the builder to start in the entry block
-        LLVMPositionBuilderAtEnd(builder, entry_block);
-
-        // Define a boolean variable
-        let condition = LLVMConstInt(LLVMInt1TypeInContext(context), 1, 0);
-
-        // Create a branch instruction based on the condition
-        LLVMBuildCondBr(builder, condition, if_block, else_block);
-
-        // Set the builder to start in the if block
-        LLVMPositionBuilderAtEnd(builder, if_block);
-
-        // Add instructions for the "if" branch
-        let if_result = LLVMConstInt(LLVMInt32TypeInContext(context), 42, 0);
-        LLVMBuildBr(builder, end_block);
-
-        // Set the builder to start in the else block
-        LLVMPositionBuilderAtEnd(builder, else_block);
-
-        // Add instructions for the "else" branch
-        let else_result = LLVMConstInt(LLVMInt32TypeInContext(context), 0, 0);
-        LLVMBuildBr(builder, end_block);
-
-        // Set the builder to start in the end block
-        LLVMPositionBuilderAtEnd(builder, end_block);
-
-        // Create a phi node to merge results from if and else blocks
-        let phi_node = LLVMBuildPhi(builder, LLVMInt32TypeInContext(context), c_str!("result").as_ptr());
-
-        // Add incoming values for the phi node
-        let incoming_values = [if_result, else_result];
-        let incoming_blocks = [if_block, else_block];
-        LLVMAddIncoming(phi_node, incoming_values.as_ptr(), incoming_blocks.as_ptr(), 2);
-
-        // Return the result of the phi node
-        LLVMBuildRet(builder, phi_node);
-
-        // Verify the module
-        let mut error_str = std::ptr::null_mut();
-        if LLVMVerifyModule(module, LLVMVerifierFailureAction, &mut error_str) != 0 {
-            let error_message = CStr::from_ptr(error_str).to_string_lossy().into_owned();
-            eprintln!("LLVM verification failed: {}", error_message);
-            LLVMDisposeMessage(error_str);
-        }
-
-        // Clean up resources
-        LLVMDisposeBuilder(builder);
-        LLVMDisposeModule(module);
-        LLVMContextDispose(context);
-    }
-}
- */
-
-pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame     = current.current_frame_mut();
-    let _jump     = frame.read_byte() as usize;
+    let jump      = frame.read_byte() as usize;
     let condition = stack.pop();
 
-    // For some reason, I store the booleans a i8, so, to work with
+    // For some reason, I store booleans as i8, so, to work with
     // llvm conditions, I have to convert them to i1.
     let i1_condition = llvm::core::LLVMBuildTrunc
     (
@@ -978,33 +911,30 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         binary_cstr!("_bool_convert")
     );
 
-    let branch = Branch::new(i1_condition, current.builder, current.basic_block);
+    let branch = Branch::new(jump, i1_condition, current.builder, current.basic_block);
 
-    // TODO: I think that this **cannot** be a clone.
-    // Seems like it should mutate the existing frame in order to avoid repeating code.
-    let mut inner_frames = vec![current.frames[current.frame_index].clone()];
-
-    let compiled_branch = BranchCompiler::compile(ctx, stack, &current, branch, &mut inner_frames);
-    let Some(compiled_branch) = compiled_branch else {
+    let Some(compiled_branch) = BranchCompiler::compile(ctx, stack, current, branch) else {
         panic!("Failed to build branch code.")
     };
 
-    // TODO: this feels off. Structure it better.
     let Ok(value) = write_branch(&ctx, stack, &current, compiled_branch) else {
         panic!("Failed to write branch code");
     };
 
     stack.push(value);
+
+    false
 }
 
-pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame = current.current_frame_mut();
     let jump  = frame.read_byte() as usize;
     frame.i -= jump;
+    false
 }
 
-pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current) -> bool
 {
     let frame          = current.current_frame_mut();
     let scope_distance = frame.read_byte() as usize;
@@ -1020,6 +950,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     // Only compile the function on Op::Call since only at that point
     // will we have the stack in the correct state to get all the required
     // values.
+
     if !info.compiled {
         let entry_block = llvm
             ::core
@@ -1029,25 +960,26 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         llvm::core::LLVMPositionBuilderAtEnd(function_builder, entry_block);
 
         // #horribleways
-        let mut inner_frames = vec!
-        [
-            StackFrame::new(stack.top - info.arity, info.code.clone())
-        ];
+        let mut inner_frames = vec![StackFrame::new(stack.top - info.arity, info.code.clone())];
 
         // TODO: find a better place for this.
         // I'm still deciding what should be whose responsibility, and the Current
         // struct seems like a terrible solution.
         current.function = info.function;
 
-        FunctionCompiler::compile(ctx, stack, &current, function_builder, entry_block, current.module, &mut inner_frames);
+        // **IMPORTANT** it is very important to clone the stack, as we don't want to actually proceed
+        // with the program, instead, we have to run the compilation of the function in its own stack.
+        let mut stack_clone = stack.clone();
+        FunctionCompiler::compile(ctx, &mut stack_clone, &current, function_builder, entry_block, &mut inner_frames);
         info.compiled = true;
     }
 
     let mut args: Vec<llvm::prelude::LLVMValueRef> = (0..info.arity)
         .map(|i| stack.peek(i))
+        .rev()
         .collect();
 
-    llvm::core::LLVMBuildCall2
+    let result = llvm::core::LLVMBuildCall2
     (
         current.builder,
         info.function_type,
@@ -1056,14 +988,13 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         info.arity as u32,
         info.name.as_ptr() as *const _,
     );
+    stack.push(result);
 
     ctx.compilation_state.info[scope][index] = ValueInfo::Function { info };
+    false
 }
 
-// TODO: cache this function call somewhere per function so it can be
-// pulled and used per call.
-// TODO: remove the clone. I hate cloning everything.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct FunctionCall
 {
     pub name: String,
@@ -1118,9 +1049,9 @@ impl FunctionCall
             name,
             function: function_ref,
             function_type: function_type_ref,
-            arity: arity,
+            arity,
             param_types,
-            return_type: return_type,
+            return_type,
             code,
             compiled: false,
         }
@@ -1142,8 +1073,8 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
 pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 {
     let failure_action = llvm
-    ::analysis
-    ::LLVMVerifierFailureAction::LLVMPrintMessageAction;
+        ::analysis
+        ::LLVMVerifierFailureAction::LLVMPrintMessageAction;
 
     let mut error: *mut i8 = std::ptr::null_mut();
     if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {
@@ -1158,6 +1089,7 @@ fn print_module(module: llvm::prelude::LLVMModuleRef)
     unsafe {
         let module_text = llvm::core::LLVMPrintModuleToString(module);
         println!("MODULE: \n{}", std::ffi::CStr::from_ptr(module_text).to_str().unwrap());
+        llvm::core::LLVMDisposeMessage(module_text);
     }
 }
 
