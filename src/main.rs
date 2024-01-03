@@ -39,7 +39,7 @@ fn main() {
     let after_llvm = unsafe {
         let now_llvm = std::time::Instant::now();
         let mut ctx = compiler_llvm::Context::new(program);
-        compiler_llvm::ProgramCompiler::compile(&mut ctx);
+        compiler_llvm::compile(&mut ctx);
         now_llvm.elapsed()
     };
 
