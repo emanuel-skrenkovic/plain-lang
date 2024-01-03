@@ -313,7 +313,6 @@ pub unsafe fn compile(ctx: &mut Context)
     output_module_bitcode(module).unwrap();
 }
 
-
 pub unsafe fn compile_function
 (
     ctx: &mut Context,
@@ -550,11 +549,13 @@ pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
 pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
-    let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
+    // let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
+
+    let predicate = llvm::LLVMIntPredicate::LLVMIntEQ;
 
     let result = llvm
         ::core
-        ::LLVMBuildFCmp(current.builder, predicate, lhs, rhs, binary_cstr!("_eqcomp"));
+        ::LLVMBuildICmp(current.builder, predicate, lhs, rhs, binary_cstr!("_eqcomp"));
 
     stack.push(result);
 }
@@ -791,8 +792,11 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         binary_cstr!("_bool_convert")
     );
 
+    // TODO: fix the jump length. For some reason, the jump duration
+    // needs to be changed depending on the number of operations per branch.
+    // It could be that the parser/compiler is busted or I'm misunderstanding
+    // what value 'jump' holds.
     let branch = Branch::new(jump, i1_condition, current.builder, current.basic_block);
-
     let Some(compiled_branch) = compile_branch(ctx, stack, current, branch) else {
         panic!("Failed to build branch code.")
     };
@@ -825,9 +829,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     };
 
     // Only compile the function on Op::Call since only at that point
-    // will we have the stack in the correct state to get all the required
-    // values.
-
+    // will we have the stack in the correct state.
     if !info.compiled {
         let entry_block = llvm
             ::core
@@ -841,14 +843,31 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
         // TODO: find a better place for this.
         // I'm still deciding what should be whose responsibility, and the Current
-        // struct seems like a terrible solution.
+        // struct seems like a terrible solution. Lots of bookkeeping with LLVM C API.
         current.function = info.function;
 
-        // **IMPORTANT** it is very important to clone the stack, as we don't want to actually proceed
+        // Drain the arguments and replace them with function params.
+        let mut params = Vec::with_capacity(info.arity);
+        let mut args   = Vec::with_capacity(info.arity);
+        for i in 0..info.arity {
+            args.push(stack.pop());
+            params.push(llvm::core::LLVMGetParam(info.function, i as u32));
+        }
+
+        // After draining both, push the params to replace the args.
+        for param in params { stack.push(param); }
+
+        // **IMPORTANT** it is necessary to clone the stack, as we don't want to actually proceed
         // with the program, instead, we have to run the compilation of the function in its own stack.
         let mut stack_clone = stack.clone();
         compile_function(ctx, &mut stack_clone, &current, function_builder, entry_block, &mut inner_frames);
         info.compiled = true;
+
+        // Remove the function parameters.
+        for _ in 0..info.arity { stack.pop(); }
+
+        // Return back the previously drained arguments.
+        for arg in args { stack.push(arg); }
     }
 
     let mut args: Vec<llvm::prelude::LLVMValueRef> = (0..info.arity)
@@ -963,7 +982,7 @@ pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0][1];
+    let a = ctx.compilation_state.variables[0][3];
 
     let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 

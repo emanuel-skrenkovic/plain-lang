@@ -902,10 +902,8 @@ impl Compiler
 
     fn parse_variable(&mut self) -> Option<u8>
     {
-        let previous         = self.parser.previous.value.clone();
-        let variable_indices = self.find_variable_by_name(&previous);
-
-        let Some((function_index, scope, index)) = variable_indices else {
+        let previous = self.parser.previous.value.clone();
+        let Some((function_index, scope, index)) = self.find_variable_by_name(&previous) else {
             return None
         };
 
@@ -1284,24 +1282,57 @@ impl Compiler
         block
     }
 
+    // TODO: not sure which version is correct, so I'm leaving this here until my
+    // tiny brain gets going.
+    // fn function_distance2(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
+    // {
+    //     let mut distance = 0;
+    //     let Some(starting_index) = starting_index else {
+    //         return distance;
+    //     };
+
+    //     // TODO: this is a hack and a sign of the whole thing being a bit shit.
+    //     if starting_index == 0 && ending_index.is_none() { return 0 }
+
+    //     let mut current_function = &self.program.functions[starting_index];
+
+    //     loop {
+    //         let next = current_function.parent_function_index;
+
+    //         if next.is_none() && ending_index.is_none()        { return distance + 1 }
+    //         let Some(next_index) = next else                   { break };
+    //         if ending_index.map_or(false, |e| e == next_index) { break };
+
+    //         distance += 1;
+    //         current_function = &self.program.functions[next_index];
+    //     }
+
+    //     distance
+    // }
+
+    // TODO: both of these are broken and do not take scopes (especially parameter scopes)
+    // into account in any way.
     fn function_distance(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
     {
         let mut distance = 0;
         let Some(starting_index) = starting_index else {
-            return distance;
+            return 0
         };
 
-        let mut current_function = &self.program.functions[starting_index];
-
+        let mut current = &self.program.functions[starting_index];
         loop {
-            let next = current_function.parent_function_index;
-
-            if next.is_none() && ending_index.is_none()        { return distance + 1 }
-            let Some(next_index) = next else                   { break };
-            if ending_index.map_or(false, |e| e == next_index) { break };
+            let next = current.parent_function_index;
+            let Some(next_index) = next else {
+                break
+            };
 
             distance += 1;
-            current_function = &self.program.functions[next_index];
+
+            if ending_index.map_or(false, |i| i == next_index) {
+                return distance
+            }
+
+            current = &self.program.functions[next_index];
         }
 
         distance

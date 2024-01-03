@@ -2295,13 +2295,16 @@ mod llvm
         let source = "
             cmp :: (a: number, b: number): number {
                 if a == b {
-                    2 + 3
+                    a + b * b
                 } else {
-                    3 * 5
-                };
+                    a * b + b
+                }
             }
 
-            c :: cmp(2, 3)
+            c :: cmp(2, 5);
+            d :: cmp(5, 3);
+
+            f :: c == d;
         ".to_owned();
 
         let tokens = Scanner::new(source.clone()).scan_tokens();
