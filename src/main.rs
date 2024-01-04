@@ -58,7 +58,6 @@ Outputting LLVM bytecode took: {:} seconds.",
 
     std::process::exit(0);
 
-
     // TODO: Below is the regular compiler, this split is just for me to test the llvm implementation.
     // TODO: Remove above code.
     #[allow(unreachable_code)]

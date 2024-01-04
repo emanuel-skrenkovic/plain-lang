@@ -80,7 +80,6 @@ impl StackFrame
     {
         let ip = self.block.code[self.i];
         self.i += 1;
-
         ip
     }
 
@@ -366,7 +365,7 @@ pub struct Branch
     pub then_block: Option<llvm::prelude::LLVMBasicBlockRef>,
     pub else_block: Option<llvm::prelude::LLVMBasicBlockRef>,
 
-    pub branching_end_counter: usize,
+    pub end_counter: usize,
 
     pub parent_builder: llvm::prelude::LLVMBuilderRef,
     pub parent_block: llvm::prelude::LLVMBasicBlockRef,
@@ -389,7 +388,7 @@ impl Branch
             then_block: None,
             else_block: None,
 
-            branching_end_counter: end_counter,
+            end_counter: end_counter,
 
             parent_builder,
             parent_block
@@ -451,7 +450,7 @@ pub unsafe fn compile_branch
     stack: &mut Stack,
     current: &mut Current,
     mut branch: Branch,
-) -> Option<Branch>
+) -> Branch
 {
     let then_block = llvm
         ::core
@@ -459,10 +458,12 @@ pub unsafe fn compile_branch
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_block);
     branch.then_block = Some(then_block);
 
+    let mut diff   = 0;
+
     loop {
         let frame_index = current.frames.len() - 1;
         if current.frames[frame_index].i == current.frames[frame_index].block.code.len() {
-            break None
+            break branch
         }
 
         let mut current = Current {
@@ -474,6 +475,9 @@ pub unsafe fn compile_branch
             frames: current.frames,
             branch: Some(&mut branch)
         };
+
+        let before = current.current_frame().i;
+
         let ip = current.current_frame_mut().read_byte();
         disassemble_instruction(ip);
 
@@ -487,12 +491,14 @@ pub unsafe fn compile_branch
         }
 
         if current.frames.len() == 0 {
-            return Some(branch)
+            return branch
         }
 
-        branch.branching_end_counter -= 1;
-        if branch.branching_end_counter == 0 {
-            return Some(branch)
+        let after = current.current_frame().i;
+        diff += after - before;
+
+        if diff >= branch.end_counter {
+            return branch
         }
     }
 }
@@ -757,13 +763,10 @@ pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
     llvm::core::LLVMBuildRet(current.builder, result);
 }
 
-// TODO: this is not used. The *Compiler thing I have going is probably not
-// the best approach - it would be simpler to simply have compile_x instead.
-// All the operations are independend of context, at least for now.
 pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
-    let _     = frame.read_byte() as usize;
+    let jump  = frame.read_byte() as usize;
 
     let Some(branch) = current.branch.as_mut() else {
         panic!("Branch not initiated.")
@@ -773,7 +776,9 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
         ::core
         ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_jumpbb"));
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
+
     branch.else_block = Some(else_block);
+    branch.end_counter += jump;
 }
 
 pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -792,16 +797,10 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         binary_cstr!("_bool_convert")
     );
 
-    // TODO: fix the jump length. For some reason, the jump duration
-    // needs to be changed depending on the number of operations per branch.
-    // It could be that the parser/compiler is busted or I'm misunderstanding
-    // what value 'jump' holds.
     let branch = Branch::new(jump, i1_condition, current.builder, current.basic_block);
-    let Some(compiled_branch) = compile_branch(ctx, stack, current, branch) else {
-        panic!("Failed to build branch code.")
-    };
+    let branch = compile_branch(ctx, stack, current, branch);
 
-    let Ok(value) = write_branch(&ctx, stack, &current, compiled_branch) else {
+    let Ok(value) = write_branch(&ctx, stack, &current, branch) else {
         panic!("Failed to write branch code");
     };
 
@@ -843,12 +842,13 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
         // TODO: find a better place for this.
         // I'm still deciding what should be whose responsibility, and the Current
-        // struct seems like a terrible solution. Lots of bookkeeping with LLVM C API.
+        // struct seems like a terrible solution. Lots of bookkeeping to do with LLVM C API.
         current.function = info.function;
 
         // Drain the arguments and replace them with function params.
         let mut params = Vec::with_capacity(info.arity);
         let mut args   = Vec::with_capacity(info.arity);
+
         for i in 0..info.arity {
             args.push(stack.pop());
             params.push(llvm::core::LLVMGetParam(info.function, i as u32));
@@ -863,11 +863,10 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         compile_function(ctx, &mut stack_clone, &current, function_builder, entry_block, &mut inner_frames);
         info.compiled = true;
 
-        // Remove the function parameters.
+        // Remove the function parameters and return back the previously
+        // removed arguments.
         for _ in 0..info.arity { stack.pop(); }
-
-        // Return back the previously drained arguments.
-        for arg in args { stack.push(arg); }
+        for arg in args        { stack.push(arg); }
     }
 
     let mut args: Vec<llvm::prelude::LLVMValueRef> = (0..info.arity)

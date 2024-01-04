@@ -529,18 +529,18 @@ impl Compiler
         );
 
         match operator {
-            scan::TokenKind::LeftAngle    => self.emit_byte(block::Op::Less),
-            scan::TokenKind::RightAngle   => self.emit_byte(block::Op::Greater),
-            scan::TokenKind::BangEqual    => self.emit_bytes(block::Op::Equal, block::Op::Not),
-            scan::TokenKind::EqualEqual   => self.emit_byte(block::Op::Equal),
-            scan::TokenKind::GreaterEqual => self.emit_byte(block::Op::GreaterEqual),
-            scan::TokenKind::LessEqual    => self.emit_byte(block::Op::LessEqual),
-            scan::TokenKind::Plus         => self.emit_byte(block::Op::Add),
-            scan::TokenKind::Minus        => self.emit_byte(block::Op::Subtract),
-            scan::TokenKind::Star         => self.emit_byte(block::Op::Multiply),
-            scan::TokenKind::Slash        => self.emit_byte(block::Op::Divide),
-            scan::TokenKind::Pipe         => { self.pipe(); 0 },
-            _ => { 0 }
+            scan::TokenKind::LeftAngle    => { self.emit_byte(block::Op::Less); }
+            scan::TokenKind::RightAngle   => { self.emit_byte(block::Op::Greater); }
+            scan::TokenKind::BangEqual    => { self.emit_bytes(block::Op::Equal, block::Op::Not); }
+            scan::TokenKind::EqualEqual   => { self.emit_byte(block::Op::Equal); }
+            scan::TokenKind::GreaterEqual => { self.emit_byte(block::Op::GreaterEqual); }
+            scan::TokenKind::LessEqual    => { self.emit_byte(block::Op::LessEqual); }
+            scan::TokenKind::Plus         => { self.emit_byte(block::Op::Add); }
+            scan::TokenKind::Minus        => { self.emit_byte(block::Op::Subtract); }
+            scan::TokenKind::Star         => { self.emit_byte(block::Op::Multiply); }
+            scan::TokenKind::Slash        => { self.emit_byte(block::Op::Divide); }
+            scan::TokenKind::Pipe         => { self.pipe(); },
+            _ => ()
         };
 
         self.match_token(scan::TokenKind::Semicolon);
@@ -740,7 +740,6 @@ impl Compiler
             arity,
             closure: block::Closure { code: function_code },
 
-
             // TODO: type
             argument_type_names: vec![],
             return_type_name: "TODO: FIXME".to_string(),
@@ -879,7 +878,7 @@ impl Compiler
         let variable_index = current_scope
             .variables
             .iter()
-            .position(|v| v.name.value == name);
+            .position(|v| &v.name.value == name);
 
         if let Some(position) = variable_index {
             return Some((self.current_function, 0, position));
@@ -890,7 +889,7 @@ impl Compiler
             let variable_index = scope
                 .variables
                 .iter()
-                .position(|v| v.name.value == name);
+                .position(|v| &v.name.value == name);
 
             if let Some(position) = variable_index {
                 return Some((scope.parent_function, *scope_index, position))
@@ -954,7 +953,7 @@ impl Compiler
             let variable_index = scope
                 .variables
                 .iter()
-                .position(|v| v.name.value == name);
+                .position(|v| &v.name.value == name);
 
             if variable_index.is_some() { return true }
         }
@@ -1360,7 +1359,6 @@ impl Compiler
     {
         let code_len = if self.current_function.is_none() { self.program.block.code.len() }
                        else                               { self.current_mut().block.code.len() };
-
         self.patch(index, (code_len - 1 - index) as u8);
     }
 

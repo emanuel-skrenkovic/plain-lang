@@ -1,12 +1,12 @@
 cmp :: (a: number, b: number): number {
     if a == b {
-        a + b
+        a + b + 4 + 6 * 6 + 6 - 320 * 420
     } else {
-        a * b
+        a * b + 3 - 666 + 420 - 69 + 33
     };
 }
 
-c :: cmp(3, 5)
+c :: cmp(3, 3)
 d :: cmp(5, 3);
 
 f :: c + d;
