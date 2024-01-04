@@ -39,21 +39,28 @@ fn main() {
     let after_llvm = unsafe {
         let now_llvm = std::time::Instant::now();
         let mut ctx = compiler_llvm::Context::new(program);
-        compiler_llvm::compile(&mut ctx);
-        now_llvm.elapsed()
+        let module = compiler_llvm::compile(&mut ctx);
+        let llvm_elapsed = now_llvm.elapsed();
+
+        compiler_llvm::output_module_bitcode(module)
+            .expect("Failed to output LLVM bitcode.");
+
+        llvm_elapsed
     };
 
     let total = now.elapsed();
     println!
     (
-        "Total time {:} seconds.
-Tokenization took {:} seconds.
-Compilation took: {:} seconds.
-Outputting LLVM bytecode took: {:} seconds.",
-        total.as_secs_f32(),
-        after_scanning.as_secs_f32(),
-        after_compiling.as_secs_f32(),
-        after_llvm.as_secs_f32(),
+        "
+    Total time {:?}.
+    Tokenization {:?}.
+    Parsing: {:?}.
+    LLVM backend: {:?}.
+",
+        total,
+        after_scanning,
+        after_compiling,
+        after_llvm,
     );
 
     std::process::exit(0);

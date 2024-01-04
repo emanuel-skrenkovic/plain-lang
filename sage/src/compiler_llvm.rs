@@ -35,6 +35,8 @@ impl CompilationState
     }
 }
 
+// pub pub pub pub pub
+// Information wants to be free, maaaan.
 #[derive(Clone, Debug)]
 pub struct StackFrame
 {
@@ -140,6 +142,10 @@ impl Stack
     }
 }
 
+// TODO: Think about having Currrent as an enum so it can
+// have a different value depending on the compilation context.
+// E.g. During branch compilation, it could be Current::Branch
+// which would contain branch-specific information.
 #[derive(Debug)]
 pub struct Current<'a>
 {
@@ -244,7 +250,7 @@ fn get_op(op: block::Op) -> Option<EvalOp>
     OPERATIONS[op as usize]
 }
 
-pub unsafe fn compile(ctx: &mut Context)
+pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 {
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
@@ -308,8 +314,7 @@ pub unsafe fn compile(ctx: &mut Context)
     llvm::core::LLVMBuildRet(builder, return_value);
 
     verify_module(module);
-
-    output_module_bitcode(module).unwrap();
+    module
 }
 
 pub unsafe fn compile_function
