@@ -2293,14 +2293,11 @@ mod llvm
     fn llvm()
     {
         let source = "
-test :: (end) {
-    i := 0;
-    while i < end {
-        i = i + 1;
-    }
-}
-
-test(5);
+            end :: 5;
+            i := 0;
+            while i < end {
+                i = i + 1;
+            }
         ".to_owned();
 
         let tokens = Scanner::new(source.clone()).scan_tokens();

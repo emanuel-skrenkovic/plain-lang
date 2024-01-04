@@ -529,11 +529,6 @@ pub struct Loop
     pub end_bb: llvm::prelude::LLVMBasicBlockRef,
 }
 
-pub fn write_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current, loop_data: Loop)
-{
-
-}
-
 pub unsafe fn compile_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current, mut loop_data: Loop) -> Loop
 {
     // TODO: remove
@@ -578,9 +573,12 @@ pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Curre
     stack.pop();
 }
 
-pub unsafe fn op_add(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_add(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
+
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
 
     let result = llvm
         ::core
@@ -636,14 +634,18 @@ pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Curr
     stack.push(result);
 }
 
-pub unsafe fn op_less(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_less(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
-    let predicate  = llvm::LLVMRealPredicate::LLVMRealOLT;
+
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+
+    let predicate  = llvm::LLVMIntPredicate::LLVMIntSLT;
 
     let result = llvm
         ::core
-        ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_ltcomp"));
+        ::LLVMBuildICmp(current.builder, predicate, lhs, rhs, binary_cstr!("_ltcomp"));
 
     stack.push(result);
 }
@@ -660,14 +662,18 @@ pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Cu
     stack.push(result);
 }
 
-pub unsafe fn op_less_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_less_equal(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
-    let predicate  = llvm::LLVMRealPredicate::LLVMRealOLE;
+    let predicate  = llvm::LLVMIntPredicate::LLVMIntSLE;
+
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let result = llvm
         ::core
-        ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_lecomp"));
+        ::LLVMBuildICmp(current.builder, predicate,lhs, rhs, binary_cstr!("_lecomp"));
 
     stack.push(result);
 }
@@ -735,13 +741,15 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
     stack.push(value_ref);
 }
 
-pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_get_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
-    let value = frame.get_value(index, &stack.buffer);
+    let _     = frame.get_value(index, &stack.buffer);
 
-    stack.push(value);
+    let variable_ref = ctx.compilation_state.variables[current.frame_index][index];
+
+    stack.push(variable_ref);
 }
 
 pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
@@ -906,21 +914,22 @@ pub unsafe fn op_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     llvm::core::LLVMBuildBr(current.builder, loop_data.cond_bb);
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, loop_data.cond_bb);
 
-    let loop_data = compile_loop(ctx, stack, current, loop_data);
-    write_loop(ctx, stack, current, loop_data);
-
+    compile_loop(ctx, stack, current, loop_data);
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_bb);
 }
 
 pub unsafe fn op_loop_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
+    let frame = current.current_frame_mut();
+    let _     = frame.read_byte() as usize;
+    let cmp   = stack.pop();
+
     let ContextSpecific::LoopSpecific { ref data } = current.context_specific else {
         panic!("Loop not initiated.");
     };
 
     // For some reason, I store booleans as i8, so, to work with
     // llvm conditions, I have to convert them to i1.
-    let cmp = stack.pop();
     let i1_cmp = llvm::core::LLVMBuildTrunc
     (
         current.builder,
@@ -1097,6 +1106,26 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
         return Err("Failed to output bitcode.".to_string())
     }
     Ok(())
+}
+
+unsafe fn deref_if_ptr
+(
+    ctx: llvm::prelude::LLVMContextRef,
+    builder: llvm::prelude::LLVMBuilderRef,
+    value: llvm::prelude::LLVMValueRef,
+    expected_type: llvm::prelude::LLVMTypeRef,
+) -> llvm::prelude::LLVMValueRef
+{
+    let value_type = llvm::core::LLVMTypeOf(value);
+
+    let pointer_type = llvm::core::LLVMPointerTypeInContext(ctx, 0);
+    if pointer_type == value_type {
+        return llvm
+            ::core
+            ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
+    }
+
+    value
 }
 
 pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)

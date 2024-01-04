@@ -1,5 +1,5 @@
 end :: 5;
 i := 0;
-while i < end {
+while i <= 1000000000 {
     i = i + 1;
 }
