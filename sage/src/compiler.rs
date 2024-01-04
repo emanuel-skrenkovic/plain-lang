@@ -1366,7 +1366,6 @@ impl Compiler
     {
         let loop_end = if self.current_function.is_none() { self.program.block.code.len() }
                        else                               { self.current_mut().block.code.len() };
-
         self.emit_byte(block::Op::LoopJump);
         self.emit((loop_end - loop_start + 2) as u8);
     }

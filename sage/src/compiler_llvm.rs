@@ -508,6 +508,66 @@ pub unsafe fn compile_branch
     }
 }
 
+// TODO: have a similar structure to Branch where I first compose the pieces
+// while looping through instructions, and then build the thing "around" parts.
+pub struct Loop
+{
+
+}
+
+pub unsafe fn compile_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+{
+    let loop_init_block = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
+
+    let loop_cond_block = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_cond_bb"));
+
+    let loop_body_block = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
+
+     let loop_end_block = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_end_bb"));
+
+    loop {
+        let frame_index = current.frames.len() - 1;
+        if current.frames[frame_index].i == current.frames[frame_index].block.code.len() {
+            break
+        }
+
+        let ip = current.current_frame_mut().read_byte();
+        disassemble_instruction(ip);
+
+        let Ok(operation) = TryInto::<block::Op>::try_into(ip) else {
+            panic!("Could not parse operation '{}'.", ip);
+        };
+
+
+        let mut current = Current {
+            builder: current.builder,
+            basic_block: loop_body_block,
+            module: current.module,
+            function: current.function,
+            frame_index,
+            frames: current.frames,
+            branch: None,
+        };
+
+        match get_op(operation) {
+            Some(op) => op(ctx, stack, &mut current),
+            None     => current.current_frame_mut().move_forward(),
+        }
+
+        if current.frames.len() == 0 {
+            break
+        }
+    }
+}
+
 pub unsafe fn op_pop(_ctx: &mut Context, stack: &mut Stack, _current: &mut Current)
 {
     stack.pop();
