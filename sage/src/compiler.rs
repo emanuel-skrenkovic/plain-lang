@@ -1007,9 +1007,15 @@ impl Compiler
     fn _while(&mut self)
     {
         let loop_start = self.position();
+
+        // TODO: I think I need to emit an operation here in order to know
+        // I'm inside a loop for LLVM.
+        self.emit_byte(block::Op::Loop);
+
         self.expression();
 
-        let break_jump = self.emit_jump(block::Op::CondJump);
+        // let break_jump = self.emit_jump(block::Op::CondJump);
+        let break_jump = self.emit_jump(block::Op::LoopCondJump);
 
         // Body
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
@@ -1044,7 +1050,8 @@ impl Compiler
         // condition
 
         self.expression();
-        let exit_jump = self.emit_jump(block::Op::CondJump);
+        // let exit_jump = self.emit_jump(block::Op::CondJump);
+        let exit_jump = self.emit_jump(block::Op::LoopCondJump);
 
         // end condition
 

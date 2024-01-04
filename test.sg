@@ -1,12 +1,5 @@
-cmp :: (a: number, b: number): number {
-    if a == b {
-        a + b + 4 + 6 * 6 + 6 - 320 * 420
-    } else {
-        a * b + 3 - 666 + 420 - 69 + 33
-    };
+end :: 5;
+i := 0;
+while i < end {
+    i = i + 1;
 }
-
-c :: cmp(3, 3)
-d :: cmp(5, 3);
-
-f :: c + d;

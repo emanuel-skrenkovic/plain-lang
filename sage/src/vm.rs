@@ -359,6 +359,22 @@ impl VM
                     }
                 }
 
+                Op::LoopCondJump => {
+                    let jump = frame.read_byte() as usize;
+
+                    let Value::Bool { val } = self.pop() else {
+                        panic!("TODO: Not supported");
+                    };
+
+                    if !val {
+                        frame.i += jump;
+                    }
+                }
+
+                Op::Loop => {
+                    // intentionally left empty
+                }
+
                 Op::LoopJump => {
                     let jump = frame.read_byte() as usize;
                     frame.i -= jump;
@@ -495,6 +511,28 @@ impl VM
                 },
                 Op::CondJump => {
                     self.print_simple_op("COND_JUMP");
+                    // let jump = frame.peek_op(frame.i - 1);
+                    // println!("{name:<width$} {slot:<slot_width$} {value}",
+                    //          name="COND_JUMP",
+                    //          width=20,
+                    //          slot=frame.i - 1,
+                    //          slot_width=5,
+                    //          value=jump);
+
+                },
+                Op::Loop => {
+                    self.print_simple_op("LOOP");
+                    // let jump = frame.peek_op(frame.i - 1);
+                    // println!("{name:<width$} {slot:<slot_width$} {value}",
+                    //          name="COND_JUMP",
+                    //          width=20,
+                    //          slot=frame.i - 1,
+                    //          slot_width=5,
+                    //          value=jump);
+
+                },
+                Op::LoopCondJump => {
+                    self.print_simple_op("LOOP_COND_JUMP");
                     // let jump = frame.peek_op(frame.i - 1);
                     // println!("{name:<width$} {slot:<slot_width$} {value}",
                     //          name="COND_JUMP",

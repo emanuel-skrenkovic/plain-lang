@@ -158,7 +158,15 @@ pub struct Current<'a>
     pub frame_index: usize,
     pub frames: &'a mut Vec<StackFrame>,
 
-    pub branch: Option<&'a mut Branch>,
+    pub context_specific: ContextSpecific<'a>,
+}
+
+#[derive(Debug)]
+pub enum ContextSpecific<'a>
+{
+    FunctionSpecific,
+    BranchSpecific { data: &'a mut Branch },
+    LoopSpecific { data: &'a mut Loop },
 }
 
 impl <'a> Current<'a>
@@ -216,7 +224,7 @@ type EvalOp = unsafe fn(&mut Context, &mut Stack, &mut Current);
 // The index of the operation corresponds with the u8 value of
 // the operation enum.
 // The order must be preserved! Otherwise, funny things happen.
-const OPERATIONS: [Option<EvalOp>; 25] =
+const OPERATIONS: [Option<EvalOp>; 27] =
 [
     Some(op_pop),
     None,                      // OP True
@@ -241,6 +249,8 @@ const OPERATIONS: [Option<EvalOp>; 25] =
     Some(op_return),
     Some(op_jump),
     Some(op_cond_jump),
+    Some(op_loop),
+    Some(op_loop_cond_jump),
     Some(op_loop_jump),
     Some(op_call),
 ];
@@ -291,7 +301,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
             function: main_function,
             frame_index,
             frames: &mut frames,
-            branch: None
+            context_specific: ContextSpecific::FunctionSpecific,
         };
         let ip = current.current_frame_mut().read_byte();
         disassemble_instruction(ip);
@@ -345,7 +355,7 @@ pub unsafe fn compile_function
             function: current.function,
             frame_index,
             frames,
-            branch: None
+            context_specific: ContextSpecific::FunctionSpecific,
         };
         let ip = current.current_frame_mut().read_byte();
         disassemble_instruction(ip);
@@ -478,7 +488,7 @@ pub unsafe fn compile_branch
             function: current.function,
             frame_index,
             frames: current.frames,
-            branch: Some(&mut branch)
+            context_specific: ContextSpecific::BranchSpecific { data: &mut branch },
         };
 
         let before = current.current_frame().i;
@@ -510,33 +520,29 @@ pub unsafe fn compile_branch
 
 // TODO: have a similar structure to Branch where I first compose the pieces
 // while looping through instructions, and then build the thing "around" parts.
+#[derive(Debug)]
 pub struct Loop
+{
+    pub init_bb: llvm::prelude::LLVMBasicBlockRef,
+    pub cond_bb: llvm::prelude::LLVMBasicBlockRef,
+    pub loop_body_bb: llvm::prelude::LLVMBasicBlockRef,
+    pub end_bb: llvm::prelude::LLVMBasicBlockRef,
+}
+
+pub fn write_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current, loop_data: Loop)
 {
 
 }
 
-pub unsafe fn compile_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn compile_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current, mut loop_data: Loop) -> Loop
 {
-    let loop_init_block = llvm
-        ::core
-        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
-
-    let loop_cond_block = llvm
-        ::core
-        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_cond_bb"));
-
-    let loop_body_block = llvm
-        ::core
-        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
-
-     let loop_end_block = llvm
-        ::core
-        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_end_bb"));
+    // TODO: remove
+    ctx.compilation_state.variables.push(vec![0 as *mut llvm::LLVMValue; 1024]);
 
     loop {
         let frame_index = current.frames.len() - 1;
         if current.frames[frame_index].i == current.frames[frame_index].block.code.len() {
-            break
+            break loop_data
         }
 
         let ip = current.current_frame_mut().read_byte();
@@ -546,15 +552,14 @@ pub unsafe fn compile_loop(ctx: &mut Context, stack: &mut Stack, current: &mut C
             panic!("Could not parse operation '{}'.", ip);
         };
 
-
         let mut current = Current {
             builder: current.builder,
-            basic_block: loop_body_block,
+            basic_block: loop_data.cond_bb,
             module: current.module,
             function: current.function,
             frame_index,
             frames: current.frames,
-            branch: None,
+            context_specific: ContextSpecific::LoopSpecific { data: &mut loop_data }
         };
 
         match get_op(operation) {
@@ -563,7 +568,7 @@ pub unsafe fn compile_loop(ctx: &mut Context, stack: &mut Stack, current: &mut C
         }
 
         if current.frames.len() == 0 {
-            break
+            break loop_data
         }
     }
 }
@@ -833,7 +838,7 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
     let frame = current.current_frame_mut();
     let jump  = frame.read_byte() as usize;
 
-    let Some(branch) = current.branch.as_mut() else {
+    let ContextSpecific::BranchSpecific { data: ref mut branch } = current.context_specific else {
         panic!("Branch not initiated.")
     };
 
@@ -846,6 +851,9 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
     branch.end_counter += jump;
 }
 
+// TODO: I have no way of knowing if I'm in the loop until I reach the end of the loop block.
+// This is not ideal.
+// Loop will start with this same OP, same as if.
 pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame     = current.current_frame_mut();
@@ -872,11 +880,73 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
     stack.push(value);
 }
 
+// I think I have to add this operation in order to be able to know if I'm doing a loop
+// or a normal branch.
+pub unsafe fn op_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+{
+    let cond_bb = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_cond_bb"));
+
+    let loop_body_bb = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
+
+     let end_bb = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_after_loop_bb"));
+
+    let loop_data = Loop {
+        init_bb: current.basic_block,
+        cond_bb,
+        loop_body_bb,
+        end_bb,
+    };
+
+    llvm::core::LLVMBuildBr(current.builder, loop_data.cond_bb);
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, loop_data.cond_bb);
+
+    let loop_data = compile_loop(ctx, stack, current, loop_data);
+    write_loop(ctx, stack, current, loop_data);
+
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_bb);
+}
+
+pub unsafe fn op_loop_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+{
+    let ContextSpecific::LoopSpecific { ref data } = current.context_specific else {
+        panic!("Loop not initiated.");
+    };
+
+    // For some reason, I store booleans as i8, so, to work with
+    // llvm conditions, I have to convert them to i1.
+    let cmp = stack.pop();
+    let i1_cmp = llvm::core::LLVMBuildTrunc
+    (
+        current.builder,
+        cmp,
+        llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx),
+        binary_cstr!("_bool_convert")
+    );
+    llvm::core::LLVMBuildCondBr(current.builder, i1_cmp, data.loop_body_bb, data.end_bb);
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, data.loop_body_bb);
+}
+
 pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
-    let jump  = frame.read_byte() as usize;
-    frame.i -= jump;
+    let _     = frame.read_byte() as usize;
+
+    let ContextSpecific::LoopSpecific { ref data } = current.context_specific else {
+        panic!("Loop not initiated.");
+    };
+
+    // current.frames.pop();
+
+    llvm::core::LLVMBuildBr(current.builder, data.cond_bb);
+
+    // TODO: Here I have to signal that the loop code is finished so I can
+    // build the loop bytecode.
 }
 
 pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -1046,7 +1116,7 @@ pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0][3];
+    let a = ctx.compilation_state.variables[0][1];
 
     let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 
@@ -1117,6 +1187,8 @@ fn disassemble_instruction(instruction: u8)
             block::Op::Return          => print_simple_op("RETURN"),
             block::Op::Jump            => print_simple_op("JUMP"),
             block::Op::CondJump        => print_simple_op("COND_JUMP"),
+            block::Op::Loop            => print_simple_op("LOOP"),
+            block::Op::LoopCondJump    => print_simple_op("LOOP_COND_JUMP"),
             block::Op::LoopJump        => print_simple_op("LOOP_JUMP"),
             block::Op::Call            => print_simple_op("CALL "),
             _ => { }

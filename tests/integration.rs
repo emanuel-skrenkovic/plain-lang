@@ -2293,18 +2293,14 @@ mod llvm
     fn llvm()
     {
         let source = "
-            cmp :: (a: number, b: number): number {
-                if a == b {
-                    a + b * b + a
-                } else {
-                    a * b + a * a
-                };
-            }
+test :: (end) {
+    i := 0;
+    while i < end {
+        i = i + 1;
+    }
+}
 
-            c :: cmp(3, 3)
-            d :: cmp(5, 3);
-
-            f :: c + d;
+test(5);
         ".to_owned();
 
         let tokens = Scanner::new(source.clone()).scan_tokens();

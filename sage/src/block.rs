@@ -37,7 +37,8 @@ pub enum Op
     DeclareVariable, SetLocal, GetLocal,
     SetUpvalue, GetUpvalue,
     Frame, Return,
-    Jump, CondJump, LoopJump,
+    Jump, CondJump,
+    Loop, LoopCondJump, LoopJump,
     Call
 }
 
@@ -67,6 +68,8 @@ impl core::fmt::Display for Op {
             &Op::Return          => write!(f, "RETURN"),
             &Op::Jump            => write!(f, "JUMP"),
             &Op::CondJump        => write!(f, "COND_JUMP"),
+            &Op::Loop            => write!(f, "JUMP"),
+            &Op::LoopCondJump    => write!(f, "LOOP_COND_JUMP"),
             &Op::LoopJump        => write!(f, "LOOP_JUMP"),
             &Op::Call            => write!(f, "CALL"),
         }
@@ -103,6 +106,8 @@ impl TryFrom<u8> for Op
             x if x == Op::Return as u8          => Ok(Op::Return),
             x if x == Op::Jump as u8            => Ok(Op::Jump),
             x if x == Op::CondJump as u8        => Ok(Op::CondJump),
+            x if x == Op::Loop as u8            => Ok(Op::Loop),
+            x if x == Op::LoopCondJump as u8    => Ok(Op::LoopCondJump),
             x if x == Op::LoopJump as u8        => Ok(Op::LoopJump),
             x if x == Op::Call as u8            => Ok(Op::Call),
             _ => Err(()),
