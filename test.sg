@@ -1,5 +1,10 @@
-end :: 5;
-i := 0;
-while i <= 1000000000 {
-    i = i + 1;
+test :: (initial: number, end: number): number {
+    acc := initial;
+    while acc < end {
+        acc = acc + 1;
+    };
+
+    acc
 }
+
+c :: test(5, 1);

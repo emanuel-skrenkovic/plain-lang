@@ -359,6 +359,10 @@ impl VM
                     }
                 }
 
+                Op::Loop => {
+                    // Intentionally left blank.
+                }
+
                 Op::LoopCondJump => {
                     let jump = frame.read_byte() as usize;
 
@@ -371,10 +375,6 @@ impl VM
                     if !val {
                         frame.i += jump;
                     }
-                }
-
-                Op::Loop => {
-                    // intentionally left empty
                 }
 
                 Op::LoopJump => {

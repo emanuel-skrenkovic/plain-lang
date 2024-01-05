@@ -99,7 +99,7 @@ static RULES: [ParseRule; 41] =
     ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // RightParen
     ParseRule { prefix: Some(Compiler::block_expression),    infix: None,                                precedence: Precedence::None }, // LeftBracket
     ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // RightBracket
-    ParseRule { prefix: None,                                infix: Some(Compiler::left_angle),          precedence: Precedence::Comparison }, // LeftAngle
+    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // LeftAngle
     ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // RightAngle
     ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Questionmark
     ParseRule { prefix: Some(Compiler::semicolon),           infix: None,                                precedence: Precedence::None }, // Semicolon
@@ -546,13 +546,6 @@ impl Compiler
         self.match_token(scan::TokenKind::Semicolon);
     }
 
-    fn left_angle(&mut self)
-    {
-        // TODO generics
-        if self.match_token(scan::TokenKind::Identifier) { self.match_token(scan::TokenKind::RightAngle); }
-        else                                             { self.binary(); }
-    }
-
     fn literal(&mut self)
     {
         match self.parser.previous.kind {
@@ -777,7 +770,9 @@ impl Compiler
                 };
 
                 argument_type_names.push(maybe_type_name.clone());
-                self.declare_variable(parameter_name_token, false, maybe_type_name);
+                // Ooopsy whoopsy dooopsy hooopsy we just made it mutable.
+                self.declare_variable(parameter_name_token, true, maybe_type_name);
+                // self.variable_declaration(variable_key);
 
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
@@ -785,39 +780,52 @@ impl Compiler
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
-        let mut return_type_name: Option<String> = None;
-
-        // Like with variables, if the type is defined here, fill out the return type of
-        // the function at this point. Otherwise, infer the type during type checking.
-        // (Again, I see a lot of problems potentially popping up regarding type inference.)
-        if self.match_token(scan::TokenKind::Colon) {
-            if !self.match_token(scan::TokenKind::Identifier) {
-                return self.error_at("Expected type identifier.", &self.parser.current.clone());
+        let return_type_name: Option<String> = {
+            // Like with variables, if the type is defined here, fill out the return type of
+            // the function at this point. Otherwise, infer the type during type checking.
+            // (Again, I see a lot of problems potentially popping up regarding type inference.)
+            if self.match_token(scan::TokenKind::Colon) {
+                if !self.match_token(scan::TokenKind::Identifier) {
+                    return self.error_at("Expected type identifier.", &self.parser.current.clone());
+                }
+                Some(self.parser.previous.clone().value)
+            } else {
+                None
             }
-
-            return_type_name = Some(self.parser.previous.clone().value);
-        }
+        };
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
-        // TODO: should this be an expression?
-        // self.expression();
-        self.code_block();
-        self.emit_return(arity);
+        let count = {
+            let mut count = 0;
+            while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+                self.declaration();
+                count += 1;
+            }
+
+            // This does not denote if we return a value or not. Fix it!
+            let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
+
+            if has_value && count > 0 { count - 1 }
+            else                      { count }
+        };
+
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.emit_return(arity + count);
 
         // TODO: I think I should just pass on the token here instead of having
         // the name in a string like a dummy.
         let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
                                else                                      { "unit".to_string() };
 
-        let expression_block = self.end_function();
+        let code = self.end_function();
 
         self.emit_constant
         (
             block::Value::Function {
                 name: function_name,
                 arity,
-                closure: block::Closure { code: expression_block },
+                closure: block::Closure { code },
                 argument_type_names,
                 return_type_name,
             }
@@ -881,7 +889,7 @@ impl Compiler
             .position(|v| &v.name.value == name);
 
         if let Some(position) = variable_index {
-            return Some((self.current_function, 0, position));
+            return Some((self.current_function, self.current_scope_index, position));
         }
 
         for scope_index in &current_scope.path {
@@ -1290,7 +1298,7 @@ impl Compiler
 
     // TODO: not sure which version is correct, so I'm leaving this here until my
     // tiny brain gets going.
-    // fn function_distance2(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
+    // fn function_distance(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
     // {
     //     let mut distance = 0;
     //     let Some(starting_index) = starting_index else {
