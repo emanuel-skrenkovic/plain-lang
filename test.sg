@@ -1,3 +1,5 @@
+add :: (a: number, b: number): number { a + b };
+
 test :: (initial: number, end: number): number {
     acc := initial;
     while acc < end {
@@ -5,10 +7,11 @@ test :: (initial: number, end: number): number {
     };
 
     if acc == 42069 {
-        acc - 1
+        acc
     } else {
         acc * 2
     }
 }
 
 c :: test(0, 42069);
+d :: add(c, 3);

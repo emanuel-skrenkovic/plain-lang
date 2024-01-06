@@ -805,10 +805,8 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
             let function_call = FunctionCall::build(ctx.llvm_ctx, current.module, name, arity, argument_type_names, return_type_name, closure.code);
             let function_ref  = function_call.function;
 
-            // TODO: fix this.
-            // if !self.compilation_context.info.len() < program.current_scope - 1 {
+            // TODO: fix this. It shouldn't be needed.
             ctx.compilation_state.info.push(vec![]);
-            // }
 
             ctx.compilation_state
                 .info[current.frame_position.frame_index]
@@ -829,7 +827,8 @@ pub unsafe fn op_get_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
     let index = frame.read_byte() as usize;
 
     // let value = frame.get_value(index, &stack.buffer);
-    // TODO: think about the semantics of this.
+    // TODO: think about the semantics of this. For now, I think it should simply
+    // pass the value as-is.
 
     let variable_ref = ctx.compilation_state.variables[current.frame_position.frame_index][index];
     stack.push(variable_ref);
@@ -994,7 +993,6 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         context_specific: ContextSpecific::BranchSpecific { data: &mut branch },
     };
     compile_branch(ctx, stack, branch_current);
-
     let Ok(phi) = write_branch(&ctx, stack, &current, branch) else {
         panic!("Failed to write branch code");
     };
@@ -1144,8 +1142,10 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         info.compiled = true;
     }
 
+    // TODO: I'm not sure of the semantics of arguments.
+    // I'm thinking copy by default and take the reference explicitly.
     let mut args: Vec<llvm::prelude::LLVMValueRef> = (0..info.arity)
-        .map(|i| stack.peek(i))
+        .map(|i| deref_if_ptr(ctx.llvm_ctx, current.builder, stack.peek(i), info.param_types[i]))
         .rev()
         .collect();
 
@@ -1281,7 +1281,7 @@ pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0][1];
+    let a = ctx.compilation_state.variables[0][3];
 
     let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 
