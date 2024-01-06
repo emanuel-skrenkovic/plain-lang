@@ -347,7 +347,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
     }
 
-    // add_printf(ctx, module, builder);
+    add_printf(ctx, module, builder);
 
     let return_value = llvm
         ::core
@@ -644,9 +644,9 @@ pub unsafe fn op_less(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 {
     let (rhs, lhs) = stack.binary_op();
 
-    // let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
-    // let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
-    // let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let predicate  = llvm::LLVMIntPredicate::LLVMIntSLT;
 
@@ -748,16 +748,16 @@ pub unsafe fn op_constant(ctx: &mut Context, stack: &mut Stack, current: &mut Cu
     stack.push(value_ref);
 }
 
-pub unsafe fn op_get_local(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_get_local(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
-    let value = frame.get_value(index, &stack.buffer);
 
+    // let value = frame.get_value(index, &stack.buffer);
     // TODO: think about the semantics of this.
-    // let variable_ref = ctx.compilation_state.variables[current.frame_position.frame_index][index];
 
-    stack.push(value);
+    let variable_ref = ctx.compilation_state.variables[current.frame_position.frame_index][index];
+    stack.push(variable_ref);
 }
 
 pub unsafe fn op_declare_variable(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
@@ -810,7 +810,7 @@ pub unsafe fn op_set_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
     let variable_ref = ctx.compilation_state.variables[frame_index][index];
     llvm::core::LLVMBuildStore(builder, value, variable_ref);
 
-    // frame.set_value(index, value, &mut stack.buffer);
+    frame.set_value(index, value, &mut stack.buffer);
 }
 
 pub unsafe fn op_get_upvalue(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -842,7 +842,7 @@ pub unsafe fn op_set_upvalue(ctx: &mut Context, stack: &mut Stack, current: &mut
     enclosing_scope.set_value(index, value, &mut stack.buffer);
 }
 
-pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_return(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let frame  = current.current_frame_mut();
     let _      = frame.read_byte();
@@ -850,6 +850,13 @@ pub unsafe fn op_return(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
 
     if current.frame_position.frames.is_empty() { return }
     current.pop_frame();
+
+    let return_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
+        deref_if_ptr(ctx.llvm_ctx, current.builder, result, return_type)
+    } else {
+        result
+    };
 
     llvm::core::LLVMBuildRet(current.builder, result);
     stack.push(result);
@@ -1014,42 +1021,23 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         llvm::core::LLVMPositionBuilderAtEnd(function_builder, entry_block);
 
         current.push_frame(StackFrame::new(stack.top - info.arity, info.code.clone()));
+
         ctx.compilation_state.variables.push(vec![0 as *mut llvm::LLVMValue; 1024]);
         ctx.compilation_state.variable_types.push(vec![0 as *mut llvm::LLVMType; 1024]);
-
-        // Drain the arguments and replace them with function params.
-        let mut params = Vec::with_capacity(info.arity);
-        let mut args   = Vec::with_capacity(info.arity);
-
-        for i in 0..info.arity {
-            let arg = stack.pop();
-
-            // If it's a primitive, get the value as the parameter, if it's a complex type,
-            // get its pointer.
-            // TODO: think about having explicit pass as pointer vs pass as value.
-            // Need to have specific copy/move semantics defined for that.
-            let param = if is_type_primitive(ctx.llvm_ctx, info.param_types[i]) {
-                llvm::core::LLVMGetParam(info.function, i as u32)
-            } else {
-                let param_type    = llvm::core::LLVMTypeOf(arg);
-                let param_pointer = llvm::core::LLVMBuildAlloca(function_builder, param_type, binary_cstr!("_param"));
-                ctx.compilation_state
-                    .variables[current.frame_position.frame_index][index] = param_pointer;
-                param_pointer
-            };
-
-            ctx.compilation_state.variable_types[current.frame_position.frame_index][i] = llvm::core::LLVMTypeOf(param);
-
-            args.push(arg);
-            params.push(param);
-        }
-
-        // After draining both, push the params to replace the args.
-        for param in params.into_iter() { stack.push(param); }
 
         // **IMPORTANT** it is necessary to clone the stack, as we don't want to actually proceed
         // with the program, instead, we have to run the compilation of the function in its own stack.
         let mut stack_clone = stack.clone();
+
+        for i in 0..info.arity {
+            // TODO: think about having explicit pass as pointer vs pass as value.
+            // Need to have specific copy/move semantics defined for that.
+            let param = llvm::core::LLVMGetParam(info.function, i as u32);
+            ctx.compilation_state.variables[current.frame_position.frame_index][i] = param;
+            ctx.compilation_state.variable_types[current.frame_position.frame_index][i] = llvm::core::LLVMTypeOf(param);
+
+            stack_clone.push(param);
+        }
 
         // TODO: I feel like I maybe, probably, potentially should have "constructors" for scenarios:
         // * new function
@@ -1067,11 +1055,6 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
         compile_function(ctx, &mut stack_clone, function_current);
         info.compiled = true;
-
-        // Remove the function parameters and return back the previously
-        // removed arguments.
-        for _ in 0..info.arity { stack.pop(); }
-        for arg in args        { stack.push(arg); }
     }
 
     let mut args: Vec<llvm::prelude::LLVMValueRef> = (0..info.arity)
@@ -1185,7 +1168,6 @@ unsafe fn deref_if_ptr
     let pointer_type = llvm::core::LLVMPointerTypeInContext(ctx, 0);
 
     if pointer_type == value_type {
-        println!("IS PTR");
         return llvm
             ::core
             ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
@@ -1246,6 +1228,7 @@ pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef
     );
 }
 
+#[allow(unused)]
 unsafe fn print_stack(stack: &Stack)
 {
     for value in &stack.buffer {

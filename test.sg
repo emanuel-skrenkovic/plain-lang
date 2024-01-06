@@ -7,4 +7,4 @@ test :: (initial: number, end: number): number {
     acc
 }
 
-c :: test(5, 1);
+c :: test(0, 5);

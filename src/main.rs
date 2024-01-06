@@ -52,8 +52,8 @@ fn main() {
     println!
     (
         "
-    Total time {:?}.
-    Tokenization {:?}.
+    Total time: {:?}.
+    Tokenization: {:?}.
     Parsing: {:?}.
     LLVM backend: {:?}.
 ",
