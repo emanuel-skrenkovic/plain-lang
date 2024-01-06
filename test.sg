@@ -4,7 +4,11 @@ test :: (initial: number, end: number): number {
         acc = acc + 1;
     };
 
-    acc
+    if acc == 42069 {
+        acc + 1
+    } else {
+        acc * 2
+    }
 }
 
-c :: test(0, 5);
+c :: test(0, 42069);

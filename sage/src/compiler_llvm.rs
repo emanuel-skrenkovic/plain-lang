@@ -159,7 +159,7 @@ impl Stack
 #[derive(Debug)]
 pub enum ContextSpecific<'a>
 {
-    FunctionSpecific,
+    FunctionSpecific { data: &'a FunctionCall },
     BranchSpecific { data: &'a mut Branch },
     LoopSpecific { data: &'a mut Loop },
 }
@@ -317,13 +317,25 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         frames: &mut frames,
     };
 
+    // TODO: this is a temporary mess.
+    let main_function_call = FunctionCall::build
+    (
+        ctx.llvm_ctx,
+        module,
+        "main".to_string(),
+        0,
+        vec![],
+        "unit".to_string(),
+        ctx.program.block.clone(),
+    );
+
     let mut current = Current {
         builder,
         basic_block: entry_block,
         module,
         function: main_function,
         frame_position: &mut frame_position,
-        context_specific: ContextSpecific::FunctionSpecific,
+        context_specific: ContextSpecific::FunctionSpecific { data: &main_function_call },
     };
 
     loop {
@@ -358,12 +370,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     module
 }
 
-pub unsafe fn compile_function
-(
-    ctx: &mut Context,
-    stack: &mut Stack,
-    mut current: Current,
-)
+pub unsafe fn compile_function(ctx: &mut Context, stack: &mut Stack, mut current: Current)
 {
     // TODO: remove
     ctx.compilation_state.variables.push(vec![0 as *mut llvm::LLVMValue; 1024]);
@@ -447,34 +454,80 @@ pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch:
     };
 
     unsafe {
-        let end_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchend"));
-
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch.parent_block);
-        llvm::core::LLVMBuildCondBr(current.builder, branch.cond, then_branch, else_branch);
-
-        // After the code for each block is built, write the BR instructions for each block.
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_branch);
-        llvm::core::LLVMBuildBr(current.builder, end_block);
-
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_branch);
-        llvm::core::LLVMBuildBr(current.builder, end_block);
-
         let (else_result, if_result) = stack.binary_op();
-        let mut incoming_values = [if_result, else_result];
-        let mut incoming_blocks = [then_branch, else_branch];
+
+        let else_type = llvm::core::LLVMTypeOf(else_result);
+        let if_type   = llvm::core::LLVMTypeOf(if_result);
+
+        let is_if_primitive   = is_type_primitive(ctx.llvm_ctx, if_type);
+        let is_else_primitive = is_type_primitive(ctx.llvm_ctx, else_type);
+
+        let is_result_primitive = is_if_primitive || is_else_primitive;
+
+        let mut incoming_values = Vec::with_capacity(2);
+        let mut incoming_blocks = Vec::with_capacity(2);
+
+        let primitive_type = if is_if_primitive { if_type } else { else_type };
+
+        // In case of returning a primitive from a branching expression, there is a possibility of one (or two) of the
+        // blocks being a reference to a variable. In that case, a dereference is needed so the return types
+        // of branches match (e.g. (i32, i32) instead of (ptr, i32)). Deref is an instruction in itself, and
+        // the phi instruction needs to be at the top of the block - this means that we have to set up an
+        // intermediate block to dereference the values and then move to the end block after that with consolidated branches.
+
+        // TODO: Use block expressions instead!
+        // This is already set up to support multiple branches.
+        if is_result_primitive && !is_if_primitive {
+            let result_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchresult"));
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_branch);
+            llvm::core::LLVMBuildBr(current.builder, result_block);
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, result_block);
+
+            let deref = deref_if_ptr(ctx.llvm_ctx, current.builder, if_result, primitive_type);
+            incoming_values.push(deref);
+            incoming_blocks.push(result_block);
+        } else {
+            incoming_values.push(if_result);
+            incoming_blocks.push(then_branch);
+        }
+
+        if is_result_primitive && !is_else_primitive {
+            let result_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchresult"));
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_branch);
+            llvm::core::LLVMBuildBr(current.builder, result_block);
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, result_block);
+
+            let deref = deref_if_ptr(ctx.llvm_ctx, current.builder, else_result, primitive_type);
+            incoming_values.push(deref);
+            incoming_blocks.push(result_block);
+        } else {
+            incoming_values.push(else_result);
+            incoming_blocks.push(else_branch);
+        }
+
+        let end_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchend"));
+        for block in &incoming_blocks {
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, *block);
+            llvm::core::LLVMBuildBr(current.builder, end_block);
+        }
+
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
 
         let count = incoming_values.len() as u32;
 
         let incoming_values = incoming_values.as_mut_ptr();
         let incoming_blocks = incoming_blocks.as_mut_ptr();
 
-        // Move the builder back to the parent block.
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch.parent_block);
+        llvm::core::LLVMBuildCondBr(current.builder, branch.cond, then_branch, else_branch);
 
+        // TODO: fix type being hardcoded.
+        llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
         let phi_node = llvm
             ::core
             ::LLVMBuildPhi(current.builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), binary_cstr!("_branchphi"));
-
         llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
 
         // As the result of the if/else, move the incoming values into a phi node and return it
@@ -483,12 +536,7 @@ pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch:
     }
 }
 
-pub unsafe fn compile_branch
-(
-    ctx: &mut Context,
-    stack: &mut Stack,
-    mut current: Current,
-)
+pub unsafe fn compile_branch(ctx: &mut Context, stack: &mut Stack, mut current: Current)
 {
     let mut diff = 0;
 
@@ -582,6 +630,7 @@ pub unsafe fn op_add(ctx: &mut Context, stack: &mut Stack, current: &mut Current
 {
     let (rhs, lhs) = stack.binary_op();
 
+    // TODO: fix operand type being hardcoded.
     let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
     let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
     let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
@@ -604,9 +653,14 @@ pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut C
     stack.push(result);
 }
 
-pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_multiply(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
+
+    // TODO: fix operand type being hardcoded.
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let result = llvm
         ::core
@@ -615,9 +669,13 @@ pub unsafe fn op_multiply(_ctx: &mut Context, stack: &mut Stack, current: &mut C
     stack.push(result);
 }
 
-pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_divide(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
+
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let result = llvm
         ::core
@@ -626,10 +684,14 @@ pub unsafe fn op_divide(_ctx: &mut Context, stack: &mut Stack, current: &mut Cur
     stack.push(result);
 }
 
-pub unsafe fn op_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_equal(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
     // let predicate  = llvm::LLVMRealPredicate::LLVMRealUEQ;
+
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let predicate = llvm::LLVMIntPredicate::LLVMIntEQ;
 
@@ -657,9 +719,14 @@ pub unsafe fn op_less(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     stack.push(result);
 }
 
-pub unsafe fn op_greater(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_greater(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
+
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
+
     let predicate  = llvm::LLVMRealPredicate::LLVMRealOGT;
 
     let result = llvm
@@ -685,14 +752,18 @@ pub unsafe fn op_less_equal(ctx: &mut Context, stack: &mut Stack, current: &mut 
     stack.push(result);
 }
 
-pub unsafe fn op_greater_equal(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_greater_equal(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
-    let predicate  = llvm::LLVMRealPredicate::LLVMRealOGE;
+    let predicate  = llvm::LLVMIntPredicate::LLVMIntSGE;
+
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let result = llvm
         ::core
-        ::LLVMBuildFCmp(current.builder, predicate,lhs, rhs, binary_cstr!("_gecomp"));
+        ::LLVMBuildICmp(current.builder, predicate,lhs, rhs, binary_cstr!("_gecomp"));
 
     stack.push(result);
 }
@@ -851,9 +922,13 @@ pub unsafe fn op_return(ctx: &mut Context, stack: &mut Stack, current: &mut Curr
     if current.frame_position.frames.is_empty() { return }
     current.pop_frame();
 
-    let return_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
-    let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
-        deref_if_ptr(ctx.llvm_ctx, current.builder, result, return_type)
+    // TODO: this won't work with branching.
+    let ContextSpecific::FunctionSpecific { data } = current.context_specific else {
+        panic!();
+    };
+
+    let result = if is_type_primitive(ctx.llvm_ctx, data.return_type) {
+        deref_if_ptr(ctx.llvm_ctx, current.builder, result, data.return_type)
     } else {
         result
     };
@@ -916,9 +991,11 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
     };
     compile_branch(ctx, stack, branch_current);
 
-    let Ok(_) = write_branch(&ctx, stack, &current, branch) else {
+    let Ok(phi) = write_branch(&ctx, stack, &current, branch) else {
         panic!("Failed to write branch code");
     };
+
+    stack.push(phi);
 }
 
 // I think I have to add this operation in order to be able to know if I'm doing a loop
@@ -957,6 +1034,9 @@ pub unsafe fn op_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
     };
     compile_loop(ctx, stack, loop_current);
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_bb);
+    // This kind of sucks, too dependent on current state of compilation.
+    // I'd rather have a more functional approach without so much mutations involved.
+    current.basic_block = end_bb;
 }
 
 pub unsafe fn op_loop_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -1029,6 +1109,9 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         // with the program, instead, we have to run the compilation of the function in its own stack.
         let mut stack_clone = stack.clone();
 
+        // Instead of using the actual arguments (which *are* values), we need to
+        // replace the arguments with the parameters.
+        for _ in 0..info.arity { stack_clone.pop(); }
         for i in 0..info.arity {
             // TODO: think about having explicit pass as pointer vs pass as value.
             // Need to have specific copy/move semantics defined for that.
@@ -1050,7 +1133,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
             module: current.module,
             function: info.function,
             frame_position: current.frame_position,
-            context_specific: ContextSpecific::FunctionSpecific,
+            context_specific: ContextSpecific::FunctionSpecific { data: &info },
         };
 
         compile_function(ctx, &mut stack_clone, function_current);
@@ -1062,7 +1145,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         .rev()
         .collect();
 
-    llvm::core::LLVMBuildCall2
+    let call_result = llvm::core::LLVMBuildCall2
     (
         current.builder,
         info.function_type,
@@ -1071,6 +1154,7 @@ pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         info.arity as u32,
         info.name.as_ptr() as *const _,
     );
+    stack.push(call_result);
     ctx.compilation_state.info[scope][index] = ValueInfo::Function { info };
 }
 
