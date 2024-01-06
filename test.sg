@@ -5,7 +5,7 @@ test :: (initial: number, end: number): number {
     };
 
     if acc == 42069 {
-        acc + 1
+        acc - 1
     } else {
         acc * 2
     }

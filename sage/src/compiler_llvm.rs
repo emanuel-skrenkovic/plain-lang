@@ -642,9 +642,13 @@ pub unsafe fn op_add(ctx: &mut Context, stack: &mut Stack, current: &mut Current
     stack.push(result);
 }
 
-pub unsafe fn op_subtract(_ctx: &mut Context, stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_subtract(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
 {
     let (rhs, lhs) = stack.binary_op();
+
+    let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
     let result = llvm
         ::core
