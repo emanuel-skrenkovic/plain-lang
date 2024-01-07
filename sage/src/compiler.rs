@@ -1051,6 +1051,7 @@ impl Compiler
         if self.match_token(scan::TokenKind::Identifier) { self.variable() }
         else                                             { self.expression() };
 
+        self.emit_byte(block::Op::Loop);
         let mut loop_start = self.position();
 
         // end loop variables
@@ -1058,7 +1059,6 @@ impl Compiler
         // condition
 
         self.expression();
-        // let exit_jump = self.emit_jump(block::Op::CondJump);
         let exit_jump = self.emit_jump(block::Op::LoopCondJump);
 
         // end condition

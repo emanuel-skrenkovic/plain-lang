@@ -160,7 +160,7 @@ impl Stack
 pub enum ContextSpecific<'a>
 {
     FunctionSpecific { data: &'a FunctionCall },
-    BranchSpecific { data: &'a mut Branch },
+    BranchSpecific { data: &'a mut ControlFlow },
     LoopSpecific { data: &'a mut Loop },
 }
 
@@ -442,98 +442,109 @@ impl Branch
     }
 }
 
-pub fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, branch: Branch)
+pub unsafe fn write_branch(ctx: &Context, stack: &mut Stack, current: &Current, control_flow: ControlFlow)
     -> Result<llvm::prelude::LLVMValueRef, String>
 {
-    let Some(then_branch) = branch.then_block else {
-        return Err("Then block not built.".to_string())
-    };
+    let results_count = control_flow.inner_blocks.len();
 
-    let Some(else_branch) = branch.else_block else {
-        return Err("Else block not built.".to_string())
-    };
+    let mut results      = Vec::with_capacity(results_count);
+    let mut result_types = Vec::with_capacity(results_count);
 
-    unsafe {
-        let (else_result, if_result) = stack.binary_op();
+    for _ in 0..control_flow.inner_blocks.len() {
+        let result      = stack.pop();
+        let result_type = llvm::core::LLVMTypeOf(result);
 
-        let else_type = llvm::core::LLVMTypeOf(else_result);
-        let if_type   = llvm::core::LLVMTypeOf(if_result);
+        results.push(result);
+        result_types.push(result_type);
+    }
 
-        let is_if_primitive   = is_type_primitive(ctx.llvm_ctx, if_type);
-        let is_else_primitive = is_type_primitive(ctx.llvm_ctx, else_type);
+    // Need to reverse to make it the correct order since we
+    // popped the values from a stack.
+    results.reverse();
+    result_types.reverse();
 
-        let is_result_primitive = is_if_primitive || is_else_primitive;
+    let mut is_result_primitive = false;
+    let mut primitive_type      = std::ptr::null_mut();
 
-        let mut incoming_values = Vec::with_capacity(2);
-        let mut incoming_blocks = Vec::with_capacity(2);
+    let mut result_types_primitive = Vec::with_capacity(results_count);
 
-        let primitive_type = if is_if_primitive { if_type } else { else_type };
+    for t in result_types {
+        let result_type_primitive = is_type_primitive(ctx.llvm_ctx, t);
+        result_types_primitive.push(result_type_primitive);
 
-        // In case of returning a primitive from a branching expression, there is a possibility of one (or two) of the
-        // blocks being a reference to a variable. In that case, a dereference is needed so the return types
-        // of branches match (e.g. (i32, i32) instead of (ptr, i32)). Deref is an instruction in itself, and
-        // the phi instruction needs to be at the top of the block - this means that we have to set up an
-        // intermediate block to dereference the values and then move to the end block after that with consolidated branches.
+        if !is_result_primitive && result_type_primitive {
+            is_result_primitive = true;
+            primitive_type      = t;
+        }
+    }
 
-        // TODO: Use block expressions instead!
-        // This is already set up to support multiple branches.
-        if is_result_primitive && !is_if_primitive {
+    let mut incoming_values = Vec::with_capacity(results_count);
+    let mut incoming_blocks = Vec::with_capacity(results_count);
+
+    // In case of returning a primitive from a branching expression, there is a possibility of one (or two) of the
+    // blocks being a reference to a variable. In that case, a dereference is needed so the return types
+    // of branches match (e.g. (i32, i32) instead of (ptr, i32)). Deref is an instruction in itself, and
+    // the phi instruction needs to be at the top of the block - this means that we have to set up an
+    // intermediate block to dereference the values and then move to the end block after that with consolidated branches.
+
+    for i in 0..results_count {
+        if is_result_primitive && !result_types_primitive[i] {
+            // Create a block for the deref.
             let result_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchresult"));
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_branch);
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, control_flow.inner_blocks[i].block);
             llvm::core::LLVMBuildBr(current.builder, result_block);
 
             llvm::core::LLVMPositionBuilderAtEnd(current.builder, result_block);
 
-            let deref = deref_if_ptr(ctx.llvm_ctx, current.builder, if_result, primitive_type);
+            // Then write the deref and push the block as the returning block.
+            let deref = deref_if_ptr(ctx.llvm_ctx, current.builder, results[i], primitive_type);
             incoming_values.push(deref);
             incoming_blocks.push(result_block);
         } else {
-            incoming_values.push(if_result);
-            incoming_blocks.push(then_branch);
+            incoming_values.push(results[i]);
+            incoming_blocks.push(control_flow.inner_blocks[i].block);
         }
+    }
 
-        if is_result_primitive && !is_else_primitive {
-            let result_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchresult"));
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_branch);
-            llvm::core::LLVMBuildBr(current.builder, result_block);
+    let end_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchend"));
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
 
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, result_block);
+    for i in 1..control_flow.inner_blocks.len() {
+        let previous_block = &control_flow.inner_blocks[i- 1];
+        let current_block  = &control_flow.inner_blocks[i];
 
-            let deref = deref_if_ptr(ctx.llvm_ctx, current.builder, else_result, primitive_type);
-            incoming_values.push(deref);
-            incoming_blocks.push(result_block);
+        if let Some(cond) = current_block.cond {
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.parent_block);
+            llvm::core::LLVMBuildCondBr(current.builder, cond, previous_block.block, current_block.block);
         } else {
-            incoming_values.push(else_result);
-            incoming_blocks.push(else_branch);
-        }
+            if let Some(previous_cond) = previous_block.cond {
+                llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.parent_block);
+                llvm::core::LLVMBuildCondBr(current.builder, previous_cond, previous_block.block, current_block.block);
+            }
 
-        let end_block = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_branchend"));
-        for block in &incoming_blocks {
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, *block);
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.block);
             llvm::core::LLVMBuildBr(current.builder, end_block);
         }
-
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
-
-        let count = incoming_values.len() as u32;
-
-        let incoming_values = incoming_values.as_mut_ptr();
-        let incoming_blocks = incoming_blocks.as_mut_ptr();
-
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch.parent_block);
-        llvm::core::LLVMBuildCondBr(current.builder, branch.cond, then_branch, else_branch);
-
-        // TODO: fix type being hardcoded.
-        llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
-        let phi_node = llvm
-            ::core
-            ::LLVMBuildPhi(current.builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), binary_cstr!("_branchphi"));
-        llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
-
-        // As the result of the if/else, move the incoming values into a phi node and return it
-        // as the result of the branching expression.
-        Ok(phi_node)
     }
+
+    let Some(last) = control_flow.inner_blocks.last() else {
+        return Err("Failed to get last control flow block.".to_string())
+    };
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, last.block);
+    llvm::core::LLVMBuildBr(current.builder, end_block);
+
+    let count = incoming_values.len() as u32;
+
+    let incoming_values = incoming_values.as_mut_ptr();
+    let incoming_blocks = incoming_blocks.as_mut_ptr();
+
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
+    let phi_node = llvm::core::LLVMBuildPhi(current.builder, primitive_type, binary_cstr!("_branchphi"));
+    llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
+
+    // As the result of the if/else, move the incoming values into a phi node and return it
+    // as the result of the branching expression.
+    Ok(phi_node)
 }
 
 pub unsafe fn compile_branch(ctx: &mut Context, stack: &mut Stack, mut current: Current)
@@ -576,14 +587,50 @@ pub unsafe fn compile_branch(ctx: &mut Context, stack: &mut Stack, mut current: 
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct ControlFlowBlock
+{
+    pub cond: Option<llvm::prelude::LLVMValueRef>,
+
+    pub parent_block: llvm::prelude::LLVMBasicBlockRef,
+    pub block: llvm::prelude::LLVMBasicBlockRef,
+}
+
+#[derive(Clone, Debug)]
+pub struct ControlFlow
+{
+    pub parent_builder: llvm::prelude::LLVMBuilderRef,
+    pub parent_block: llvm::prelude::LLVMBasicBlockRef,
+
+    // Holds the initial condition of the control flow structure.
+    // pub cond_basic_block: llvm::prelude::LLVMBasicBlockRef,
+    // List of inner blocks, those could be e.g. else-if blocks
+    // or the increment block in the for loop.
+    // Op::Jump - push a block into this.
+    // Op::LoopJump - pop a block from this.
+
+    // I think I have to push the parent block here as well.
+    pub inner_blocks: Vec<ControlFlowBlock>,
+
+    // Holds the final block of the control flow structure.
+    // Not sure if this is needed, or it can be created on-demand
+    // after the inner_basic_blocks is empty.
+    // pub end_basic_block: Option<llvm::prelude::LLVMBasicBlockRef>,
+
+    pub end_counter: usize,
+}
+
 // TODO: have a similar structure to Branch where I first compose the pieces
 // while looping through instructions, and then build the thing "around" parts.
 #[derive(Debug)]
 pub struct Loop
 {
-    pub init_bb: llvm::prelude::LLVMBasicBlockRef,
+    // pub init_bb: llvm::prelude::LLVMBasicBlockRef,
+    // pub cond_bb: llvm::prelude::LLVMBasicBlockRef,
+    // pub loop_body_bb: llvm::prelude::LLVMBasicBlockRef,
+
     pub cond_bb: llvm::prelude::LLVMBasicBlockRef,
-    pub loop_body_bb: llvm::prelude::LLVMBasicBlockRef,
+    pub next_bb: llvm::prelude::LLVMBasicBlockRef,
     pub end_bb: llvm::prelude::LLVMBasicBlockRef,
 }
 
@@ -826,11 +873,18 @@ pub unsafe fn op_get_local(ctx: &mut Context, stack: &mut Stack, current: &mut C
     let frame = current.current_frame_mut();
     let index = frame.read_byte() as usize;
 
+    // println!("{} {}", current.frame_position.frame_index, index);
+
     // let value = frame.get_value(index, &stack.buffer);
     // TODO: think about the semantics of this. For now, I think it should simply
     // pass the value as-is.
 
     let variable_ref = ctx.compilation_state.variables[current.frame_position.frame_index][index];
+    // {
+    //     let c_str = llvm::core::LLVMPrintValueToString(variable_ref);
+    //     eprintln!("value: {}", std::ffi::CStr::from_ptr(c_str).to_string_lossy());
+    // }
+
     stack.push(variable_ref);
 }
 
@@ -946,6 +1000,7 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
     let jump  = frame.read_byte() as usize;
 
     let ContextSpecific::BranchSpecific { data: ref mut branch } = current.context_specific else {
+        // return
         panic!("Branch not initiated.")
     };
 
@@ -954,7 +1009,16 @@ pub unsafe fn op_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Curre
         ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_jumpbb"));
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
 
-    branch.else_block = Some(else_block);
+    branch.inner_blocks.push(
+        ControlFlowBlock {
+            cond: None,
+            parent_block: current.basic_block,
+            block: else_block,
+        }
+    );
+
+    // branch.else_block = Some(else_block);
+    current.basic_block = else_block;
     branch.end_counter += jump;
 }
 
@@ -977,12 +1041,20 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         binary_cstr!("_bool_convert")
     );
 
-    let mut branch = Branch::new(jump, i1_condition, current.builder, current.basic_block);
     let then_block = llvm
         ::core
         ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_condjumpbb"));
     llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_block);
-    branch.then_block = Some(then_block);
+
+    let mut control_flow = ControlFlow {
+        parent_builder: current.builder,
+        parent_block: current.basic_block,
+        inner_blocks: vec!
+        [
+            ControlFlowBlock { cond: Some(i1_condition), parent_block: current.basic_block, block: then_block },
+        ],
+        end_counter: jump,
+    };
 
     let branch_current = Current {
         builder: current.builder,
@@ -990,10 +1062,10 @@ pub unsafe fn op_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &mut C
         module: current.module,
         function: current.function,
         frame_position: current.frame_position,
-        context_specific: ContextSpecific::BranchSpecific { data: &mut branch },
+        context_specific: ContextSpecific::BranchSpecific { data: &mut control_flow },
     };
     compile_branch(ctx, stack, branch_current);
-    let Ok(phi) = write_branch(&ctx, stack, &current, branch) else {
+    let Ok(phi) = write_branch(&ctx, stack, &current, control_flow) else {
         panic!("Failed to write branch code");
     };
 
@@ -1008,18 +1080,24 @@ pub unsafe fn op_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
         ::core
         ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_cond_bb"));
 
-    let loop_body_bb = llvm
-        ::core
-        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
+    // let loop_body_bb = llvm
+    //     ::core
+    //     ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loop_body_bb"));
 
-     let end_bb = llvm
+    let end_bb = llvm
         ::core
         ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_after_loop_bb"));
 
+    // let mut loop_data = Loop {
+    //     init_bb: current.basic_block,
+    //     cond_bb,
+    //     loop_body_bb,
+    //     end_bb,
+    // };
+
     let mut loop_data = Loop {
-        init_bb: current.basic_block,
         cond_bb,
-        loop_body_bb,
+        next_bb: 0 as llvm::prelude::LLVMBasicBlockRef,
         end_bb,
     };
 
@@ -1028,7 +1106,7 @@ pub unsafe fn op_loop(ctx: &mut Context, stack: &mut Stack, current: &mut Curren
 
     let loop_current = Current {
         builder: current.builder,
-        basic_block: loop_data.cond_bb,
+        basic_block: loop_data.next_bb,
         module: current.module,
         function: current.function,
         frame_position: current.frame_position,
@@ -1047,7 +1125,7 @@ pub unsafe fn op_loop_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &
     let _     = frame.read_byte() as usize;
     let cmp   = stack.pop();
 
-    let ContextSpecific::LoopSpecific { ref data } = current.context_specific else {
+    let ContextSpecific::LoopSpecific { ref mut data } = current.context_specific else {
         panic!("Loop not initiated.");
     };
 
@@ -1060,23 +1138,42 @@ pub unsafe fn op_loop_cond_jump(ctx: &mut Context, stack: &mut Stack, current: &
         llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx),
         binary_cstr!("_bool_convert")
     );
-    llvm::core::LLVMBuildCondBr(current.builder, i1_cmp, data.loop_body_bb, data.end_bb);
-    llvm::core::LLVMPositionBuilderAtEnd(current.builder, data.loop_body_bb);
+
+    let next_bb = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loopnextbb"));
+    llvm::core::LLVMBuildCondBr(current.builder, i1_cmp, next_bb, data.end_bb);
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, next_bb);
+
+    data.next_bb = next_bb;
+    // current.basic_block = next_bb;
+
+    // current.basic_block = next_bb;
+
+    // I need a way to create another block between this and loop body.
+    // With for loops, we have the loop increment part, and the current issue is that
+    // the loop increment part is treated as the loop body - an extra block is missing.
+
+    // What if I only have the next block available an then on loop_cond_jump I set it
+    // and in loop jump I pass the compilation onto the next block?
 }
 
-pub unsafe fn op_loop_jump(_ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
+pub unsafe fn op_loop_jump(ctx: &mut Context, _stack: &mut Stack, current: &mut Current)
 {
     let frame = current.current_frame_mut();
     let _     = frame.read_byte() as usize;
 
-    let ContextSpecific::LoopSpecific { ref data } = current.context_specific else {
-        panic!("Loop not initiated.");
+    let ContextSpecific::LoopSpecific { ref mut data } = current.context_specific else {
+        return
+        // panic!("Loop not initiated.");
     };
 
     // current.frames.pop();
 
-    llvm::core::LLVMBuildBr(current.builder, data.cond_bb);
-    llvm::core::LLVMPositionBuilderAtEnd(current.builder, data.end_bb);
+    let next_bb = llvm::core::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function, binary_cstr!("_loopnextbb"));
+    llvm::core::LLVMBuildBr(current.builder, next_bb);
+    llvm::core::LLVMPositionBuilderAtEnd(current.builder, next_bb);
+
+    current.basic_block = next_bb;
+    data.next_bb = next_bb;
 }
 
 pub unsafe fn op_call(ctx: &mut Context, stack: &mut Stack, current: &mut Current)
@@ -1281,7 +1378,7 @@ pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0][3];
+    let a = ctx.compilation_state.variables[0][1];
 
     let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 

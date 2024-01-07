@@ -1,17 +1,9 @@
-add :: (a: number, b: number): number { a + b };
-
-test :: (initial: number, end: number): number {
-    acc := initial;
-    while acc < end {
-        acc = acc + 1;
-    };
-
-    if acc == 42069 {
-        acc
-    } else {
-        acc * 2
-    }
+test :: (a: number, b: number): number {
+     if a < b {
+        a + 3
+     } else {
+       b - 3
+     }
 }
 
-c :: test(0, 42069);
-d :: add(c, 3);
+c :: test(1, 2);

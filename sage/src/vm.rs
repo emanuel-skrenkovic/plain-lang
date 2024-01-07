@@ -366,9 +366,7 @@ impl VM
                 Op::LoopCondJump => {
                     let jump = frame.read_byte() as usize;
 
-                    let val = self.pop();
-                    println!("VAL: {:?}", val);
-                    let Value::Bool { val } = val else {
+                    let Value::Bool { val } = self.pop() else {
                         panic!("TODO: Not supported");
                     };
 
