@@ -52,6 +52,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "plang"
+version = "0.1.0"
+dependencies = [
+ "llvm-sys",
+ "macros",
+]
+
+[[package]]
+name = "plangc"
+version = "0.1.0"
+dependencies = [
+ "macros",
+ "plang",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.71"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -74,22 +90,6 @@ name = "regex-lite"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30b661b2f27137bdbc16f00eda72866a92bb28af1753ffbd56744fb6e2e9cd8e"
-
-[[package]]
-name = "sage"
-version = "0.1.0"
-dependencies = [
- "llvm-sys",
- "macros",
-]
-
-[[package]]
-name = "sage_cli"
-version = "0.1.0"
-dependencies = [
- "macros",
- "sage",
-]
 
 [[package]]
 name = "semver"

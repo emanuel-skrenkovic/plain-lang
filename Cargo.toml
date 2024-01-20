@@ -1,9 +1,9 @@
 [package]
-name = "sage_cli"
+name = "plangc"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-sage = { path = "./sage" }
+plang = { path = "./plang" }
 macros = { path = "./macros" }

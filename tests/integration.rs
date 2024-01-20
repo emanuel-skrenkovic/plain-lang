@@ -1,11 +1,11 @@
-use sage::block::Value;
-use sage::compiler::Compiler;
-use sage::vm::VM;
+use plang::block::Value;
+use plang::compiler::Compiler;
+use plang::vm::VM;
 
 #[cfg(test)]
 mod equals_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn equals_not_equal() {
@@ -69,7 +69,7 @@ mod equals_operator {
 #[cfg(test)]
 mod not_equals_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn not_equals_not_equal() {
@@ -130,7 +130,7 @@ mod not_equals_operator {
 #[cfg(test)]
 mod plus_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn add() {
@@ -186,7 +186,7 @@ mod plus_operator {
 #[cfg(test)]
 mod minus_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn subtract() {
@@ -224,7 +224,7 @@ mod minus_operator {
 #[cfg(test)]
 mod greater_than_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn greater_than_lesser() {
@@ -284,7 +284,7 @@ mod greater_than_operator {
 #[cfg(test)]
 mod less_than_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn less_than_lesser() {
@@ -344,7 +344,7 @@ mod less_than_operator {
 #[cfg(test)]
 mod block_expression {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     #[should_panic]
@@ -446,7 +446,7 @@ mod block_expression {
 #[cfg(test)]
 mod function {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn t() {
@@ -1429,7 +1429,7 @@ mod function {
 #[cfg(test)]
 mod closure {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn closure_should_access_variable_from_outside_scope() {
@@ -1473,7 +1473,7 @@ mod closure {
 #[cfg(test)]
 mod var_variables {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn var_defined_with_number_value() {
@@ -1651,7 +1651,7 @@ mod var_variables {
 #[cfg(test)]
 mod let_variables {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn let_defined_with_number_value() {
@@ -1766,7 +1766,7 @@ mod let_variables {
 #[cfg(test)]
 mod colon_equals {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn declaration() {
@@ -1798,7 +1798,7 @@ mod colon_equals {
 #[cfg(test)]
 mod control_flow {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn if_expression_true_branch() {
@@ -2028,7 +2028,7 @@ mod control_flow {
 #[cfg(test)]
 mod for_loop {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn for_parsed_interpreted() {
@@ -2104,7 +2104,7 @@ mod for_loop {
 #[cfg(test)]
 mod while_loop {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn while_parsed_and_interpreted() {
@@ -2189,7 +2189,7 @@ mod while_loop {
 mod pipe
 {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn pipe()
@@ -2223,7 +2223,7 @@ mod pipe
 mod type_definition
 {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn variable_type()
@@ -2285,9 +2285,9 @@ mod type_definition
 #[cfg(test)]
 mod llvm
 {
-    use sage::compiler::Compiler;
-    use sage::scan::Scanner;
-    use sage::vm::VM;
+    use plang::compiler::Compiler;
+    use plang::scan::Scanner;
+    use plang::vm::VM;
 
     #[test]
     fn llvm()

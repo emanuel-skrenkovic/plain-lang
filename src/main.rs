@@ -1,10 +1,10 @@
 use std::{env, fs};
 use std::io::{stdin, stderr, stdout, Write};
 
-use sage::compiler;
-use sage::compiler_llvm;
-use sage::scan;
-use sage::vm;
+use plang::compiler;
+use plang::compiler_llvm;
+use plang::scan;
+use plang::vm;
 
 fn main() {
     #[allow(unused)]
@@ -73,7 +73,7 @@ fn main() {
             let mut input = String::new();
 
             loop {
-                print!("sage> ");
+                print!("plang> ");
                 stdout().flush().unwrap();
                 stdin().read_line(&mut input).unwrap();
 

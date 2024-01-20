@@ -1,9 +1,9 @@
 test :: (a: number, b: number): number {
-     if a < b {
-        a + 3
+     if a > b {
+        a + 2
      } else {
-       b - 3
+        b + 3
      }
 }
 
-c :: test(1, 2);
+c :: test(1, 10);
