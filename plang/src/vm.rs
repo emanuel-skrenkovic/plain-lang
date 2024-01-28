@@ -63,7 +63,15 @@ pub struct Stack
     stack_top: usize
 }
 
-impl <'vm> Stack
+impl Default for Stack
+{
+    fn default() -> Self
+    {
+        Self::new()
+    }
+}
+
+impl Stack
 {
     pub fn new() -> Stack
     {
@@ -334,9 +342,7 @@ impl VM
                         break;
                     }
 
-                    if frame_index > 0 {
-                        frame_index -= 1;
-                    }
+                    frame_index = frame_index.saturating_sub(1);
                     frames.pop_back();
 
                     self.push(result);
@@ -370,9 +376,7 @@ impl VM
                         panic!("TODO: Not supported");
                     };
 
-                    if !val {
-                        frame.i += jump;
-                    }
+                    if !val { frame.i += jump }
                 }
 
                 Op::LoopJump => {
@@ -470,7 +474,7 @@ impl VM
                 Op::Constant => {
                     // let index = frame.peek_op(frame.i - 1) as usize;
                     let value = self.peek(0);
-                    self.print_constant_op(frame, "CONSTANT", &value);
+                    self.print_constant_op(frame, "CONSTANT", value);
                 },
                 Op::Equal => self.print_simple_op("EQUAL"),
                 Op::Less => self.print_simple_op("LESS"),

@@ -182,32 +182,28 @@ impl Parser
     {
         self.previous = self.current.clone();
 
-        loop {
-            if matches!(self.current.kind, scan::TokenKind::End) {
-                break
-            }
-
-            if self.current_index >= self.tokens.len() {
-                break
-            }
-
-            self.current = self.tokens[self.current_index].clone();
-
-            if matches!(self.current.kind, scan::TokenKind::End) {
-                break
-            }
-
-            self.current_index += 1;
-            self.scanned_tokens.push(self.current.clone());
-
-            if !matches!(self.current.kind, scan::TokenKind::Error) {
-                break;
-            }
-
-            return Err(self.error_at("Scanner error.", &self.current.clone()))
+        if matches!(self.current.kind, scan::TokenKind::End) {
+            return Ok(())
         }
 
-        Ok(())
+        if self.current_index >= self.tokens.len() {
+            return Ok(())
+        }
+
+        self.current = self.tokens[self.current_index].clone();
+
+        if matches!(self.current.kind, scan::TokenKind::End) {
+            return Ok(())
+        }
+
+        self.current_index += 1;
+        self.scanned_tokens.push(self.current.clone());
+
+        if !matches!(self.current.kind, scan::TokenKind::Error) {
+            return Ok(())
+        }
+
+        Err(self.error_at("Scanner error.", &self.current.clone()))
     }
 
     fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, CompilerError>
@@ -556,7 +552,7 @@ impl Compiler
                 let t = self.parser.previous.value.clone();
 
                 // I don't like if else-if chains. >:(
-                if t.starts_with("\"") {
+                if t.starts_with('\"') {
                     // Removing the first and last chars because the token value contains the
                     // starting and ending quotes.
                     let val = t.clone()[1..t.len()-1].to_string();
@@ -728,7 +724,7 @@ impl Compiler
         self.emit_return(count + arity);
 
         let function_code = self.end_function();
-        let function = block::Value::Function {
+        block::Value::Function {
             name: name.to_owned(),
             arity,
             closure: block::Closure { code: function_code },
@@ -736,9 +732,7 @@ impl Compiler
             // TODO: type
             argument_type_names: vec![],
             return_type_name: "TODO: FIXME".to_string(),
-        };
-
-        function
+        }
     }
 
     fn function_expression(&mut self)
@@ -886,7 +880,7 @@ impl Compiler
         let variable_index = current_scope
             .variables
             .iter()
-            .position(|v| &v.name.value == name);
+            .position(|v| v.name.value == name);
 
         if let Some(position) = variable_index {
             return Some((self.current_function, self.current_scope_index, position));
@@ -897,7 +891,7 @@ impl Compiler
             let variable_index = scope
                 .variables
                 .iter()
-                .position(|v| &v.name.value == name);
+                .position(|v| v.name.value == name);
 
             if let Some(position) = variable_index {
                 return Some((scope.parent_function, *scope_index, position))
@@ -910,9 +904,7 @@ impl Compiler
     fn parse_variable(&mut self) -> Option<u8>
     {
         let previous = self.parser.previous.value.clone();
-        let Some((function_index, scope, index)) = self.find_variable_by_name(&previous) else {
-            return None
-        };
+        let (function_index, scope, index) = self.find_variable_by_name(&previous)?;
 
         let scope_distance = self.function_distance(self.current_function, function_index);
 
@@ -931,14 +923,12 @@ impl Compiler
                 self.emit_byte(block::Op::SetUpvalue);
                 self.emit(scope_distance as u8);
             }
+        } else if scope_distance == 0 {
+            self.emit_byte(block::Op::GetLocal);
         } else {
-            if scope_distance == 0 {
-                self.emit_byte(block::Op::GetLocal);
-            } else {
-                // Emit program distance -> vm will move frames by this distance.
-                self.emit_byte(block::Op::GetUpvalue);
-                self.emit(scope_distance as u8);
-            }
+            // Emit program distance -> vm will move frames by this distance.
+            self.emit_byte(block::Op::GetUpvalue);
+            self.emit(scope_distance as u8);
         }
 
         self.emit(index as u8);
@@ -952,7 +942,7 @@ impl Compiler
         let variable_index = current_scope
             .variables
             .iter()
-            .position(|v| &v.name.value == name);
+            .position(|v| v.name.value == name);
 
         if variable_index.is_some() { return true }
 
@@ -961,7 +951,7 @@ impl Compiler
             let variable_index = scope
                 .variables
                 .iter()
-                .position(|v| &v.name.value == name);
+                .position(|v| v.name.value == name);
 
             if variable_index.is_some() { return true }
         }
@@ -1022,8 +1012,8 @@ impl Compiler
 
         self.expression();
 
-        // let break_jump = self.emit_jump(block::Op::CondJump);
-        let break_jump = self.emit_jump(block::Op::LoopCondJump);
+        let break_jump = self.emit_jump(block::Op::CondJump);
+        // let break_jump = self.emit_jump(block::Op::LoopCondJump);
 
         // Body
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
