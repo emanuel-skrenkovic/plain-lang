@@ -1,9 +1,10 @@
 test :: (a: number, b: number): number {
-     if a > b {
-        a + 2
-     } else {
-        b + 3
+     acc := 0
+     for i := a; i < b; i = i + 1 {
+         acc = acc + i;
      }
+
+     acc
 }
 
-c :: test(1, 10);
+c :: test(2, 22);
