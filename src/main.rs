@@ -1,12 +1,13 @@
+use std::io::{stderr, stdin, stdout, Write};
 use std::{env, fs};
-use std::io::{stdin, stderr, stdout, Write};
 
 use plang::compiler;
 use plang::compiler_llvm;
 use plang::scan;
 use plang::vm;
 
-fn main() {
+fn main()
+{
     #[allow(unused)]
     let args: Vec<String> = env::args().collect();
     // let source = fs::read_to_string(&args[1]).unwrap();
@@ -42,25 +43,46 @@ fn main() {
         let module = compiler_llvm::compile(&mut ctx);
         let llvm_elapsed = now_llvm.elapsed();
 
-        compiler_llvm::output_module_bitcode(module)
-            .expect("Failed to output LLVM bitcode.");
+        compiler_llvm::output_module_bitcode(module).expect("Failed to output LLVM bitcode.");
 
         llvm_elapsed
     };
 
+    let now_compile_bytecode = std::time::Instant::now();
+    let _ = std::process::Command::new("llc")
+        .args(["-filetype=obj", "-O0", "-o", "bin/a.o", "bin/a.bc"])
+        .spawn()
+        .unwrap()
+        .wait_with_output()
+        .expect("Failed to compile LLVM bytecode");
+    let after_compiling_bytecode = now_compile_bytecode.elapsed();
+
+    let now_linking = std::time::Instant::now();
+    let _ = std::process::Command::new("gcc")
+        .args(["-o", "bin/a", "bin/a.o"])
+        .spawn()
+        .unwrap()
+        .wait_with_output()
+        .expect("Failed to link output.");
+    let after_linking = now_linking.elapsed();
+
     let total = now.elapsed();
     println!
-    (
-        "
-    Total time: {:?}.
-    Tokenization: {:?}.
-    Parsing: {:?}.
-    LLVM backend: {:?}.
+    ("
+     Tokenization: {:?}.
+     Parsing: {:?}.
+     LLVM backend: {:?}.
+     Compiling bytecode: {:?}
+     Linking: {:?}
+
+     Total time: {:?}.
 ",
-        total,
         after_scanning,
         after_compiling,
         after_llvm,
+        after_compiling_bytecode,
+        after_linking,
+        total,
     );
 
     std::process::exit(0);
@@ -104,7 +126,7 @@ fn main() {
             let source = fs::read_to_string(&args[1]).unwrap();
 
             let mut scanner = scan::Scanner::new(source.clone());
-            let compiler    = compiler::Compiler::new(source.clone());
+            let compiler = compiler::Compiler::new(source.clone());
 
             let tokens = scanner.scan_tokens();
             let program = compiler.compile(tokens);

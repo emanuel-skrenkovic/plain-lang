@@ -1540,15 +1540,13 @@ pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef
         binary_cstr!("format_str"),
     );
 
-    let printf_type = llvm
-        ::core
-        ::LLVMFunctionType
-        (
-            llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
-            [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
-            1,
-            1,
-        );
+    let printf_type = llvm::core::LLVMFunctionType
+    (
+        llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
+        [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
+        1,
+        1,
+    );
 
     let printf = llvm
         ::core
