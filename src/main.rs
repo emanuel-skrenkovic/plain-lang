@@ -58,7 +58,7 @@ fn main()
     let after_compiling_bytecode = now_compile_bytecode.elapsed();
 
     let now_linking = std::time::Instant::now();
-    let _ = std::process::Command::new("gcc")
+    let _ = std::process::Command::new("clang")
         .args(["-o", "bin/a", "bin/a.o"])
         .spawn()
         .unwrap()
@@ -68,7 +68,8 @@ fn main()
 
     let total = now.elapsed();
     println!
-    ("
+    (
+"
      Tokenization: {:?}.
      Parsing: {:?}.
      LLVM backend: {:?}.
