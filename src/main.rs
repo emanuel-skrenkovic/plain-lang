@@ -8,6 +8,50 @@ use plang::vm;
 
 fn main()
 {
+    let args: Vec<String> = env::args().collect();
+    // let source = fs::read_to_string(&args[1]).unwrap();
+
+    let source = include_str!("../test.sg").to_string();
+    let mut scanner = scan::Scanner::new(source.clone());
+    let compiler = compiler::Compiler::new(source.clone());
+
+    let now = std::time::Instant::now();
+
+    let now_scan = std::time::Instant::now();
+    let tokens = scanner.scan_tokens();
+    let after_scanning = now_scan.elapsed();
+
+    let now_compile = std::time::Instant::now();
+    let program = compiler.compile(tokens);
+    let after_compiling = now_compile.elapsed();
+
+    let _program = match program {
+        Ok(program) => program,
+        Err(errors) => {
+            for err in errors {
+                writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+            }
+            stderr().flush().unwrap();
+            std::process::exit(1);
+        }
+    };
+
+    let total = now.elapsed();
+    println!
+    (
+        "
+     Tokenization: {:?}.
+     Parsing: {:?}.
+
+     Total time: {:?}.
+",
+        after_scanning,
+        after_compiling,
+        total,
+    );
+
+    std::process::exit(0);
+
     #[allow(unused)]
     let args: Vec<String> = env::args().collect();
     // let source = fs::read_to_string(&args[1]).unwrap();
