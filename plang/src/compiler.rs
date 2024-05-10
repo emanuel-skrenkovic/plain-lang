@@ -105,7 +105,10 @@ pub enum Expr
 
     Unary,
 
-    Assignment,
+    Assignment {
+        name: scan::Token,
+        value: Box<Expr>,
+    },
 
     Logical,
 
@@ -370,16 +373,14 @@ impl Parser
     // TODO: horrible and I should be publicly shamed, doesn't even work oh my gosh how embarrassing oh my
     fn peek(&self, diff: i32) -> Option<&scan::Token>
     {
-        let index = self.scanned_tokens.len() - 1;
-        let index = index as i32 + diff;
+        let index = self.current_index - 1;
+        let index = index + diff as usize;
 
-        if index < 0 || index > self.scanned_tokens.len() as i32 {
+        if index < 0 || index > self.tokens.len() {
             return None
         }
 
-        let index = index as usize;
-
-        Some(&self.scanned_tokens[index])
+        Some(&self.tokens[index])
     }
 }
 
@@ -530,7 +531,7 @@ impl Compiler
             return Err(self.errors)
         }
 
-        // println!("{:#?}", statements);
+        println!("{:#?}", statements);
 
         Ok(self.program)
     }
@@ -780,6 +781,15 @@ impl Compiler
         let immutable       = next_kind == scan::TokenKind::ColonColon.discriminant();
         let mutable         = next_kind == scan::TokenKind::ColonEquals.discriminant();
 
+        if !(type_definition || immutable || mutable) {
+            return None
+        }
+
+        let variable_token = self.parser.current.clone();
+        let variable_name  = variable_token.value.clone();
+
+        let _ = self.parser.advance().map_err(|e| self.error(e));
+
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
@@ -802,11 +812,6 @@ impl Compiler
             return None
         }
 
-        let _ = self.parser.advance().map_err(|e| self.error(e));
-
-        let variable_token = self.parser.previous.clone();
-        let variable_name  = variable_token.value.clone();
-
         if self.variable_exists(&variable_name) {
             // even more #horribleways
             return Some
@@ -823,10 +828,6 @@ impl Compiler
                 }
             )
         }
-
-
-
-
 
         let initializer = self.expression();
 
@@ -858,6 +859,25 @@ impl Compiler
     {
         let variable_token = self.parser.previous.clone();
 
+        if self.parse_variable().is_none() {
+            return self
+                .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
+        }
+
+        // If the next token is equal, handle assignment expression.
+        if self.parser.previous.kind.discriminant() == scan::TokenKind::Equal.discriminant() {
+            let value_expr = self.expression();
+            return Expr::Assignment {
+                name: variable_token,
+                value: Box::new(value_expr),
+            }
+        }
+
+        // Handles variable expression here.
+        self.match_token(scan::TokenKind::Semicolon);
+        Expr::Variable {
+            name: variable_token,
+        }
         // This handles the case where the variable is used as an expression as opposed to
         // being defined (which the code above handles).
 
@@ -869,16 +889,6 @@ impl Compiler
         //         return todo!()
         //     }
         // }
-
-        if self.parse_variable().is_none() {
-            return self
-                .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
-        }
-
-        self.match_token(scan::TokenKind::Semicolon);
-        Expr::Variable {
-            name: variable_token,
-        }
     }
 
     fn function(&mut self, name: &str) -> block::Value
@@ -1114,7 +1124,7 @@ impl Compiler
                         .error_at("Cannot reassign value of an immutable variable.", &self.parser.previous.clone());
                 }
 
-                self.expression();
+                // self.expression();
                 // self.emit_byte(block::Op::SetLocal);
             } else {
                 // Emit program distance -> vm will move frames by this distance.
