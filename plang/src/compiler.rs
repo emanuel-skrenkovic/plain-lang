@@ -116,7 +116,10 @@ pub enum Expr
         arguments: Vec<Box<Expr>>,
     },
 
-    Function,
+    Function {
+        params: Vec<scan::Token>,
+        body: Vec<Box<Stmt>>,
+    },
 }
 
 // //
@@ -955,10 +958,12 @@ impl Compiler
         // a :: ()
         // ^ __
         // 3 21
-        let function_token = self.parser.peek(-3).unwrap().clone();
-        let function_name = function_token.value.clone();
+        // let function_token = self.parser.peek(-3).unwrap().clone();
+        // let function_name = function_token.value.clone();
 
         let mut argument_type_names: Vec<Option<String>> = vec![];
+
+        let mut params = vec![];
 
         let mut arity = 0;
         if !self.parser.check_token(scan::TokenKind::RightParen) {
@@ -968,6 +973,7 @@ impl Compiler
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
+                params.push(parameter_name_token.clone());
 
                 let maybe_type_name: Option<String> = if self.match_token(scan::TokenKind::Colon) {
                     self.consume(scan::TokenKind::Identifier, "Expected identifier");
@@ -1003,29 +1009,25 @@ impl Compiler
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
-        let count = {
-            let mut count = 0;
-            while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
-                self.declaration();
-                count += 1;
-            }
+        let mut body = vec![];
 
-            // This does not denote if we return a value or not. Fix it!
-            let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
+        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+            let stmt = self.declaration();
+            body.push(Box::new(stmt));
+        }
 
-            if has_value && count > 0 { count - 1 }
-            else                      { count }
-        };
+        // This does not denote if we return a value or not. Fix it!
+        // let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
         // TODO: I think I should just pass on the token here instead of having
         // the name in a string like a dummy.
-        let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
-                               else                                      { "unit".to_string() };
+        // let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
+        //                        else                                      { "unit".to_string() };
 
-        let code = self.end_function();
-        todo!()
+        let _ = self.end_function();
+        Expr::Function { params, body }
     }
 
     fn function_decl(&mut self) -> Stmt
