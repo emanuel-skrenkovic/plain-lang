@@ -377,11 +377,13 @@ impl Parser
     fn peek(&self, diff: i32) -> Option<&scan::Token>
     {
         let index = self.current_index - 1;
-        let index = index + diff as usize;
+        let index = index as i32 + diff;
 
-        if index < 0 || index > self.tokens.len() {
+        if index < 0 || index > self.tokens.len() as i32 {
             return None
         }
+
+        let index = index as usize;
 
         Some(&self.tokens[index])
     }
@@ -646,30 +648,6 @@ impl Compiler
         }
     }
 
-    // TODO: this is the result of bad design. I need to use block expression
-    // code when parsing both block expressions and function (valued block expressions?).
-    // Since the 'block_expression' method calls end scope, and thus consumes the closure,
-    // that code cannot be reused for function declarations.
-    // This is bad and it should be implemented in more reusable, functional way.
-    fn code_block(&mut self)
-    {
-        // Compile code until the end of the block or the end of the program is reached.
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
-            self.declaration();
-        }
-
-        // Blocks are expressions - this captures if the block contains a value,
-        // or returns 'Unit'.
-        // If the final statement in the block is a semicolon, then treat it
-        // like a value-less block, else, return the last value in the block.
-        // let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
-        // let count = if has_value && count > 0 { count - 1 } else { count };
-
-        // TODO: should probably pop the values that are not the result of the expression.
-
-        self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
-    }
-
     fn binary(&mut self) -> Expr
     {
         let operator   = self.parser.previous.clone();
@@ -688,21 +666,6 @@ impl Compiler
             right: Box::new(right),
             operator,
         };
-
-        // match operator2 {
-        //     scan::TokenKind::LeftAngle    => { Expr::Binary { left, right, operator }; self.emit_byte(block::Op::Less); }
-        //     scan::TokenKind::RightAngle   => { self.emit_byte(block::Op::Greater); }
-        //     scan::TokenKind::BangEqual    => { self.emit_bytes(block::Op::Equal, block::Op::Not); }
-        //     scan::TokenKind::EqualEqual   => { self.emit_byte(block::Op::Equal); }
-        //     scan::TokenKind::GreaterEqual => { self.emit_byte(block::Op::GreaterEqual); }
-        //     scan::TokenKind::LessEqual    => { self.emit_byte(block::Op::LessEqual); }
-        //     scan::TokenKind::Plus         => { self.emit_byte(block::Op::Add); }
-        //     scan::TokenKind::Minus        => { self.emit_byte(block::Op::Subtract); }
-        //     scan::TokenKind::Star         => { self.emit_byte(block::Op::Multiply); }
-        //     scan::TokenKind::Slash        => { self.emit_byte(block::Op::Divide); }
-        //     scan::TokenKind::Pipe         => { self.pipe(); },
-        //     _ => ()
-        // };
 
         self.match_token(scan::TokenKind::Semicolon);
         expr
@@ -927,14 +890,9 @@ impl Compiler
         // Parse the block expression that defines the function.
         self.consume(scan::TokenKind::LeftBracket, "Expected '{' before function body.");
 
-        let mut count = 0;
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
             self.declaration();
-            count += 1;
         }
-
-        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
-        let count     = if has_value && count > 0 { count - 1 } else { count };
 
         self.match_token(scan::TokenKind::RightBracket);
         self.match_token(scan::TokenKind::Semicolon);
@@ -965,11 +923,8 @@ impl Compiler
 
         let mut params = vec![];
 
-        let mut arity = 0;
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
-                arity += 1;
-
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
                 let parameter_name_token = self.parser.previous.clone();
@@ -993,19 +948,19 @@ impl Compiler
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
 
-        let return_type_name: Option<String> = {
-            // Like with variables, if the type is defined here, fill out the return type of
-            // the function at this point. Otherwise, infer the type during type checking.
-            // (Again, I see a lot of problems potentially popping up regarding type inference.)
-            if self.match_token(scan::TokenKind::Colon) {
-                if !self.match_token(scan::TokenKind::Identifier) {
-                    return self.error_at("Expected type identifier.", &self.parser.current.clone());
-                }
-                Some(self.parser.previous.clone().value)
-            } else {
-                None
-            }
-        };
+        // let return_type_name: Option<String> = {
+        //     // Like with variables, if the type is defined here, fill out the return type of
+        //     // the function at this point. Otherwise, infer the type during type checking.
+        //     // (Again, I see a lot of problems potentially popping up regarding type inference.)
+        //     if self.match_token(scan::TokenKind::Colon) {
+        //         if !self.match_token(scan::TokenKind::Identifier) {
+        //             return self.error_at("Expected type identifier.", &self.parser.current.clone());
+        //         }
+        //         Some(self.parser.previous.clone().value)
+        //     } else {
+        //         None
+        //     }
+        // };
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
@@ -1049,7 +1004,7 @@ impl Compiler
         let variable_key = self.declare_variable(function_token, false, None);
         self.variable_declaration(variable_key);
 
-        let function = self.function(&function_name);
+        let _ = self.function(&function_name);
 
         self.variable_definition(variable_key);
 
@@ -1267,10 +1222,8 @@ impl Compiler
         let mut body: Vec<Stmt> = vec![variable];
 
         // Compile code until the end of the block or the end of the program is reached.
-        let mut count = 0;
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
             body.push(self.declaration());
-            count += 1;
         }
 
         body.push(Stmt::Expr { expr: Box::new(advancement_expr) });
@@ -1297,57 +1250,54 @@ impl Compiler
 
         let mut arguments: Vec<Expr> = vec![];
 
-        let mut arguments_count: usize = 0;
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
-                arguments_count += 1;
                 arguments.push(self.expression());
-
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
         self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
 
-        let Some((function_index, _, index)) = self.find_variable_by_name(&function_name) else {
+        let Some(_) = self.find_variable_by_name(&function_name) else {
             return self
                 .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
         };
 
-        let scope_distance = self.function_distance(self.current_function, function_index);
-
-        let block = if let Some(variable_function_index) = function_index {
-            &self.program.functions[variable_function_index].block
-        } else {
-            &self.program.block
-        };
-
-        // Get the scope of the variable, then find it by name in the scopes constants.
-        let function = block
-            .constants
-            .iter()
-            .find(|c| match c {
-                block::Value::Function { name, .. } => name == &function_name,
-                _ => false
-            });
-
-        // This is stupid - if the function is indirected through a variable,
-        // then this doesn't work. Because of that, we have no way of checking the
-        // function arity in that case.
-        let Some(block::Value::Function { name, arity, .. }) = function else {
-            return self
-                .error_at(&format!("Function with name '{}' not in scope", &function_name), &function_name_token.clone());
-        };
-
-        if arity != &arguments_count {
-            let error_message = format!(
-                "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
-                arguments_count,
-                name,
-                arity
-            );
-
-            return self.error_at(&error_message, &function_name_token.clone());
-        }
+        // let scope_distance = self.function_distance(self.current_function, function_index);
+        //
+        // let block = if let Some(variable_function_index) = function_index {
+        //     &self.program.functions[variable_function_index].block
+        // } else {
+        //     &self.program.block
+        // };
+        //
+        // // Get the scope of the variable, then find it by name in the scopes constants.
+        // let function = block
+        //     .constants
+        //     .iter()
+        //     .find(|c| match c {
+        //         block::Value::Function { name, .. } => name == &function_name,
+        //         _ => false
+        //     });
+        //
+        // // This is stupid - if the function is indirected through a variable,
+        // // then this doesn't work. Because of that, we have no way of checking the
+        // // function arity in that case.
+        // let Some(block::Value::Function { name, arity, .. }) = function else {
+        //     return self
+        //         .error_at(&format!("Function with name '{}' not in scope", &function_name), &function_name_token.clone());
+        // };
+        //
+        // if arity != &arguments_count {
+        //     let error_message = format!(
+        //         "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
+        //         arguments_count,
+        //         name,
+        //         arity
+        //     );
+        //
+        //     return self.error_at(&error_message, &function_name_token.clone());
+        // }
 
         self.match_token(scan::TokenKind::Semicolon);
 
@@ -1383,7 +1333,7 @@ impl Compiler
                 .error_at("Failed to parse function name - no function name found.", &self.parser.current.clone());
         };
 
-        let Some((function_index, _, index)) = self.find_variable_by_name(&function_name.value) else {
+        let Some((function_index, _, _)) = self.find_variable_by_name(&function_name.value) else {
             return self
                 .error_at(&format!("Failed to find function '{}'.", &function_name.value), &function_name.clone());
         };
