@@ -195,8 +195,10 @@ impl Scanner
 
     fn identifier(&mut self) -> Token
     {
-        while self.peek().is_alphanumeric() {
+        let mut c = self.peek();
+        while c.is_alphanumeric() || c == '_' {
             self.advance();
+            c = self.peek();
         }
 
         self.emit(self.identifier_type())

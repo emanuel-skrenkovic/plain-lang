@@ -519,6 +519,8 @@ impl Compiler
             }
         }
 
+        println!("{:#?}", statements);
+
         if self.parser.panic {
             return Err(self.errors)
         }
