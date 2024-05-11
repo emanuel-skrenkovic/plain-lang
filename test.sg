@@ -1,5 +1,4 @@
-not_add :: (a, b) {
-    a * b
+a := 0;
+while a < 10 {
+    a = a + 1;
 }
-
-result := not_add(2, 33) + 44;

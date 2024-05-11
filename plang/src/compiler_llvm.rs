@@ -167,20 +167,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
-    let main_function_type = llvm
-    ::core
-    ::LLVMFunctionType(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), std::ptr::null_mut(), 0, 0);
-
-    // TODO: I should expect a main function defined, not implicitly define it myself.
-    // That way the special case of main gets reduced to only checking for its presence.
-    let main_function = llvm::core::LLVMAddFunction(module, binary_cstr!("main"), main_function_type);
-
-    let entry_block = llvm
-        ::core
-        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, main_function, binary_cstr!("entry"));
-
     let builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
-    llvm::core::LLVMPositionBuilderAtEnd(builder, entry_block);
 
     // TODO: this is a temporary mess.
     let main_function_call = FunctionCall::build
@@ -190,9 +177,14 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         "main".to_string(),
         0,
         vec![],
-        "unit".to_string(),
+        "number".to_string(),
         ctx.program.clone(),
     );
+
+    let entry_block = llvm
+        ::core
+        ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, main_function_call.function, binary_cstr!("entry"));
+    llvm::core::LLVMPositionBuilderAtEnd(builder, entry_block);
 
     let mut current = Current {
         builder,
@@ -201,6 +193,9 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         function: main_function_call,
     };
 
+    ctx.compilation_state.variables.push(HashMap::new());
+    ctx.compilation_state.variable_types.push(HashMap::new());
+
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
@@ -208,8 +203,8 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     add_printf(ctx, module, builder);
 
     let return_value = llvm
-    ::core
-    ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 0);
+        ::core
+        ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 0);
     llvm::core::LLVMBuildRet(builder, return_value);
 
     verify_module(module);
@@ -236,7 +231,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            ctx.compilation_state.variables[0].insert(name.value.clone(), value);
+            ctx.compilation_state.variables[0].insert(name.value.clone(), variable);
         },
 
         compiler::Stmt::Const { name, initializer } => {
@@ -252,12 +247,47 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
 
             println!("{:?}", value);
 
-            ctx.compilation_state.variables[0].insert(name.value.clone(), value);
+            ctx.compilation_state.variables[0].insert(name.value.clone(), variable);
         },
 
         compiler::Stmt::For { } => (),
 
-        compiler::Stmt::While { condition: _, body: _ } => (),
+        compiler::Stmt::While { condition, body } => {
+            let start_branch = llvm
+                ::core
+                ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_while_start"));
+
+            let body_branch = llvm
+                ::core
+                ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_while_body"));
+
+            let end_branch = llvm
+                ::core
+                ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_while_end"));
+
+            llvm::core::LLVMBuildBr(current.builder, start_branch);
+
+            // condition
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, start_branch);
+
+            let condition_expr = match_expression(ctx, current, condition);
+            llvm::core::LLVMBuildCondBr(current.builder, condition_expr, body_branch, end_branch);
+
+            // body
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, body_branch);
+
+            for stmt in body {
+                match_statement(ctx, current, stmt);
+            }
+
+            llvm::core::LLVMBuildBr(current.builder, start_branch);
+
+            // end
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_branch);
+        },
 
         compiler::Stmt::Return { } => (),
 
@@ -307,7 +337,12 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
         compiler::Expr::Unary => todo!(),
 
-        compiler::Expr::Assignment { name: _, value: _ } => todo!(),
+        compiler::Expr::Assignment { name, value } => {
+            let value_expr = match_expression(ctx, current, value);
+
+            let variable_ref = ctx.compilation_state.variables[0].get_mut(&name.value).unwrap(); // TODO
+            llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
+        },
 
         compiler::Expr::Logical => todo!(),
 
@@ -425,6 +460,7 @@ pub unsafe fn binary_expr
     let rhs = match_expression(ctx, current, right);
 
     let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+
     let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
     let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
 
@@ -441,6 +477,9 @@ pub unsafe fn binary_expr
         scan::TokenKind::Slash => llvm
             ::core
             ::LLVMBuildSDiv(current.builder, lhs, rhs, binary_cstr!("_sub_result")),
+        scan::TokenKind::LeftAngle => llvm
+            ::core
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
         _ => panic!()
     }
 
@@ -510,8 +549,8 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0].get("result").unwrap();
-    // let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a.clone(), binary_cstr!("a"));
+    let a = ctx.compilation_state.variables[0].get("a").unwrap();
+    let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a.clone(), binary_cstr!("a"));
 
     let global_format_str = llvm::core::LLVMBuildGlobalStringPtr(
         builder,
@@ -531,7 +570,7 @@ pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef
         ::core
         ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
 
-    let mut param_values = [global_format_str, *a];
+    let mut param_values = [global_format_str, a_value];
     llvm::core::LLVMBuildCall2(
         builder,
         printf_type,
