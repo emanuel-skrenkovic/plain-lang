@@ -2,19 +2,6 @@ use std::fmt;
 
 use crate::block;
 use crate::scan;
-/*
-    case ClassStmt classStmt:
-    case IfStmt ifStmt:
-    case DeclarationStmt declarationStmt:
-    case VariableStmt variableStmt:
-    case BlockStmt blockStmt:
-    case ExpressionStmt exprStmt:
-    case PrintStmt printStmt:
-    case WhileStmt whileStmt:
-    case LoopControlStmt loopControlStmt:
-    case FunctionStmt functionStmt:
-    case ReturnStmt returnStmt:
- */
 
 pub struct Ast
 {
@@ -514,7 +501,7 @@ impl Compiler
         }
     }
 
-    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Program, Vec<CompilerError>>
+    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<Stmt>, Vec<CompilerError>>
     {
         self.parser = Parser::new(self.source.clone(), tokens);
         let _ = self.parser.advance().map_err(|e| self.error(e));
@@ -536,9 +523,7 @@ impl Compiler
             return Err(self.errors)
         }
 
-        println!("{:#?}", statements);
-
-        Ok(self.program)
+        Ok(statements)
     }
 
     // TOOD: Currently we are experienceing the "main" problem.
@@ -551,12 +536,6 @@ impl Compiler
     {
         // TODO: Remove unwrap, I think this break stuff!
         &self.program.functions[self.current_function.unwrap()]
-    }
-
-    fn current_mut(&mut self) -> &mut Function
-    {
-        // TODO: Remove unwrap, I think this break stuff!
-        &mut self.program.functions[self.current_function.unwrap()]
     }
 
     fn current_scope(&self) -> &Scope
@@ -715,10 +694,6 @@ impl Compiler
     fn declaration(&mut self) -> Stmt
     {
         match self.parser.current.kind {
-            scan::TokenKind::Func => {
-                let _ = self.parser.advance().map_err(|e| self.error(e));
-                self.function_decl()
-            }
             scan::TokenKind::While => {
                 let _ = self.parser.advance().map_err(|e| self.error(e));
                 self._while()
@@ -780,19 +755,12 @@ impl Compiler
 
         if self.variable_exists(&variable_name) {
             // even more #horribleways
-            return Some
+            let error = self.error_at
             (
-                Stmt::Expr {
-                    expr: Box::new
-                    (
-                        self.error_at
-                        (
-                            &format!("Cannot redeclare variable with name '{}'.", &variable_token),
-                            &variable_token.clone()
-                        )
-                    )
-                }
-            )
+                &format!("Cannot redeclare variable with name '{}'.", &variable_token),
+                &variable_token.clone()
+            );
+            return Some(Stmt::Expr { expr: Box::new(error) })
         }
 
         let initializer = self.expression();
@@ -843,69 +811,6 @@ impl Compiler
         self.match_token(scan::TokenKind::Semicolon);
         Expr::Variable {
             name: variable_token,
-        }
-        // This handles the case where the variable is used as an expression as opposed to
-        // being defined (which the code above handles).
-
-        // TODO: bring this back?
-        // if let Some(next) = self.parser.peek(0) {
-        //     if next.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() {
-        //         // This is a function call, do nothing in this case, 'call' will handle it.
-        //         self.match_token(scan::TokenKind::Semicolon);
-        //         return todo!()
-        //     }
-        // }
-    }
-
-    fn function(&mut self, name: &str) -> block::Value
-    {
-        self.consume(scan::TokenKind::LeftParen, "Expected '(' after function declaration.");
-        self.begin_function();
-
-        let mut arity = 0;
-        // If open paren is not followed by closed paren, then parse the parameters.
-        if !self.parser.check_token(scan::TokenKind::RightParen) {
-            loop {
-                arity += 1;
-
-                self.consume(
-                    scan::TokenKind::Identifier,
-                    "Expect parameter identifier after '('."
-                );
-
-                let parameter_name_token = self.parser.previous.clone();
-
-                // TODO: type
-                let variable_key = self.declare_variable(parameter_name_token, false, None);
-                self.variable_declaration(variable_key);
-
-                if !self.match_token(scan::TokenKind::Comma) {
-                    break
-                }
-            }
-        }
-
-        self.consume(scan::TokenKind::RightParen, "Expected ')' after function parameters.");
-
-        // Parse the block expression that defines the function.
-        self.consume(scan::TokenKind::LeftBracket, "Expected '{' before function body.");
-
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
-            self.declaration();
-        }
-
-        self.match_token(scan::TokenKind::RightBracket);
-        self.match_token(scan::TokenKind::Semicolon);
-
-        let function_code = self.end_function();
-        block::Value::Function {
-            name: name.to_owned(),
-            arity,
-            closure: block::Closure { code: function_code },
-
-            // TODO: type
-            argument_type_names: vec![],
-            return_type_name: "TODO: FIXME".to_string(),
         }
     }
 
@@ -983,35 +888,6 @@ impl Compiler
 
         let _ = self.end_function();
         Expr::Function { params, body }
-    }
-
-    fn function_decl(&mut self) -> Stmt
-    {
-        self.consume(scan::TokenKind::Identifier, "Cannot declare function without name.");
-
-        let function_token  = self.parser.previous.clone();
-        let function_token2 = function_token.clone();
-        let function_name   = function_token.value.clone();
-
-        if self.variable_exists(&function_name) {
-            return Stmt::Expr {
-                expr: Box::new(self.error_at(&format!("Cannot redeclare function with name '{}'", function_name), &function_token))
-            }
-        }
-
-        // Compile the expression and then jump after the block
-        // to avoid executing the code during function _declaration_.
-        let variable_key = self.declare_variable(function_token, false, None);
-        self.variable_declaration(variable_key);
-
-        let _ = self.function(&function_name);
-
-        self.variable_definition(variable_key);
-
-        Stmt::Declaration {
-            name: function_token2,
-            initializer: todo!(),
-        }
     }
 
     fn declare_variable(&mut self, token: scan::Token, mutable: bool, type_name: Option<String>) -> u8
@@ -1131,10 +1007,6 @@ impl Compiler
             .get_mut(variable_key as usize)
             .unwrap()
             .defined = false;
-
-        // self.emit_byte(block::Op::DeclareVariable);
-        // self.emit(variable_key);
-        // self.emit(self.current_scope_index as u8);
     }
 
     fn variable_definition(&mut self, variable_key: u8)
@@ -1144,9 +1016,6 @@ impl Compiler
             .get_mut(variable_key as usize)
             .unwrap()
             .defined = true;
-
-        // self.emit_byte(block::Op::SetLocal);
-        // self.emit(variable_key);
     }
 
     fn _if(&mut self) -> Expr
@@ -1219,14 +1088,17 @@ impl Compiler
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body: Vec<Stmt> = vec![variable];
+        let mut body: Vec<Box<Stmt>> = vec![Box::new(variable)];
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
-            body.push(self.declaration());
+            body.push(Box::new(self.declaration()));
         }
 
-        body.push(Stmt::Expr { expr: Box::new(advancement_expr) });
+        body.push
+        (
+            Box::new(Stmt::Expr { expr: Box::new(advancement_expr) })
+        );
 
         self.match_token(scan::TokenKind::RightBracket);
 
@@ -1234,7 +1106,7 @@ impl Compiler
 
         Stmt::While {
             condition: Box::new(condition_expr),
-            body: body.into_iter().map(Box::new).collect(),
+            body,
         }
     }
 
@@ -1248,11 +1120,14 @@ impl Compiler
         let function_name_token = token.clone();
         let function_name       = function_name_token.value.clone();
 
-        let mut arguments: Vec<Expr> = vec![];
+        let mut arguments: Vec<Box<Expr>> = vec![];
 
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
-                arguments.push(self.expression());
+                arguments.push
+                (
+                    Box::new(self.expression())
+                );
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
@@ -1263,47 +1138,9 @@ impl Compiler
                 .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
         };
 
-        // let scope_distance = self.function_distance(self.current_function, function_index);
-        //
-        // let block = if let Some(variable_function_index) = function_index {
-        //     &self.program.functions[variable_function_index].block
-        // } else {
-        //     &self.program.block
-        // };
-        //
-        // // Get the scope of the variable, then find it by name in the scopes constants.
-        // let function = block
-        //     .constants
-        //     .iter()
-        //     .find(|c| match c {
-        //         block::Value::Function { name, .. } => name == &function_name,
-        //         _ => false
-        //     });
-        //
-        // // This is stupid - if the function is indirected through a variable,
-        // // then this doesn't work. Because of that, we have no way of checking the
-        // // function arity in that case.
-        // let Some(block::Value::Function { name, arity, .. }) = function else {
-        //     return self
-        //         .error_at(&format!("Function with name '{}' not in scope", &function_name), &function_name_token.clone());
-        // };
-        //
-        // if arity != &arguments_count {
-        //     let error_message = format!(
-        //         "Number of passed arguments '{}' to function '{}' does not match function arity '{}'.",
-        //         arguments_count,
-        //         name,
-        //         arity
-        //     );
-        //
-        //     return self.error_at(&error_message, &function_name_token.clone());
-        // }
-
         self.match_token(scan::TokenKind::Semicolon);
 
-        Expr::Call {
-            arguments: arguments.into_iter().map(Box::new).collect(),
-        }
+        Expr::Call { arguments }
     }
 
     // TODO: So far, piping into a function is only supported with functions
@@ -1425,34 +1262,6 @@ impl Compiler
 
         block
     }
-
-    // TODO: not sure which version is correct, so I'm leaving this here until my
-    // tiny brain gets going.
-    // fn function_distance(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
-    // {
-    //     let mut distance = 0;
-    //     let Some(starting_index) = starting_index else {
-    //         return distance;
-    //     };
-
-    //     // TODO: this is a hack and a sign of the whole thing being a bit shit.
-    //     if starting_index == 0 && ending_index.is_none() { return 0 }
-
-    //     let mut current_function = &self.program.functions[starting_index];
-
-    //     loop {
-    //         let next = current_function.parent_function_index;
-
-    //         if next.is_none() && ending_index.is_none()        { return distance + 1 }
-    //         let Some(next_index) = next else                   { break };
-    //         if ending_index.map_or(false, |e| e == next_index) { break };
-
-    //         distance += 1;
-    //         current_function = &self.program.functions[next_index];
-    //     }
-
-    //     distance
-    // }
 
     // TODO: both of these are broken and do not take scopes (especially parameter scopes)
     // into account in any way.
