@@ -327,8 +327,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         },
 
         compiler::Expr::Variable { name } => {
-            // ctx.compilation_state.variables[current.frame_position.frame_index][name.value]
-
             let variables = &ctx.compilation_state.variables[0];
             *variables.get(&name.value).unwrap()
         },
@@ -430,13 +428,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             };
 
             llvm::core::LLVMBuildRet(function_current.builder, result);
-
-            // TODO: fix this. It shouldn't be needed.
-            // ctx.compilation_state.info.push(vec![]);
-            //
-            // ctx.compilation_state
-            //     .info[current.frame_position.frame_index]
-            //     .push(ValueInfo::Function { info: function_call });
 
             current.function.compiled = true;
 

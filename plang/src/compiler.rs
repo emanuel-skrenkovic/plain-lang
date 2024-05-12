@@ -793,7 +793,7 @@ impl Compiler
     // I can already see problems forming with this inference system. sadface
     fn variable(&mut self) -> Expr
     {
-        let variable_token = self.parser.previous.clone();
+        let name = self.parser.previous.clone();
 
         if self.parse_variable().is_none() {
             return self
@@ -804,16 +804,14 @@ impl Compiler
         if self.parser.previous.kind.discriminant() == scan::TokenKind::Equal.discriminant() {
             let value_expr = self.expression();
             return Expr::Assignment {
-                name: variable_token,
+                name,
                 value: Box::new(value_expr),
             }
         }
 
         // Handles variable expression here.
         self.match_token(scan::TokenKind::Semicolon);
-        Expr::Variable {
-            name: variable_token,
-        }
+        Expr::Variable { name }
     }
 
     fn function_expression(&mut self) -> Expr
