@@ -19,7 +19,8 @@ pub enum Node
 pub enum Stmt
 {
     Function {
-        params: scan::Token,
+        name: scan::Token,
+        params: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
 
@@ -705,21 +706,18 @@ impl Compiler
                 self._for()
             }
             scan::TokenKind::Identifier => {
-                self.variable_statement().unwrap_or_else(|| self.expression_statement())
+                self.declaration_statement().unwrap_or_else(|| self.expression_statement())
             }
             _ => self.expression_statement(),
         }
     }
 
-    fn variable_statement(&mut self) -> Option<Stmt>
+    fn declaration_statement(&mut self) -> Option<Stmt>
     {
-        let Some(next) = self.parser.peek(1) else {
-            return None
-        };
+        let next = self.parser.peek(1)?;
 
-        let mut maybe_type_name: Option<String> = None;
+        let next_kind = next.kind.discriminant();
 
-        let next_kind       = next.kind.discriminant();
         let type_definition = next_kind == scan::TokenKind::Colon.discriminant();
         let immutable       = next_kind == scan::TokenKind::ColonColon.discriminant();
         let mutable         = next_kind == scan::TokenKind::ColonEquals.discriminant();
@@ -733,6 +731,7 @@ impl Compiler
 
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
+        let mut maybe_type_name: Option<String> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
@@ -740,12 +739,93 @@ impl Compiler
             maybe_type_name = Some(self.parser.previous.clone().value);
 
             if !self.match_token(scan::TokenKind::Equal) {
-                return Some
-                    (
-                        Stmt::Expr {
-                            expr: Box::new(self.error_at("Expected token '='.", &self.parser.current.clone()))
-                        }
-                    )
+                let error = self.error_at("Expected token '='.", &self.parser.current.clone());
+                return Some(Stmt::Expr { expr: Box::new(error) })
+            }
+        } else if mutable || immutable {
+            self.match_token(
+                if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon }
+            );
+        } else {
+            return None
+        }
+
+        // Function declaration.
+        if self.parser.current.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() && self.current_scope_index == 0 {
+            // Cannot use match here because this is only for global scope - we could
+            // unintentionally advance.
+            let _ = self.parser.advance().map_err(|e| self.error(e));
+
+            let (params, body) = self.function();
+
+            let index = self.declare_variable(variable_token.clone(), false, maybe_type_name);
+            self.variable_declaration(index);
+            self.variable_definition(index);
+
+            return Some(Stmt::Function { name: variable_token, params, body })
+        }
+
+        if self.variable_exists(&variable_name) {
+            // even more #horribleways
+            let error = self.error_at
+            (
+                &format!("Cannot redeclare variable with name '{}'.", &variable_token),
+                &variable_token.clone()
+            );
+            return Some(Stmt::Expr { expr: Box::new(error) })
+        }
+
+        let initializer = self.expression();
+
+        let index = self.declare_variable(variable_token.clone(), mutable, maybe_type_name);
+        self.variable_declaration(index);
+        self.variable_definition(index);
+
+        self.match_token(scan::TokenKind::Semicolon);
+        let stmt = if mutable {
+            Stmt::Var {
+                name: variable_token,
+                initializer: Box::new(initializer),
+            }
+        } else {
+            Stmt::Const {
+                name: variable_token,
+                initializer: Box::new(initializer),
+            }
+        };
+
+        Some(stmt)
+    }
+
+    fn variable_statement(&mut self) -> Option<Stmt>
+    {
+        let next = self.parser.peek(1)?;
+
+        let next_kind = next.kind.discriminant();
+
+        let type_definition = next_kind == scan::TokenKind::Colon.discriminant();
+        let immutable       = next_kind == scan::TokenKind::ColonColon.discriminant();
+        let mutable         = next_kind == scan::TokenKind::ColonEquals.discriminant();
+
+        if !(type_definition || immutable || mutable) {
+            return None
+        }
+
+        let variable_token = self.parser.current.clone();
+        let variable_name  = variable_token.value.clone();
+
+        let _ = self.parser.advance().map_err(|e| self.error(e));
+
+        let mut maybe_type_name: Option<String> = None;
+        if type_definition {
+            let _ = self.match_token(scan::TokenKind::Colon);
+            self.consume(scan::TokenKind::Identifier, "Expected identifier");
+
+            maybe_type_name = Some(self.parser.previous.clone().value);
+
+            if !self.match_token(scan::TokenKind::Equal) {
+                let error = self.error_at("Expected token '='.", &self.parser.current.clone());
+                return Some(Stmt::Expr { expr: Box::new(error) })
             }
         } else if mutable || immutable {
             self.match_token(
@@ -784,7 +864,7 @@ impl Compiler
             }
         };
 
-        return Some(stmt)
+        Some(stmt)
     }
 
     // If the variable type is specified, then assign the variable type here.
@@ -815,6 +895,12 @@ impl Compiler
     }
 
     fn function_expression(&mut self) -> Expr
+    {
+        let (params, body) = self.function();
+        Expr::Function { params, body }
+    }
+
+    fn function(&mut self) -> (Vec<scan::Token>, Vec<Box<Stmt>>)
     {
         self.begin_function();
 
@@ -887,7 +973,8 @@ impl Compiler
         //                        else                                      { "unit".to_string() };
 
         let _ = self.end_function();
-        Expr::Function { params, body }
+
+        (params, body)
     }
 
     fn declare_variable(&mut self, token: scan::Token, mutable: bool, type_name: Option<String>) -> u8

@@ -122,6 +122,8 @@ pub struct Current
 
     pub module: llvm::prelude::LLVMModuleRef,
     pub function: FunctionCall,
+
+    pub scope_depth: usize,
 }
 
 pub struct Context
@@ -191,6 +193,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         basic_block: entry_block,
         module,
         function: main_function_call,
+        scope_depth: 0,
     };
 
     ctx.compilation_state.variables.push(HashMap::new());
@@ -214,7 +217,73 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &compiler::Stmt)
 {
     match stmt {
-        compiler::Stmt::Function { params: _, body: _ } => (),
+        compiler::Stmt::Function { name, params, body } => {
+            ctx.compilation_state.variables.push(HashMap::new());
+            ctx.compilation_state.variable_types.push(HashMap::new());
+
+            let function_call = FunctionCall::build
+            (
+                ctx.llvm_ctx,
+                current.module,
+                name.value.to_string(),
+                params.len(),
+                vec![Some("number".to_string()), Some("number".to_string())],
+                "number".to_string(),
+                body.iter().map(|s| *s.clone()).collect(),
+            );
+            let function_ref = function_call.function;
+
+            let entry_block = llvm::core::LLVMAppendBasicBlockInContext
+            (
+                ctx.llvm_ctx,
+                function_ref,
+                "_entry".as_ptr() as * const _
+            );
+
+            let function_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
+            llvm::core::LLVMPositionBuilderAtEnd(function_builder, entry_block);
+
+            let mut function_current = Current {
+                builder: function_builder,
+                basic_block: entry_block,
+                module: current.module,
+                function: function_call.clone(),
+                scope_depth: current.scope_depth + 1,
+            };
+
+            for (i, param) in params.iter().enumerate() {
+                let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
+                let param_name = &param.value;
+
+                let state = &mut ctx.compilation_state;
+                state.variables[function_current.scope_depth].insert(param_name.clone(), param_ref);
+                state.variable_types[function_current.scope_depth].insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
+            }
+
+            current.function = function_call;
+
+            for stmt in &body[..body.len()-1] {
+                match_statement(ctx, &mut function_current, stmt);
+            }
+
+            let result = match body.last().unwrap().as_ref() {
+                compiler::Stmt::Expr { expr } => {
+                    match_expression(ctx, &mut function_current, expr)
+                }
+                _ => panic!() // TODO
+            };
+
+            let return_type = current.function.return_type;
+            let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
+                deref_if_ptr(ctx.llvm_ctx, function_current.builder, result, return_type)
+            } else {
+                result
+            };
+
+            llvm::core::LLVMBuildRet(function_current.builder, result);
+
+            current.function.compiled = true;
+        },
 
         compiler::Stmt::Declaration { name: _, initializer: _ } => (),
 
@@ -231,7 +300,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            ctx.compilation_state.variables[0].insert(name.value.clone(), variable);
+            ctx.compilation_state.variables[current.scope_depth].insert(name.value.clone(), variable);
         },
 
         compiler::Stmt::Const { name, initializer } => {
@@ -245,7 +314,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            ctx.compilation_state.variables[0].insert(name.value.clone(), variable);
+            ctx.compilation_state.variables[current.scope_depth].insert(name.value.clone(), variable);
         },
 
         compiler::Stmt::For { } => (),
@@ -327,7 +396,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         },
 
         compiler::Expr::Variable { name } => {
-            let variables = &ctx.compilation_state.variables[0];
+            let variables = &ctx.compilation_state.variables[current.scope_depth];
             *variables.get(&name.value).unwrap()
         },
 
@@ -336,7 +405,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         compiler::Expr::Assignment { name, value } => {
             let value_expr = match_expression(ctx, current, value);
 
-            let variable_ref = ctx.compilation_state.variables[0].get_mut(&name.value).unwrap(); // TODO
+            let variable_ref = ctx.compilation_state.variables[current.scope_depth].get_mut(&name.value).unwrap(); // TODO
             llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
         },
 
@@ -377,7 +446,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 params.len(),
                 vec![Some("number".to_string()), Some("number".to_string())],
                 "number".to_string(),
-                body.into_iter().map(|s| *s.clone()).collect(),
+                body.iter().map(|s| *s.clone()).collect(),
             );
             let function_ref = function_call.function;
 
@@ -391,21 +460,22 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let function_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
             llvm::core::LLVMPositionBuilderAtEnd(function_builder, entry_block);
 
-            for (i, param) in params.iter().enumerate() {
-                let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
-                let param_name = &param.value;
-
-                let state = &mut ctx.compilation_state;
-                state.variables[0].insert(param_name.clone(), param_ref);
-                state.variable_types[0].insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
-            }
-
             let mut function_current = Current {
                 builder: function_builder,
                 basic_block: entry_block,
                 module: current.module,
                 function: function_call.clone(),
+                scope_depth: current.scope_depth + 1,
             };
+
+            for (i, param) in params.iter().enumerate() {
+                let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
+                let param_name = &param.value;
+
+                let state = &mut ctx.compilation_state;
+                state.variables[function_current.scope_depth].insert(param_name.clone(), param_ref);
+                state.variable_types[function_current.scope_depth].insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
+            }
 
             current.function = function_call;
 
@@ -414,9 +484,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             }
 
             let result = match body.last().unwrap().as_ref() {
-                compiler::Stmt::Expr { expr } => {
-                    match_expression(ctx, &mut function_current, expr)
-                }
+                compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
                 _ => panic!() // TODO
             };
 
@@ -532,14 +600,15 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
     if result != 0 {
         return Err("Failed to output bitcode.".to_string())
     }
+
     Ok(())
 }
 
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0].get("a").unwrap();
-    let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a.clone(), binary_cstr!("a"));
+    let a = ctx.compilation_state.variables[0].get("result").unwrap();
+    let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), *a, binary_cstr!("a"));
 
     let global_format_str = llvm::core::LLVMBuildGlobalStringPtr(
         builder,

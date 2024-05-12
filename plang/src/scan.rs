@@ -98,7 +98,7 @@ impl Scanner
 
         loop {
             let current = self.scan_token();
-            let end = &current.kind.discriminant() == &TokenKind::End.discriminant();
+            let end = current.kind.discriminant() == TokenKind::End.discriminant();
 
             tokens.push(current);
 
@@ -314,7 +314,6 @@ impl Scanner
     fn source_char_at(&self, i: usize) -> char
     {
         if i >= self.source_len { return '\0' }
-
         self.source.as_bytes()[i] as char
     }
 
