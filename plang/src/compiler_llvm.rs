@@ -88,8 +88,6 @@ pub struct CompilationState
 
     pub variables: Vec<HashMap<String, llvm::prelude::LLVMValueRef>>,
     pub variable_types: Vec<HashMap<String, llvm::prelude::LLVMTypeRef>>,
-
-    pub info: Vec<Vec<ValueInfo>>,
 }
 
 impl Default for CompilationState
@@ -109,9 +107,17 @@ impl CompilationState
         Self {
             variables: Vec::with_capacity(Self::DEFAULT_CAP),
             variable_types: Vec::with_capacity(Self::DEFAULT_CAP),
-            info: Vec::with_capacity(Self::DEFAULT_CAP),
         }
     }
+}
+
+pub struct Scope
+{
+    pub index: usize,
+    pub path: Vec<usize>,
+
+    pub variables: HashMap<String, llvm::prelude::LLVMValueRef>,
+    pub variable_types: HashMap<String, llvm::prelude::LLVMTypeRef>,
 }
 
 #[derive(Debug)]
@@ -130,9 +136,11 @@ pub struct Context
 {
     pub llvm_ctx: llvm::prelude::LLVMContextRef,
     pub modules: Vec<llvm::prelude::LLVMModuleRef>,
-    // pub program: compiler::Program,
+
     pub program: Vec<compiler::Stmt>,
-    pub compilation_state: CompilationState,
+
+    pub scopes: Vec<Scope>,
+    pub current_scope_index: usize,
 }
 
 impl Context
@@ -144,8 +152,77 @@ impl Context
             llvm_ctx: llvm::core::LLVMContextCreate(),
             modules: Vec::with_capacity(1),
             program,
-            compilation_state: CompilationState::new()
+            scopes: Vec::with_capacity(1024),
+            current_scope_index: 0,
         }
+    }
+
+    pub fn begin_scope(&mut self)
+    {
+        let parent_scope = if self.scopes.len() == 0 { None }
+                           else                      { Some(&self.scopes[self.current_scope_index]) };
+
+        // New scope path will contain the parent as well, so extending with the
+        // index of the parent.
+        let new_scope_path = if let Some(parent_scope) = parent_scope {
+            let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
+            new_scope_path.extend_from_slice(&parent_scope.path);
+            new_scope_path.push(parent_scope.index);
+            new_scope_path
+        } else {
+            vec![]
+        };
+
+        let new_scope = Scope {
+            index: 0,
+            path: new_scope_path,
+            variables: HashMap::new(),
+            variable_types: HashMap::new(),
+        };
+
+        // Push the new scope and get its index. Use it as the ID of the Scope struct.
+        self.scopes.push(new_scope);
+
+        let new_scope_index = self.scopes.len() - 1;
+        self.scopes[new_scope_index].index = new_scope_index;
+
+        self.current_scope_index = new_scope_index;
+    }
+
+    pub fn end_scope(&mut self)
+    {
+        let scope                = &self.scopes[self.current_scope_index];
+        let parent_scope         = scope.path.last().unwrap();
+        self.current_scope_index = *parent_scope;
+    }
+
+    pub fn current_scope(&self) -> &Scope
+    {
+        &self.scopes[self.current_scope_index]
+    }
+
+    pub fn current_scope_mut(&mut self) -> &mut Scope
+    {
+        &mut self.scopes[self.current_scope_index]
+    }
+
+    pub fn get_variable(&self, name: &str) -> Option<llvm::prelude::LLVMValueRef>
+    {
+        let scope = self.current_scope();
+
+        if let Some(var) = scope.variables.get(name) {
+            return Some(*var)
+        };
+
+        for i in scope.path.iter().rev() {
+            let scope = &self.scopes[*i];
+
+            if let Some(var) = scope.variables.get(name) {
+                return Some(*var)
+            };
+        }
+
+        None
     }
 }
 
@@ -196,8 +273,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         scope_depth: 0,
     };
 
-    ctx.compilation_state.variables.push(HashMap::new());
-    ctx.compilation_state.variable_types.push(HashMap::new());
+    ctx.begin_scope();
 
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
@@ -218,8 +294,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
 {
     match stmt {
         compiler::Stmt::Function { name, params, body } => {
-            ctx.compilation_state.variables.push(HashMap::new());
-            ctx.compilation_state.variable_types.push(HashMap::new());
+            ctx.begin_scope();
 
             let function_call = FunctionCall::build
             (
@@ -255,9 +330,8 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
                 let param_name = &param.value;
 
-                let state = &mut ctx.compilation_state;
-                state.variables[function_current.scope_depth].insert(param_name.clone(), param_ref);
-                state.variable_types[function_current.scope_depth].insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
+                ctx.current_scope_mut().variables.insert(param_name.clone(), param_ref);
+                ctx.current_scope_mut().variable_types.insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
             }
 
             current.function = function_call;
@@ -283,6 +357,8 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
             current.function.compiled = true;
+
+            ctx.end_scope();
         },
 
         compiler::Stmt::Declaration { name: _, initializer: _ } => (),
@@ -300,7 +376,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            ctx.compilation_state.variables[current.scope_depth].insert(name.value.clone(), variable);
+            ctx.current_scope_mut().variables.insert(name.value.clone(), variable);
         },
 
         compiler::Stmt::Const { name, initializer } => {
@@ -314,7 +390,8 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            ctx.compilation_state.variables[current.scope_depth].insert(name.value.clone(), variable);
+            ctx.current_scope_mut().variables.insert(name.value.clone(), variable);
+            ctx.current_scope_mut().variable_types.insert(name.value.clone(), type_ref);
         },
 
         compiler::Stmt::For { } => (),
@@ -395,18 +472,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             _ => panic!()
         },
 
-        compiler::Expr::Variable { name } => {
-            let variables = &ctx.compilation_state.variables[current.scope_depth];
-            *variables.get(&name.value).unwrap()
-        },
+        compiler::Expr::Variable { name } => ctx.get_variable(&name.value).unwrap(),
 
         compiler::Expr::Unary => todo!(),
 
         compiler::Expr::Assignment { name, value } => {
             let value_expr = match_expression(ctx, current, value);
-
-            let variable_ref = ctx.compilation_state.variables[current.scope_depth].get_mut(&name.value).unwrap(); // TODO
-            llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
+            let variable_ref = ctx.get_variable(&name.value).unwrap();
+            llvm::core::LLVMBuildStore(current.builder, value_expr, variable_ref)
         },
 
         compiler::Expr::Logical => todo!(),
@@ -435,8 +508,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         },
 
         compiler::Expr::Function { params, body } => {
-            ctx.compilation_state.variables.push(HashMap::new());
-            ctx.compilation_state.variable_types.push(HashMap::new());
+            ctx.begin_scope();
 
             let function_call = FunctionCall::build
             (
@@ -472,9 +544,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
                 let param_name = &param.value;
 
-                let state = &mut ctx.compilation_state;
-                state.variables[function_current.scope_depth].insert(param_name.clone(), param_ref);
-                state.variable_types[function_current.scope_depth].insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
+                ctx.current_scope_mut().variables.insert(param_name.clone(), param_ref);
+                ctx.current_scope_mut().variable_types.insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
             }
 
             current.function = function_call;
@@ -498,6 +569,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
             current.function.compiled = true;
+
+            ctx.end_scope();
 
             function_ref
         },
@@ -607,8 +680,8 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
 // TODO: REMOVE THIS! This is just for playing around.
 pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
 {
-    let a = ctx.compilation_state.variables[0].get("result").unwrap();
-    let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), *a, binary_cstr!("a"));
+    let a = ctx.get_variable("result").unwrap();
+    let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
 
     let global_format_str = llvm::core::LLVMBuildGlobalStringPtr(
         builder,

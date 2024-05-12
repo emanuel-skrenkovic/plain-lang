@@ -1,4 +1,5 @@
-a := 0;
-while a < 10 {
-    a = a + 1;
+add :: (a, b) {
+    a + b
 }
+
+result := add(22, 31);
