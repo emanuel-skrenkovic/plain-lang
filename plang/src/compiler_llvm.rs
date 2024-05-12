@@ -245,8 +245,6 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            println!("{:?}", value);
-
             ctx.compilation_state.variables[0].insert(name.value.clone(), variable);
         },
 
