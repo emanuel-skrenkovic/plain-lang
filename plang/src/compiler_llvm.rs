@@ -5,16 +5,6 @@ use macros::binary_cstr;
 
 use crate::{block, compiler, scan};
 
-pub enum ValueInfo
-{
-    Unit,
-    String,
-    Bool,
-    Number,
-    Function { info: FunctionCall },
-    CompiledFunction,
-}
-
 #[derive(Clone, Debug)]
 pub struct FunctionCall
 {
@@ -25,8 +15,6 @@ pub struct FunctionCall
     pub param_types: Vec<llvm::prelude::LLVMTypeRef>,
     pub return_type: llvm::prelude::LLVMTypeRef,
     pub code: Vec<compiler::Stmt>,
-
-    pub compiled: bool,
 }
 
 impl FunctionCall
@@ -74,7 +62,6 @@ impl FunctionCall
             param_types,
             return_type,
             code,
-            compiled: false,
         }
     }
 }
@@ -139,6 +126,9 @@ pub struct Context
 
     pub program: Vec<compiler::Stmt>,
 
+    // #horribleways Change it later.
+    pub functions: HashMap<String, FunctionCall>,
+
     pub scopes: Vec<Scope>,
     pub current_scope_index: usize,
 }
@@ -152,6 +142,7 @@ impl Context
             llvm_ctx: llvm::core::LLVMContextCreate(),
             modules: Vec::with_capacity(1),
             program,
+            functions: HashMap::new(),
             scopes: Vec::with_capacity(1024),
             current_scope_index: 0,
         }
@@ -275,6 +266,8 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 
     ctx.begin_scope();
 
+    // Now this is hoisting!
+    ctx.program.reverse();
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
@@ -302,7 +295,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
                 current.module,
                 name.value.to_string(),
                 params.len(),
-                vec![Some("number".to_string()), Some("number".to_string())],
+                vec![Some("number".to_string()); params.len()],
                 "number".to_string(),
                 body.iter().map(|s| *s.clone()).collect(),
             );
@@ -312,7 +305,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             (
                 ctx.llvm_ctx,
                 function_ref,
-                "_entry".as_ptr() as * const _
+                "_entry\0".as_ptr() as * const _
             );
 
             let function_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
@@ -328,13 +321,14 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
 
             for (i, param) in params.iter().enumerate() {
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
+                llvm::core::LLVMSetValueName2(param_ref, param.value.as_ptr() as * const _, param.value.len());
                 let param_name = &param.value;
 
                 ctx.current_scope_mut().variables.insert(param_name.clone(), param_ref);
                 ctx.current_scope_mut().variable_types.insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
             }
 
-            current.function = function_call;
+            // current.function = function_call;
 
             for stmt in &body[..body.len()-1] {
                 match_statement(ctx, &mut function_current, stmt);
@@ -356,9 +350,9 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
 
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
-            current.function.compiled = true;
-
             ctx.end_scope();
+
+            ctx.functions.insert(name.value.to_string(), function_call);
         },
 
         compiler::Stmt::Declaration { name: _, initializer: _ } => (),
@@ -484,7 +478,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
         compiler::Expr::Logical => todo!(),
 
-        compiler::Expr::Call { arguments } => {
+        compiler::Expr::Call { name, arguments } => {
             // TODO: I'm not sure of the semantics of arguments.
             // I'm thinking copy by default and take the reference explicitly.
             let mut args: Vec<llvm::prelude::LLVMValueRef> = arguments
@@ -496,84 +490,41 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 })
                 .collect();
 
-            llvm::core::LLVMBuildCall2
+            let scope = ctx.current_scope();
+
+            // TODO: the order of the variables gets shuffled
+            // depending on the variables since we're dealing with a hashmap.
+            for var in scope.variables.values() {
+                let arg = deref_if_ptr(ctx.llvm_ctx, current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+                args.push(arg);
+            }
+
+            for i in &scope.path {
+                let closed_scope = &ctx.scopes[*i];
+
+                for var in closed_scope.variables.values() {
+                    let arg = deref_if_ptr(ctx.llvm_ctx, current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+                    args.push(arg);
+                }
+            }
+
+            let function = ctx.functions.get(&name.value).unwrap();
+
+            let result = llvm::core::LLVMBuildCall2
             (
                 current.builder,
-                current.function.function_type,
-                current.function.function,
+                function.function_type,
+                function.function,
                 args.as_mut_ptr(),
-                current.function.arity as u32,
-                current.function.name.as_ptr() as *const _,
-            )
-        },
-
-        compiler::Expr::Function { params, body } => {
-            ctx.begin_scope();
-
-            let function_call = FunctionCall::build
-            (
-                ctx.llvm_ctx,
-                current.module,
-                "_temp_name".to_string(),
-                params.len(),
-                vec![Some("number".to_string()), Some("number".to_string())],
-                "number".to_string(),
-                body.iter().map(|s| *s.clone()).collect(),
-            );
-            let function_ref = function_call.function;
-
-            let entry_block = llvm::core::LLVMAppendBasicBlockInContext
-            (
-                ctx.llvm_ctx,
-                function_ref,
-                "_entry".as_ptr() as * const _
+                function.arity as u32,
+                function.name.as_ptr() as *const _,
             );
 
-            let function_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
-            llvm::core::LLVMPositionBuilderAtEnd(function_builder, entry_block);
-
-            let mut function_current = Current {
-                builder: function_builder,
-                basic_block: entry_block,
-                module: current.module,
-                function: function_call.clone(),
-                scope_depth: current.scope_depth + 1,
-            };
-
-            for (i, param) in params.iter().enumerate() {
-                let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
-                let param_name = &param.value;
-
-                ctx.current_scope_mut().variables.insert(param_name.clone(), param_ref);
-                ctx.current_scope_mut().variable_types.insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
-            }
-
-            current.function = function_call;
-
-            for stmt in &body[..body.len()-1] {
-                match_statement(ctx, &mut function_current, stmt);
-            }
-
-            let result = match body.last().unwrap().as_ref() {
-                compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
-                _ => panic!() // TODO
-            };
-
-            let return_type = current.function.return_type;
-            let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
-                deref_if_ptr(ctx.llvm_ctx, function_current.builder, result, return_type)
-            } else {
-                result
-            };
-
-            llvm::core::LLVMBuildRet(function_current.builder, result);
-
-            current.function.compiled = true;
-
-            ctx.end_scope();
-
-            function_ref
+            deref_if_ptr(ctx.llvm_ctx, current.builder, result, current.function.function_type)
         },
+
+        compiler::Expr::Function { params, body }
+            => closure(ctx, current, "_closure", params.to_vec(), body.to_vec()).function,
     }
 }
 
@@ -614,6 +565,99 @@ pub unsafe fn binary_expr
     }
 
 }
+
+unsafe fn closure
+(
+    ctx: &mut Context,
+    current: &mut Current,
+    name: &str,
+    params: Vec<scan::Token>,
+    body: Vec<Box<compiler::Stmt>>,
+) -> FunctionCall
+{
+    ctx.begin_scope();
+
+    let mut closed_params: Vec<String> = params.iter().map(|p| p.value.clone()).collect();
+
+    let scope = ctx.current_scope();
+
+    for var in scope.variables.keys() {
+        closed_params.push(var.clone());
+    }
+
+    for i in &scope.path {
+        let closed_scope = &ctx.scopes[*i];
+
+        for value in closed_scope.variables.keys() {
+            closed_params.push(value.to_string());
+        }
+    }
+
+    let function_call = FunctionCall::build
+    (
+        ctx.llvm_ctx,
+        current.module,
+        name.to_string(),
+        closed_params.len(),
+        vec![Some("number".to_string()); closed_params.len()],
+        "number".to_string(),
+        body.iter().map(|s| *s.clone()).collect(),
+    );
+    let function_ref = function_call.function;
+
+    let entry_block = llvm::core::LLVMAppendBasicBlockInContext
+    (
+        ctx.llvm_ctx,
+        function_ref,
+        "_entry\0".as_ptr() as * const _
+    );
+
+    let function_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
+    llvm::core::LLVMPositionBuilderAtEnd(function_builder, entry_block);
+
+    let mut function_current = Current {
+        builder: function_builder,
+        basic_block: entry_block,
+        module: current.module,
+        function: function_call.clone(),
+        scope_depth: current.scope_depth + 1,
+    };
+
+    for (i, param) in closed_params.iter().enumerate() {
+        let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
+        llvm::core::LLVMSetValueName2(param_ref, param.as_ptr() as * const _, param.len());
+
+        ctx.current_scope_mut().variables.insert(param.clone(), param_ref);
+        ctx.current_scope_mut().variable_types.insert(param.clone(), llvm::core::LLVMTypeOf(param_ref));
+    }
+
+    current.function = function_call.clone();
+
+    for stmt in &body[..body.len()-1] {
+        match_statement(ctx, &mut function_current, stmt);
+    }
+
+    let result = match body.last().unwrap().as_ref() {
+        compiler::Stmt::Expr { expr } => {
+            match_expression(ctx, &mut function_current, expr)
+        }
+        _ => panic!() // TODO
+    };
+
+    let return_type = current.function.return_type;
+    let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
+        deref_if_ptr(ctx.llvm_ctx, function_current.builder, result, return_type)
+    } else {
+        result
+    };
+
+    llvm::core::LLVMBuildRet(function_current.builder, result);
+
+    ctx.end_scope();
+
+    function_call
+}
+
 
 unsafe fn is_type_primitive(ctx: llvm::prelude::LLVMContextRef, value_type: llvm::prelude::LLVMTypeRef) -> bool
 {

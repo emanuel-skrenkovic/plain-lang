@@ -1,5 +1,12 @@
-add :: (a, b) {
-    a + b
+add :: (a, b, c)
+{
+    d :: () { a + b };
+    a + b + d()
 }
 
-result := add(22, 31);
+not_add :: ()
+{
+    3 + 4
+}
+
+result := add(1, 2, 33);

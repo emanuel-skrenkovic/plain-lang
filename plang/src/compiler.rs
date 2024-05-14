@@ -101,6 +101,7 @@ pub enum Expr
     Logical,
 
     Call {
+        name: scan::Token,
         arguments: Vec<Box<Expr>>,
     },
 
@@ -1227,7 +1228,7 @@ impl Compiler
 
         self.match_token(scan::TokenKind::Semicolon);
 
-        Expr::Call { arguments }
+        Expr::Call { name: function_name_token, arguments }
     }
 
     // TODO: So far, piping into a function is only supported with functions
