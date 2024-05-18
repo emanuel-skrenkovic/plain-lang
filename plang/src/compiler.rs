@@ -636,13 +636,14 @@ impl Compiler
         let operator   = self.parser.previous.clone();
         let parse_rule = get_rule(operator.kind);
 
+        let left = self.stack.pop().unwrap();
+
         self.parse_precedence(
             Precedence::try_from(parse_rule.precedence.discriminator() + 1)
                 .unwrap()
         );
 
         let right = self.stack.pop().unwrap();
-        let left  = self.stack.pop().unwrap();
 
         let expr = Expr::Binary {
             left: Box::new(left),
@@ -744,9 +745,8 @@ impl Compiler
                 return Some(Stmt::Expr { expr: Box::new(error) })
             }
         } else if mutable || immutable {
-            self.match_token(
-                if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon }
-            );
+            let mutable = if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon };
+            self.consume(mutable, "Expected ':=' or '::' after identifier.");
         } else {
             return None
         }
