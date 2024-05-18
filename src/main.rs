@@ -3,6 +3,7 @@ use std::io::{stderr, Write};
 use plang::compiler_llvm;
 use plang::compiler;
 use plang::scan;
+use plang::semantic_analysis;
 
 fn main()
 {
@@ -34,9 +35,13 @@ fn main()
         }
     };
 
+    let now_semantic_analysis = std::time::Instant::now();
+    let symbol_table = semantic_analysis::analyse(&program);
+    let after_semantic_analysis = now_semantic_analysis.elapsed();
+
     let after_llvm = unsafe {
         let now_llvm = std::time::Instant::now();
-        let mut ctx = compiler_llvm::Context::new(program);
+        let mut ctx = compiler_llvm::Context::new(program, symbol_table);
         let module = compiler_llvm::compile(&mut ctx);
         let llvm_elapsed = now_llvm.elapsed();
 
@@ -69,6 +74,7 @@ fn main()
 "
      Tokenization: {:?}.
      Parsing: {:?}.
+     Semantic analysis: {:?}
      LLVM backend: {:?}.
      Compiling bytecode: {:?}
      Linking: {:?}
@@ -78,6 +84,7 @@ fn main()
 ",
         after_scanning,
         after_compiling,
+        after_semantic_analysis,
         after_llvm,
         after_compiling_bytecode,
         after_linking,

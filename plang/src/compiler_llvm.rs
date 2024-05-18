@@ -3,7 +3,7 @@ extern crate llvm_sys as llvm;
 use std::collections::HashMap;
 use macros::binary_cstr;
 
-use crate::{block, compiler, scan};
+use crate::{block, compiler, scan, semantic_analysis};
 
 #[derive(Clone, Debug)]
 pub struct FunctionCall
@@ -131,12 +131,16 @@ pub struct Context
 
     pub scopes: Vec<Scope>,
     pub current_scope_index: usize,
+
+    pub declarations: HashMap<String, (usize, FunctionCall)>,
+
+    pub symbol_table: semantic_analysis::SymbolTable,
 }
 
 impl Context
 {
     #[must_use]
-    pub unsafe fn new(program: Vec<compiler::Stmt>) -> Self
+    pub unsafe fn new(program: Vec<compiler::Stmt>, symbol_table: semantic_analysis::SymbolTable) -> Self
     {
         Self {
             llvm_ctx: llvm::core::LLVMContextCreate(),
@@ -145,6 +149,8 @@ impl Context
             functions: HashMap::new(),
             scopes: Vec::with_capacity(1024),
             current_scope_index: 0,
+            declarations: HashMap::new(),
+            symbol_table,
         }
     }
 
@@ -264,10 +270,29 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         scope_depth: 0,
     };
 
+    for scope in &ctx.symbol_table.scopes {
+        for (name, declaration) in &scope.declarations {
+            match &declaration {
+                &semantic_analysis::Declaration::Function { params, body } => {
+                    let function_call = FunctionCall::build
+                    (
+                        ctx.llvm_ctx,
+                        current.module,
+                        name.to_string(),
+                        params.len(),
+                        vec![Some("number".to_string()); params.len()],
+                        "number".to_string(),
+                        body.iter().map(|s| *s.clone()).collect(),
+                    );
+
+                    ctx.declarations.insert(name.clone(), (scope.index, function_call));
+                }
+            }
+        }
+    }
+
     ctx.begin_scope();
 
-    // Now this is hoisting!
-    ctx.program.reverse();
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
@@ -289,16 +314,20 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
         compiler::Stmt::Function { name, params, body } => {
             ctx.begin_scope();
 
-            let function_call = FunctionCall::build
-            (
-                ctx.llvm_ctx,
-                current.module,
-                name.value.to_string(),
-                params.len(),
-                vec![Some("number".to_string()); params.len()],
-                "number".to_string(),
-                body.iter().map(|s| *s.clone()).collect(),
-            );
+            // let function_call = FunctionCall::build
+            // (
+            //     ctx.llvm_ctx,
+            //     current.module,
+            //     name.value.to_string(),
+            //     params.len(),
+            //     vec![Some("number".to_string()); params.len()],
+            //     "number".to_string(),
+            //     body.iter().map(|s| *s.clone()).collect(),
+            // );
+            // let function_ref = function_call.function;
+
+            let (_, function_call) = ctx.declarations.get(&name.value).unwrap();
+            let function_call = function_call.clone();
             let function_ref = function_call.function;
 
             let entry_block = llvm::core::LLVMAppendBasicBlockInContext
@@ -352,7 +381,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
 
             ctx.end_scope();
 
-            ctx.functions.insert(name.value.to_string(), function_call);
+            ctx.functions.insert(name.value.to_string(), function_call.clone());
         },
 
         compiler::Stmt::Declaration { name: _, initializer: _ } => (),
@@ -479,6 +508,16 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         compiler::Expr::Logical => todo!(),
 
         compiler::Expr::Call { name, arguments } => {
+            let (scope, function) = ctx
+                .declarations
+                .get(&name.value)
+                .unwrap().clone();
+
+            let current_scope = ctx.current_scope();
+            if current_scope.index != scope && !current_scope.path.contains(&scope) {
+                panic!("Function '{}' not in scope.", name.value);
+            }
+
             // TODO: I'm not sure of the semantics of arguments.
             // I'm thinking copy by default and take the reference explicitly.
             let mut args: Vec<llvm::prelude::LLVMValueRef> = arguments
@@ -486,7 +525,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 .enumerate()
                 .map(|(i, a)| {
                     let arg = match_expression(ctx, current, a);
-                    deref_if_ptr(ctx.llvm_ctx, current.builder, arg, current.function.param_types[i])
+                    deref_if_ptr(ctx.llvm_ctx, current.builder, arg, function.param_types[i])
                 })
                 .collect();
 
@@ -508,8 +547,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 }
             }
 
-            let function = ctx.functions.get(&name.value).unwrap();
-
             let result = llvm::core::LLVMBuildCall2
             (
                 current.builder,
@@ -520,7 +557,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 function.name.as_ptr() as *const _,
             );
 
-            deref_if_ptr(ctx.llvm_ctx, current.builder, result, current.function.function_type)
+            deref_if_ptr(ctx.llvm_ctx, current.builder, result, function.function_type)
         },
 
         compiler::Expr::Function { params, body }
@@ -563,7 +600,6 @@ pub unsafe fn binary_expr
             ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
         _ => panic!()
     }
-
 }
 
 unsafe fn closure

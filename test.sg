@@ -1,12 +1,11 @@
 add :: (a, b, c)
 {
-    d :: () { a + b };
-    a + b + d()
+    a + b + c
 }
 
-not_add :: ()
+not_add :: (a)
 {
-    3 + 4
+    a + 3 + 4
 }
 
-result := add(1, 2, 33);
+result := add(16, 2, 33) - not_add(add(1, 2, 3));
