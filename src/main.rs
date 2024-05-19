@@ -80,7 +80,6 @@ fn main()
      Linking: {:?}
 
      Total time: {:?}.
-     Total time: {:?}.
 ",
         after_scanning,
         after_compiling,
@@ -88,7 +87,6 @@ fn main()
         after_llvm,
         after_compiling_bytecode,
         after_linking,
-        total,
         total,
     );
 
