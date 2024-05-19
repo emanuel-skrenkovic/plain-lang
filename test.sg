@@ -1,14 +1,8 @@
-add :: (a, b, c)
+not_add :: (a: number, b: number)
 {
-    a + b + c
+    a + b
 }
-
-not_add :: (a)
-{
-    a + 3 + 4
-}
-
-result := add(16, 2, 33) - not_add(add(1, 2, 3));
 
 f_str :: "%d\0";
-printf(f_str, a);
+result :: not_add({ 32 + 3 }, 4);
+printf(f_str, result);

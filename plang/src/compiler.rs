@@ -623,12 +623,15 @@ impl Compiler
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
         self.match_token(scan::TokenKind::Semicolon);
 
+        let binding = statements.pop().unwrap();
+        let expr = match binding.as_ref() {
+            Stmt::Expr { expr } => expr,
+             _ => panic!(),
+        };
+
         self.end_scope();
-        Expr::Block {
-            statements,
-            // TODO: actual expression
-            value: Box::new(Expr::Literal { value: block::Value::Unit })
-        }
+
+        Expr::Block { statements, value: expr.to_owned() }
     }
 
     fn binary(&mut self) -> Expr

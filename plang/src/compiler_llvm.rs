@@ -291,35 +291,9 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
     }
 
-    // printf
-
-    // let printf_type = llvm::core::LLVMFunctionType
-    // (
-    //     llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
-    //     [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
-    //     1,
-    //     1,
-    // );
-
-    // let printf = llvm
-    //     ::core
-    //     ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
-
-    // let printf = FunctionCall::build
-    // (
-    //     ctx.llvm_ctx,
-    //     current.module,
-    //     "printf\0".to_string(),
-    //     2,
-    //     vec![Some("string".to_string()), Some("number".to_string())],
-    //     "number".to_string(),
-    //     vec![],
-    // );
-
+    // Adding globals.
     let printf = printf_function(ctx, module);
     ctx.declarations.insert("printf".to_owned(), (0, printf));
-
-    //
 
     ctx.begin_scope();
 
@@ -375,8 +349,6 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
                 ctx.current_scope_mut().variable_types.insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
             }
 
-            // current.function = function_call;
-
             for stmt in &body[..body.len()-1] {
                 match_statement(ctx, &mut function_current, stmt);
             }
@@ -388,7 +360,7 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
                 _ => panic!() // TODO
             };
 
-            let return_type = current.function.return_type;
+            let return_type = function_call.return_type;
             let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
                 deref_if_ptr(ctx.llvm_ctx, function_current.builder, result, return_type)
             } else {
@@ -485,7 +457,19 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
     match expr {
         compiler::Expr::Bad { token: _ } => todo!(),
 
-        compiler::Expr::Block { statements: _, value: _ } => todo!(),
+        compiler::Expr::Block { statements, value } => {
+            ctx.begin_scope();
+
+            for stmt in statements {
+                match_statement(ctx, current, stmt);
+            }
+
+            let expr = match_expression(ctx, current, value);
+
+            ctx.end_scope();
+
+            expr
+        },
 
         compiler::Expr::If { condition: _, then_branch: _, else_branch: _ } => todo!(),
 
@@ -509,6 +493,11 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 llvm
                     ::core
                     ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 1),
+
+            block::Value::Unit =>
+                llvm
+                    ::core
+                    ::LLVMConstNull(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx)),
 
             _ => panic!()
         },
@@ -782,41 +771,7 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
     Ok(())
 }
 
-// TODO: REMOVE THIS! This is just for playing around.
-pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef, builder: llvm::prelude::LLVMBuilderRef)
-{
-    let a = ctx.get_variable("result").unwrap();
-    let a_value = llvm::core::LLVMBuildLoad2(builder, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), a, binary_cstr!("a"));
-
-    let global_format_str = llvm::core::LLVMBuildGlobalStringPtr(
-        builder,
-        binary_cstr!("%d\n"),
-        binary_cstr!("format_str"),
-    );
-
-    let printf_type = llvm::core::LLVMFunctionType
-    (
-        llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
-        [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
-        1,
-        1,
-    );
-
-    let printf = llvm
-        ::core
-        ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
-
-    let mut param_values = [global_format_str, a_value];
-    llvm::core::LLVMBuildCall2(
-        builder,
-        printf_type,
-        printf,
-        param_values.as_mut_ptr(),
-        param_values.len() as u32,
-        binary_cstr!("printf_call"),
-    );
-}
-
+// TODO: remove this hack!
 pub unsafe fn printf_function
 (
     ctx: &mut Context, module: llvm::prelude::LLVMModuleRef,
