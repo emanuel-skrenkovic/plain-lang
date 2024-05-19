@@ -68,11 +68,6 @@ impl FunctionCall
 
 pub struct CompilationState
 {
-    // HashMap of variables per scope. Scope index is the key, variables are in the vec.
-    // TODO: think of how to do indexing of variable refs.
-    // pub variables: Vec<Vec<llvm::prelude::LLVMValueRef>>,
-    // pub variable_types: Vec<Vec<llvm::prelude::LLVMTypeRef>>,
-
     pub variables: Vec<HashMap<String, llvm::prelude::LLVMValueRef>>,
     pub variable_types: Vec<HashMap<String, llvm::prelude::LLVMTypeRef>>,
 }
@@ -300,8 +295,6 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
-
-    // add_printf(ctx, module, builder);
 
     let return_value = llvm
         ::core
@@ -538,8 +531,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                     } else {
                         arg
                     }
-
-                    // deref_if_ptr(ctx.llvm_ctx, current.builder, arg, function.param_types[i])
                 })
                 .collect();
 
