@@ -9,3 +9,6 @@ not_add :: (a)
 }
 
 result := add(16, 2, 33) - not_add(add(1, 2, 3));
+
+f_str :: "%d\0";
+printf(f_str, a);

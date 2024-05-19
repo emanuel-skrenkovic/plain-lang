@@ -876,9 +876,11 @@ impl Compiler
     {
         let name = self.parser.previous.clone();
 
-        if self.parse_variable().is_none() {
-            return self
-                .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
+        if name.value != "printf" {
+            if self.parse_variable().is_none() {
+                return self
+                    .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
+            }
         }
 
         // If the next token is equal, handle assignment expression.
@@ -1221,10 +1223,12 @@ impl Compiler
         }
         self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
 
-        let Some(_) = self.find_variable_by_name(&function_name) else {
-            return self
-                .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
-        };
+        if function_name != "printf" {
+            let Some(_) = self.find_variable_by_name(&function_name) else {
+                return self
+                    .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
+            };
+        }
 
         self.match_token(scan::TokenKind::Semicolon);
 

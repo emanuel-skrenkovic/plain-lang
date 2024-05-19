@@ -44,7 +44,7 @@ impl FunctionCall
                 "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
                 "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
                 "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
-                _        => panic!("Unknown param type."), // TODO
+                _        => panic!()
             }).collect();
 
         let function_type_ref = llvm
@@ -291,13 +291,43 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
     }
 
+    // printf
+
+    // let printf_type = llvm::core::LLVMFunctionType
+    // (
+    //     llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
+    //     [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
+    //     1,
+    //     1,
+    // );
+
+    // let printf = llvm
+    //     ::core
+    //     ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
+
+    // let printf = FunctionCall::build
+    // (
+    //     ctx.llvm_ctx,
+    //     current.module,
+    //     "printf\0".to_string(),
+    //     2,
+    //     vec![Some("string".to_string()), Some("number".to_string())],
+    //     "number".to_string(),
+    //     vec![],
+    // );
+
+    let printf = printf_function(ctx, module);
+    ctx.declarations.insert("printf".to_owned(), (0, printf));
+
+    //
+
     ctx.begin_scope();
 
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
 
-    add_printf(ctx, module, builder);
+    // add_printf(ctx, module, builder);
 
     let return_value = llvm
         ::core
@@ -313,18 +343,6 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
     match stmt {
         compiler::Stmt::Function { name, params, body } => {
             ctx.begin_scope();
-
-            // let function_call = FunctionCall::build
-            // (
-            //     ctx.llvm_ctx,
-            //     current.module,
-            //     name.value.to_string(),
-            //     params.len(),
-            //     vec![Some("number".to_string()); params.len()],
-            //     "number".to_string(),
-            //     body.iter().map(|s| *s.clone()).collect(),
-            // );
-            // let function_ref = function_call.function;
 
             let (_, function_call) = ctx.declarations.get(&name.value).unwrap();
             let function_call = function_call.clone();
@@ -525,7 +543,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 .enumerate()
                 .map(|(i, a)| {
                     let arg = match_expression(ctx, current, a);
-                    deref_if_ptr(ctx.llvm_ctx, current.builder, arg, function.param_types[i])
+
+                    if is_type_primitive(ctx.llvm_ctx, function.param_types[i]) {
+                        deref_if_ptr(ctx.llvm_ctx, current.builder, arg, function.param_types[i])
+                    } else {
+                        arg
+                    }
+
+                    // deref_if_ptr(ctx.llvm_ctx, current.builder, arg, function.param_types[i])
                 })
                 .collect();
 
@@ -790,4 +815,32 @@ pub unsafe fn add_printf(ctx: &mut Context, module: llvm::prelude::LLVMModuleRef
         param_values.len() as u32,
         binary_cstr!("printf_call"),
     );
+}
+
+pub unsafe fn printf_function
+(
+    ctx: &mut Context, module: llvm::prelude::LLVMModuleRef,
+) -> FunctionCall
+{
+    let printf_type = llvm::core::LLVMFunctionType
+    (
+        llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
+        [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
+        1,
+        1,
+    );
+
+    let printf = llvm
+        ::core
+        ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
+
+    FunctionCall {
+        name: "printf".to_string(),
+        function: printf,
+        function_type: printf_type,
+        arity: 2,
+        param_types: vec![llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0), llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)],
+        return_type: llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
+        code: vec![],
+    }
 }
