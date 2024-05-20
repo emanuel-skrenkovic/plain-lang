@@ -151,7 +151,7 @@ impl Context
 
     pub fn begin_scope(&mut self)
     {
-        let parent_scope = if self.scopes.len() == 0 { None }
+        let parent_scope = if self.scopes.is_empty() { None }
                            else                      { Some(&self.scopes[self.current_scope_index]) };
 
         // New scope path will contain the parent as well, so extending with the
@@ -166,19 +166,14 @@ impl Context
         };
 
         let new_scope = Scope {
-            index: 0,
+            index: self.scopes.len(),
             path: new_scope_path,
             variables: HashMap::new(),
             variable_types: HashMap::new(),
         };
 
-        // Push the new scope and get its index. Use it as the ID of the Scope struct.
+        self.current_scope_index = new_scope.index;
         self.scopes.push(new_scope);
-
-        let new_scope_index = self.scopes.len() - 1;
-        self.scopes[new_scope_index].index = new_scope_index;
-
-        self.current_scope_index = new_scope_index;
     }
 
     pub fn end_scope(&mut self)
@@ -275,6 +270,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
                         current.module,
                         name.to_string(),
                         params.len(),
+                        // TODO: actual types should be available after semantic analysis.
                         vec![Some("number".to_string()); params.len()],
                         "number".to_string(),
                         body.iter().map(|s| *s.clone()).collect(),
@@ -347,18 +343,12 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             }
 
             let result = match body.last().unwrap().as_ref() {
-                compiler::Stmt::Expr { expr } => {
-                    match_expression(ctx, &mut function_current, expr)
-                }
-                _ => panic!() // TODO
+                compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
+                _                             => panic!() // TODO
             };
 
             let return_type = function_call.return_type;
-            let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
-                deref_if_ptr(ctx.llvm_ctx, function_current.builder, result, return_type)
-            } else {
-                result
-            };
+            let result = deref_if_ptr(function_current.builder, result, return_type);
 
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
@@ -439,6 +429,8 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
             llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_branch);
         },
 
+        compiler::Stmt::Unary { } => (),
+
         compiler::Stmt::Return { } => (),
 
         compiler::Stmt::Expr { expr } => { match_expression(ctx, current, expr.as_ref()); },
@@ -461,15 +453,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             ctx.end_scope();
 
-            expr
+            let return_type = llvm::core::LLVMTypeOf(expr);
+            deref_if_ptr(current.builder, expr, return_type)
         },
 
         compiler::Expr::If { condition: _, then_branch: _, else_branch: _ } => todo!(),
 
         compiler::Expr::Binary { left, right, operator }
             => binary_expr(ctx, current, left.as_ref(), right.as_ref(), operator),
-
-        compiler::Expr::Grouping => todo!(),
 
         compiler::Expr::Literal { value } => match value {
             block::Value::Number { val } =>
@@ -497,8 +488,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
         compiler::Expr::Variable { name } => ctx.get_variable(&name.value).unwrap(),
 
-        compiler::Expr::Unary => todo!(),
-
         compiler::Expr::Assignment { name, value } => {
             let value_expr = match_expression(ctx, current, value);
             let variable_ref = ctx.get_variable(&name.value).unwrap();
@@ -511,7 +500,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let (scope, function) = ctx
                 .declarations
                 .get(&name.value)
-                .unwrap().clone();
+                .unwrap()
+                .clone();
 
             let current_scope = ctx.current_scope();
             if current_scope.index != scope && !current_scope.path.contains(&scope) {
@@ -525,12 +515,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 .enumerate()
                 .map(|(i, a)| {
                     let arg = match_expression(ctx, current, a);
-
-                    if is_type_primitive(ctx.llvm_ctx, function.param_types[i]) {
-                        deref_if_ptr(ctx.llvm_ctx, current.builder, arg, function.param_types[i])
-                    } else {
-                        arg
-                    }
+                    deref_if_primitive(current.builder, arg, function.param_types[i])
                 })
                 .collect();
 
@@ -539,7 +524,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             // TODO: the order of the variables gets shuffled
             // depending on the variables since we're dealing with a hashmap.
             for var in scope.variables.values() {
-                let arg = deref_if_ptr(ctx.llvm_ctx, current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+                let arg = deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
                 args.push(arg);
             }
 
@@ -547,7 +532,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 let closed_scope = &ctx.scopes[*i];
 
                 for var in closed_scope.variables.values() {
-                    let arg = deref_if_ptr(ctx.llvm_ctx, current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+                    let arg = deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
                     args.push(arg);
                 }
             }
@@ -562,7 +547,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 function.name.as_ptr() as *const _,
             );
 
-            deref_if_ptr(ctx.llvm_ctx, current.builder, result, function.function_type)
+            deref_if_ptr(current.builder, result, function.function_type)
         },
 
         compiler::Expr::Function { params, body }
@@ -584,25 +569,30 @@ pub unsafe fn binary_expr
 
     let expected_operand_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
 
-    let lhs = deref_if_ptr(ctx.llvm_ctx, current.builder, lhs, expected_operand_type);
-    let rhs = deref_if_ptr(ctx.llvm_ctx, current.builder, rhs, expected_operand_type);
+    let lhs = deref_if_ptr(current.builder, lhs, expected_operand_type);
+    let rhs = deref_if_ptr(current.builder, rhs, expected_operand_type);
 
     match operator.kind {
         scan::TokenKind::Plus => llvm
             ::core
             ::LLVMBuildAdd(current.builder, lhs, rhs, binary_cstr!("_add_result")),
+
         scan::TokenKind::Minus => llvm
             ::core
             ::LLVMBuildSub(current.builder, lhs, rhs, binary_cstr!("_sub_result")),
+
         scan::TokenKind::Star => llvm
             ::core
             ::LLVMBuildMul(current.builder, lhs, rhs, binary_cstr!("_mul_result")),
+
         scan::TokenKind::Slash => llvm
             ::core
             ::LLVMBuildSDiv(current.builder, lhs, rhs, binary_cstr!("_sub_result")),
+
         scan::TokenKind::LeftAngle => llvm
             ::core
             ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
+
         _ => panic!()
     }
 }
@@ -686,12 +676,7 @@ unsafe fn closure
     };
 
     let return_type = current.function.return_type;
-    let result = if is_type_primitive(ctx.llvm_ctx, return_type) {
-        deref_if_ptr(ctx.llvm_ctx, function_current.builder, result, return_type)
-    } else {
-        result
-    };
-
+    let result = deref_if_ptr(function_current.builder, result, return_type);
     llvm::core::LLVMBuildRet(function_current.builder, result);
 
     ctx.end_scope();
@@ -699,25 +684,45 @@ unsafe fn closure
     function_call
 }
 
-
-unsafe fn is_type_primitive(ctx: llvm::prelude::LLVMContextRef, value_type: llvm::prelude::LLVMTypeRef) -> bool
+unsafe fn is_pointer(var: llvm::prelude::LLVMValueRef) -> bool
 {
-    // TODO: more stuff
-    value_type == llvm::core::LLVMInt32TypeInContext(ctx)
+    let var_type      = llvm::core::LLVMTypeOf(var);
+    let var_type_kind = llvm::core::LLVMGetTypeKind(var_type);
+
+    var_type_kind == llvm::LLVMTypeKind::LLVMPointerTypeKind
 }
 
-unsafe fn deref_if_ptr
+const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 1] = [
+    llvm::LLVMTypeKind::LLVMIntegerTypeKind
+];
+
+unsafe fn deref_if_primitive
 (
-    ctx: llvm::prelude::LLVMContextRef,
     builder: llvm::prelude::LLVMBuilderRef,
     value: llvm::prelude::LLVMValueRef,
     expected_type: llvm::prelude::LLVMTypeRef,
 ) -> llvm::prelude::LLVMValueRef
 {
-    let value_type   = llvm::core::LLVMTypeOf(value);
-    let pointer_type = llvm::core::LLVMPointerTypeInContext(ctx, 0);
+    // TODO: cache this?
+    let type_kind = llvm::core::LLVMGetTypeKind(expected_type);
 
-    if pointer_type == value_type {
+    if is_pointer(value) && PRIMITIVE_TYPES.contains(&type_kind) {
+        return llvm
+            ::core
+            ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
+    }
+
+    value
+}
+
+unsafe fn deref_if_ptr
+(
+    builder: llvm::prelude::LLVMBuilderRef,
+    value: llvm::prelude::LLVMValueRef,
+    expected_type: llvm::prelude::LLVMTypeRef,
+) -> llvm::prelude::LLVMValueRef
+{
+    if is_pointer(value) {
         return llvm
             ::core
             ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));

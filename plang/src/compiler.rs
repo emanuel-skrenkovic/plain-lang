@@ -18,41 +18,50 @@ pub enum Node
 #[derive(Debug, Clone)]
 pub enum Stmt
 {
-    Function {
+    Function
+    {
         name: scan::Token,
         params: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
 
-    Declaration {
+    Declaration
+    {
         name: scan::Token,
         initializer: Box<Expr>,
     },
 
-    Block {
+    Block
+    {
         statements: Vec<Box<Stmt>>
     },
 
-    Var {
+    Var
+    {
         name: scan::Token,
         initializer: Box<Expr>,
     },
 
-    Const {
+    Const
+    {
         name: scan::Token,
         initializer: Box<Expr>,
     },
 
     For { },
 
-    While {
+    While
+    {
         condition: Box<Expr>,
         body: Vec<Box<Stmt>>,
     },
 
+    Unary { },
+
     Return { },
 
-    Expr {
+    Expr
+    {
         expr: Box<Expr>,
     }
 }
@@ -60,52 +69,57 @@ pub enum Stmt
 #[derive(Debug, Clone)]
 pub enum Expr
 {
-    Bad {
+    Bad
+    {
         token: scan::Token,
     },
 
-    Block {
+    Block
+    {
         statements: Vec<Box<Stmt>>,
         value: Box<Expr>,
     },
 
-    If {
+    If
+    {
         condition: Box<Expr>,
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
     },
 
-    Binary {
+    Binary
+    {
         left: Box<Expr>,
         right: Box<Expr>,
         operator: scan::Token
     },
 
-    Grouping,
-
-    Literal {
+    Literal
+    {
         value: block::Value,
     },
 
-    Variable {
+    Variable
+    {
         name: scan::Token,
     },
 
-    Unary,
-
-    Assignment {
+    Assignment
+    {
         name: scan::Token,
         value: Box<Expr>,
     },
 
     Logical,
 
-    Call {
+    Call
+    {
         name: scan::Token,
         arguments: Vec<Box<Expr>>,
     },
 
-    Function {
+    Function
+    {
         params: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
@@ -515,9 +529,7 @@ impl Compiler
         loop {
             match self.parser.current.kind {
                 scan::TokenKind::End => break,
-                _                    => {
-                    statements.push(self.declaration())
-                }
+                _                    => statements.push(self.declaration()),
             }
         }
 
@@ -618,15 +630,22 @@ impl Compiler
         // or returns 'Unit'.
         // If the final statement in the block is a semicolon, then treat it
         // like a value-less block, else, return the last value in the block.
-        // let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
+        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
         self.match_token(scan::TokenKind::Semicolon);
 
-        let binding = statements.pop().unwrap();
-        let expr = match binding.as_ref() {
-            Stmt::Expr { expr } => expr,
-             _ => panic!(),
+        // TODO: need to take tokens into account here:
+        // if the last expression in the block ends with a semicolon,
+        // it is of Unit value;
+        let expr = if has_value {
+            let binding = statements.pop().unwrap();
+            match binding.as_ref() {
+                Stmt::Expr { expr } => expr.to_owned(),
+                _                   => panic!(),
+            }
+        } else {
+            Box::new(Expr::Literal { value: block::Value::Unit })
         };
 
         self.end_scope();
@@ -879,11 +898,9 @@ impl Compiler
     {
         let name = self.parser.previous.clone();
 
-        if name.value != "printf" {
-            if self.parse_variable().is_none() {
-                return self
-                    .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
-            }
+        if name.value != "printf" && self.parse_variable().is_none() {
+            return self
+                .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
         }
 
         // If the next token is equal, handle assignment expression.
@@ -1037,35 +1054,20 @@ impl Compiler
 
     fn parse_variable(&mut self) -> Option<u8>
     {
-        let previous = self.parser.previous.value.clone();
+        let previous                       = self.parser.previous.value.clone();
         let (function_index, scope, index) = self.find_variable_by_name(&previous)?;
 
         let scope_distance = self.function_distance(self.current_function, function_index);
 
         // If the following token is '=', then it's an assignment.
-        if self.match_token(scan::TokenKind::Equal) {
-            if scope_distance == 0 {
-                if !self.program.scopes[scope].variables[index].mutable {
-                    self.parser
-                        .error_at("Cannot reassign value of an immutable variable.", &self.parser.previous.clone());
-                }
-
-                // self.expression();
-                // self.emit_byte(block::Op::SetLocal);
-            } else {
-                // Emit program distance -> vm will move frames by this distance.
-                // self.emit_byte(block::Op::SetUpvalue);
-                // self.emit(scope_distance as u8);
+        if self.match_token(scan::TokenKind::Equal) && scope_distance == 0  {
+            // If it is an assignment, and the variable is immutable -> compilation error.
+            if !self.program.scopes[scope].variables[index].mutable {
+                self.parser
+                    .error_at("Cannot reassign value of an immutable variable.", &self.parser.previous.clone());
             }
-        } else if scope_distance == 0 {
-            // self.emit_byte(block::Op::GetLocal);
-        } else {
-            // Emit program distance -> vm will move frames by this distance.
-            // self.emit_byte(block::Op::GetUpvalue);
-            // self.emit(scope_distance as u8);
         }
 
-        // self.emit(index as u8);
         Some(index as u8)
     }
 
@@ -1161,23 +1163,9 @@ impl Compiler
         //                     else                                             { self.expression() };
 
         // TODO: no unwrap
-        let variable = self.variable_statement().unwrap();
-
-        // end loop variables
-
-        // condition
-
-        let condition_expr = self.expression();
-
-        // end condition
-
-        // advancement statement
-
+        let variable         = self.variable_statement().unwrap();
+        let condition_expr   = self.expression();
         let advancement_expr = self.expression();
-
-        // end advancement statement
-
-        // body
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
@@ -1190,6 +1178,7 @@ impl Compiler
 
         body.push
         (
+            // Box::new(Box::new(Box::new(Box::new(B...))))
             Box::new(Stmt::Expr { expr: Box::new(advancement_expr) })
         );
 
@@ -1217,11 +1206,11 @@ impl Compiler
 
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
-                arguments.push
-                (
-                    Box::new(self.expression())
-                );
-                if !self.match_token(scan::TokenKind::Comma) { break }
+                arguments.push(Box::new(self.expression()));
+
+                if !self.match_token(scan::TokenKind::Comma) {
+                    break
+                }
             }
         }
         self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");

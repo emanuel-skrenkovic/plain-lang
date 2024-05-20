@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{compiler, scan};
 
+
 #[derive(Debug)]
 pub struct Scope
 {
@@ -26,6 +27,7 @@ pub struct SymbolTable
     pub current_scope_index: usize,
 }
 
+// TODO: implement a generic scope?
 impl SymbolTable
 {
     pub fn current_scope(&self) -> &Scope
@@ -47,8 +49,10 @@ impl SymbolTable
         // index of the parent.
         let new_scope_path = if let Some(parent_scope) = parent_scope {
             let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
+
             new_scope_path.extend_from_slice(&parent_scope.path);
             new_scope_path.push(parent_scope.index);
+
             new_scope_path
         } else {
             vec![]
@@ -136,6 +140,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 match_statement(symbol_table, stmt);
             }
 
+            // TODO: remove as much as possible of the unwraps and clones.
             match body.last().unwrap().as_ref() {
                 compiler::Stmt::Expr { expr } => match_expression(expr),
                 _                             => panic!() // TODO
@@ -156,6 +161,8 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
         compiler::Stmt::While { condition: _, body: _ } => (),
 
+        compiler::Stmt::Unary { } => (),
+
         compiler::Stmt::Return { } => (),
 
         compiler::Stmt::Expr { expr: _ } => (),
@@ -173,13 +180,9 @@ pub fn match_expression(expr: &compiler::Expr)
 
         compiler::Expr::Binary { left: _, right: _, operator: _ } => (),
 
-        compiler::Expr::Grouping => (),
-
         compiler::Expr::Literal { value: _ } => (),
 
         compiler::Expr::Variable { name: _ } => (),
-
-        compiler::Expr::Unary => (),
 
         compiler::Expr::Assignment { name: _, value: _ } => (),
 

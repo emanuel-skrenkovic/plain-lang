@@ -1,8 +1,15 @@
-not_add :: (a: number, b: number)
+test :: (a: number, b: number)
 {
-    a + b
+    c :: a - b;
+    c + 3 + 44
 }
 
-f_str :: "%d\0";
-result :: not_add({ 32 + 3 }, 4);
+add2 :: (a: number, b: number)
+{
+    32 - a + b
+}
+
+result :: test(2, 33) * add2(1, 1);
+
+f_str :: "%d";
 printf(f_str, result);
