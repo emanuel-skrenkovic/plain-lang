@@ -576,6 +576,7 @@ impl Compiler
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
         match get_rule(self.parser.previous.kind).prefix {
+
             Some(prefix) => {
                 let prefix_expr = prefix(self);
                 self.stack.push(prefix_expr);
@@ -779,9 +780,11 @@ impl Compiler
             // unintentionally advance.
             let _ = self.parser.advance().map_err(|e| self.error(e));
 
+            // Declare self first to allow recursion.
+            let index = self.declare_variable(variable_token.clone(), false, maybe_type_name);
+
             let (params, body) = self.function();
 
-            let index = self.declare_variable(variable_token.clone(), false, maybe_type_name);
             self.variable_declaration(index);
             self.variable_definition(index);
 
@@ -805,17 +808,10 @@ impl Compiler
         self.variable_definition(index);
 
         self.match_token(scan::TokenKind::Semicolon);
-        let stmt = if mutable {
-            Stmt::Var {
-                name: variable_token,
-                initializer: Box::new(initializer),
-            }
-        } else {
-            Stmt::Const {
-                name: variable_token,
-                initializer: Box::new(initializer),
-            }
-        };
+
+        let initializer = Box::new(initializer);
+        let stmt = if mutable { Stmt::Var { name: variable_token, initializer } }
+                   else       { Stmt::Const { name: variable_token, initializer } };
 
         Some(stmt)
     }

@@ -1,15 +1,10 @@
-test :: (a: number, b: number)
-{
-    c :: a - b;
-    c + 3 + 44
-}
-
 add2 :: (a: number, b: number)
 {
-    32 - a + b
+    c := 0;
+    while c < 1337 {
+        c = c + add2(1, 2) + 1000;
+    }
+    c
 }
 
-result :: test(2, 33) * add2(1, 1);
-
-f_str :: "%d";
-printf(f_str, result);
+add2(1, 1);

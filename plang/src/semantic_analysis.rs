@@ -105,6 +105,15 @@ impl SymbolTable
 // Walking the AST later is problematic if we don't have this.
 pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
 {
+    let symbol_table = forward_declarations(program);
+
+    println!("{:#?}", symbol_table);
+
+    symbol_table
+}
+
+pub fn forward_declarations(program: &[compiler::Stmt]) -> SymbolTable
+{
     let mut symbol_table = SymbolTable {
         scopes: vec![],
         current_scope_index: 0,
@@ -115,8 +124,6 @@ pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
     for stmt in &program.to_owned() {
         match_statement(&mut symbol_table, stmt);
     }
-
-    println!("{:#?}", symbol_table);
 
     symbol_table
 }
@@ -141,10 +148,14 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
             }
 
             // TODO: remove as much as possible of the unwraps and clones.
-            match body.last().unwrap().as_ref() {
-                compiler::Stmt::Expr { expr } => match_expression(expr),
-                _                             => panic!() // TODO
-            };
+            if let Some(last) = body.last() {
+                match last.as_ref() {
+                    compiler
+                        ::Stmt
+                        ::Expr { expr } => match_expression(expr),
+                    _                   => ()
+                };
+            }
 
             symbol_table.end_scope();
         },

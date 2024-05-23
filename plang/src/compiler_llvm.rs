@@ -47,17 +47,17 @@ impl FunctionCall
                 _        => panic!()
             }).collect();
 
-        let function_type_ref = llvm
+        let function_type = llvm
             ::core
             ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
-        let function_ref = llvm
+        let function = llvm
             ::core
-            ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type_ref);
+            ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type);
 
         FunctionCall {
             name,
-            function: function_ref,
-            function_type: function_type_ref,
+            function,
+            function_type,
             arity,
             param_types,
             return_type,
@@ -121,9 +121,6 @@ pub struct Context
 
     pub program: Vec<compiler::Stmt>,
 
-    // #horribleways Change it later.
-    pub functions: HashMap<String, FunctionCall>,
-
     pub scopes: Vec<Scope>,
     pub current_scope_index: usize,
 
@@ -141,7 +138,6 @@ impl Context
             llvm_ctx: llvm::core::LLVMContextCreate(),
             modules: Vec::with_capacity(1),
             program,
-            functions: HashMap::new(),
             scopes: Vec::with_capacity(1024),
             current_scope_index: 0,
             declarations: HashMap::new(),
@@ -342,19 +338,17 @@ pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &c
                 match_statement(ctx, &mut function_current, stmt);
             }
 
+            let return_type = function_call.return_type;
             let result = match body.last().unwrap().as_ref() {
                 compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
-                _                             => panic!() // TODO
+                _                             => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
-            let return_type = function_call.return_type;
             let result = deref_if_ptr(function_current.builder, result, return_type);
 
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
             ctx.end_scope();
-
-            ctx.functions.insert(name.value.to_string(), function_call.clone());
         },
 
         compiler::Stmt::Declaration { name: _, initializer: _ } => (),
@@ -544,7 +538,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 function.function,
                 args.as_mut_ptr(),
                 function.arity as u32,
-                function.name.as_ptr() as *const _,
+                format!("{}_call", function.name).as_ptr() as *const _,
             );
 
             deref_if_ptr(current.builder, result, function.function_type)
