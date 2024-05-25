@@ -107,7 +107,7 @@ pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
 {
     let symbol_table = forward_declarations(program);
 
-    // println!("{:#?}", symbol_table);
+    println!("{:#?}", symbol_table);
 
     symbol_table
 }
@@ -149,12 +149,9 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
             // TODO: remove as much as possible of the unwraps and clones.
             if let Some(last) = body.last() {
-                match last.as_ref() {
-                    compiler
-                        ::Stmt
-                        ::Expr { expr } => match_expression(expr),
-                    _                   => ()
-                };
+                if let compiler::Stmt::Expr { expr } = last.as_ref() {
+                    match_expression(expr);
+                }
             }
 
             symbol_table.end_scope();

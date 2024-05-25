@@ -660,23 +660,18 @@ impl Compiler
                 if t.starts_with('\"') {
                     // Removing the first and last chars because the token value contains the
                     // starting and ending quotes.
-                    let val = t.clone()[1..t.len()-1].to_string();
-                    Expr::Literal {
-                        value: block::Value::String { val },
-                    }
+                    let val = t[1..t.len()-1].to_string();
+                    Expr::Literal { value: block::Value::String { val } }
                 } else if let Some(first) = t.chars().nth(0) {
-                    // This is incorrect - should be part of the outer if-else conditions.
-                    if char::is_numeric(first) {
-                        let Ok(val) = t.parse::<i32>() else {
-                            return self.error_at("Expected number.", &self.parser.previous.clone());
-                        };
-
-                        Expr::Literal {
-                            value: block::Value::Number { val },
-                        }
-                    } else {
+                    if !char::is_numeric(first) {
                         return self.error_at("Failed to parse token as a literal.", &self.parser.previous.clone());
                     }
+                    // This is incorrect - should be part of the outer if-else conditions.
+                    let Ok(val) = t.parse::<i32>() else {
+                        return self.error_at("Expected number.", &self.parser.previous.clone());
+                    };
+
+                    Expr::Literal { value: block::Value::Number { val } }
                 } else {
                     return self.error_at("Failed to parse token as a literal.", &self.parser.previous.clone());
                 }

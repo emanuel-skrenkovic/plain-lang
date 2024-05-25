@@ -114,6 +114,15 @@ pub struct Current
     pub scope_depth: usize,
 }
 
+impl Current
+{
+    pub unsafe fn set_position(&mut self, basic_block: llvm::prelude::LLVMBasicBlockRef)
+    {
+        self.basic_block = basic_block;
+        llvm::core::LLVMPositionBuilderAtEnd(self.builder, basic_block);
+    }
+}
+
 pub struct Context
 {
     pub llvm_ctx: llvm::prelude::LLVMContextRef,
@@ -302,7 +311,7 @@ pub unsafe fn match_statement
     ctx: &mut Context,
     current: &mut Current,
     stmt: &compiler::Stmt
-) -> llvm::prelude::LLVMBasicBlockRef
+)
 {
     match stmt {
         compiler::Stmt::Function { name, params, body } => {
@@ -461,15 +470,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 ::core
                 ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_entry_branch"));
             llvm::core::LLVMBuildBr(current.builder, branch_entry_block);
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch_entry_block);
+            current.set_position(branch_entry_block);
 
             let condition_expr = match_expression(ctx, current, condition);
-
 
             let then_block = llvm
                 ::core
                 ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_then_branch"));
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_block);
+            current.set_position(then_block);
 
             // TODO: I think I need to start a block here.
             for stmt in then_branch {
@@ -479,13 +487,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let then_result = match_expression(ctx, current, then_value);
 
             let mut incoming_values: Vec<llvm::prelude::LLVMValueRef>      = vec![then_result];
-            let mut incoming_blocks: Vec<llvm::prelude::LLVMBasicBlockRef> = vec![then_block];
+            let mut incoming_blocks: Vec<llvm::prelude::LLVMBasicBlockRef> = vec![current.basic_block];
 
             if let (Some(else_branch), Some(else_value)) = (else_branch, else_value) {
                 let else_block = llvm
                     ::core
                     ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_else_branch"));
-                llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
+                // llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
+                current.set_position(else_block);
 
                 for stmt in else_branch {
                     match_statement(ctx, current, stmt);
@@ -494,7 +503,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 let else_result = match_expression(ctx, current, else_value);
 
                 incoming_values.push(else_result);
-                incoming_blocks.push(else_block);
+                incoming_blocks.push(current.basic_block);
             }
 
             // The problem is that we continue off from the wrong block.
@@ -512,31 +521,20 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 let previous_block = &incoming_blocks[i- 1];
                 // let current_block  = &incoming_blocks[i];
 
-                llvm::core::LLVMPositionBuilderAtEnd(current.builder, *previous_block);
+                current.set_position(*previous_block);
+                // llvm::core::LLVMPositionBuilderAtEnd(current.builder, *previous_block);
                 llvm::core::LLVMBuildBr(current.builder, end_block);
-
-
-                // if let Some(cond) = current_block.cond {
-                //     llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.parent_block);
-                //     llvm::core::LLVMBuildCondBr(current.builder, cond, previous_block.block, current_block.block);
-                // } else {
-                //     if let Some(previous_cond) = previous_block.cond {
-                //         llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.parent_block);
-                //         llvm::core::LLVMBuildCondBr(current.builder, previous_cond, previous_block.block, current_block.block);
-                //     }
-
-                //     llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.block);
-                //     llvm::core::LLVMBuildBr(current.builder, end_block);
-                // }
             }
 
             let Some(last) = incoming_blocks.last() else {
                 panic!();
             };
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, *last);
+            current.set_position(*last);
+            // llvm::core::LLVMPositionBuilderAtEnd(current.builder, *last);
             llvm::core::LLVMBuildBr(current.builder, end_block);
 
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch_entry_block);
+            // llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch_entry_block);
+            current.set_position(branch_entry_block);
 
             llvm
                 ::core
@@ -545,7 +543,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let incoming_values = incoming_values.as_mut_ptr();
             let incoming_blocks = incoming_blocks.as_mut_ptr();
 
-            llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
+            // llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
+            current.set_position(end_block);
 
             let branch_value_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
             let phi_node = llvm::core::LLVMBuildPhi(current.builder, branch_value_type, binary_cstr!("_branchphi"));
@@ -554,6 +553,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             // let after_block = llvm
             //     ::core
             //     ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_after_branch"));
+            // llvm::core::LLVMBuildBr(current.builder, after_block);
+            // current.set_position(after_block);
             // llvm::core::LLVMPositionBuilderAtEnd(current.builder, after_block);
 
             phi_node
