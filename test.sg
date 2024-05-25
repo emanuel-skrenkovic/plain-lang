@@ -10,7 +10,12 @@ add2 :: (a: number, b: number)
         a - b
     };
 
-    a + b + c
+    d := 0;
+    while d < 15 {
+        d = d + 1;
+    }
+
+    a + b + c + d
 }
 
 result :: add2(3, 1);
