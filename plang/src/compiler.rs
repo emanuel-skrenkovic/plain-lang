@@ -83,8 +83,10 @@ pub enum Expr
     If
     {
         condition: Box<Expr>,
-        then_branch: Box<Stmt>,
-        else_branch: Option<Box<Stmt>>,
+        then_branch: Vec<Box<Stmt>>,
+        then_value: Box<Expr>,
+        else_branch: Option<Vec<Box<Stmt>>>,
+        else_value: Option<Box<Expr>>,
     },
 
     Binary
@@ -617,41 +619,8 @@ impl Compiler
 
     fn block_expression(&mut self) -> Expr
     {
-        self.begin_scope();
-
-        let mut statements = vec![];
-
-        // Compile code until the end of the block or the end of the program is reached.
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
-            let statement = self.declaration();
-            statements.push(Box::new(statement));
-        }
-
-        // Blocks are expressions - this captures if the block contains a value,
-        // or returns 'Unit'.
-        // If the final statement in the block is a semicolon, then treat it
-        // like a value-less block, else, return the last value in the block.
-        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
-
-        self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
-        self.match_token(scan::TokenKind::Semicolon);
-
-        // TODO: need to take tokens into account here:
-        // if the last expression in the block ends with a semicolon,
-        // it is of Unit value;
-        let expr = if has_value {
-            let binding = statements.pop().unwrap();
-            match binding.as_ref() {
-                Stmt::Expr { expr } => expr.to_owned(),
-                _                   => panic!(),
-            }
-        } else {
-            Box::new(Expr::Literal { value: block::Value::Unit })
-        };
-
-        self.end_scope();
-
-        Expr::Block { statements, value: expr.to_owned() }
+        let (statements, value) = self.block();
+        Expr::Block { statements, value }
     }
 
     fn binary(&mut self) -> Expr
@@ -996,6 +965,44 @@ impl Compiler
         (params, body)
     }
 
+    fn block(&mut self) -> (Vec<Box<Stmt>>, Box<Expr>)
+    {
+        self.begin_scope();
+
+        let mut statements = vec![];
+
+        // Compile code until the end of the block or the end of the program is reached.
+        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+            let statement = self.declaration();
+            statements.push(Box::new(statement));
+        }
+
+        // Blocks are expressions - this captures if the block contains a value,
+        // or returns 'Unit'.
+        // If the final statement in the block is a semicolon, then treat it
+        // like a value-less block, else, return the last value in the block.
+        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
+
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        self.match_token(scan::TokenKind::Semicolon);
+
+        // TODO: need to take tokens into account here:
+        // if the last expression in the block ends with a semicolon,
+        // it is of Unit value;
+        let expr = if has_value {
+            let binding = statements.pop().unwrap();
+            match binding.as_ref() {
+                Stmt::Expr { expr } => expr.to_owned(),
+                _                   => panic!(),
+            }
+        } else {
+            Box::new(Expr::Literal { value: block::Value::Unit })
+        };
+
+        self.end_scope();
+        (statements, expr)
+    }
+
     fn declare_variable(&mut self, token: scan::Token, mutable: bool, type_name: Option<String>) -> u8
     {
         let variable_name = token.value.clone();
@@ -1113,15 +1120,26 @@ impl Compiler
     {
         let condition = self.expression();
 
-        let then_branch = self.declaration();
+        self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
-        let else_branch = if self.match_token(scan::TokenKind::Else) { Some(self.declaration()) }
-                          else                                       { None };
+        let (then_branch, then_value) = self.block();
+
+        // This looks ugly. :(
+        let (else_branch, else_value) = if self.match_token(scan::TokenKind::Else) {
+            self.consume(scan::TokenKind::LeftBracket, "Expect '{");
+
+            let (branch, value) = self.block();
+            (Some(branch), Some(value))
+        } else {
+            (None, None)
+        };
 
         Expr::If {
             condition: Box::new(condition),
-            then_branch: Box::new(then_branch),
-            else_branch: else_branch.map(Box::new),
+            then_branch,
+            then_value,
+            else_branch,
+            else_value,
         }
     }
 

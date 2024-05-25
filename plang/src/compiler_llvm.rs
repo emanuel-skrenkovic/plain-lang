@@ -297,7 +297,12 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     module
 }
 
-pub unsafe fn match_statement(ctx: &mut Context, current: &mut Current, stmt: &compiler::Stmt)
+pub unsafe fn match_statement
+(
+    ctx: &mut Context,
+    current: &mut Current,
+    stmt: &compiler::Stmt
+) -> llvm::prelude::LLVMBasicBlockRef
 {
     match stmt {
         compiler::Stmt::Function { name, params, body } => {
@@ -451,7 +456,108 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             deref_if_ptr(current.builder, expr, return_type)
         },
 
-        compiler::Expr::If { condition: _, then_branch: _, else_branch: _ } => todo!(),
+        compiler::Expr::If { condition, then_branch, then_value, else_branch, else_value } => {
+            let branch_entry_block = llvm
+                ::core
+                ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_entry_branch"));
+            llvm::core::LLVMBuildBr(current.builder, branch_entry_block);
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch_entry_block);
+
+            let condition_expr = match_expression(ctx, current, condition);
+
+
+            let then_block = llvm
+                ::core
+                ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_then_branch"));
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, then_block);
+
+            // TODO: I think I need to start a block here.
+            for stmt in then_branch {
+                match_statement(ctx, current, stmt);
+            }
+
+            let then_result = match_expression(ctx, current, then_value);
+
+            let mut incoming_values: Vec<llvm::prelude::LLVMValueRef>      = vec![then_result];
+            let mut incoming_blocks: Vec<llvm::prelude::LLVMBasicBlockRef> = vec![then_block];
+
+            if let (Some(else_branch), Some(else_value)) = (else_branch, else_value) {
+                let else_block = llvm
+                    ::core
+                    ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_else_branch"));
+                llvm::core::LLVMPositionBuilderAtEnd(current.builder, else_block);
+
+                for stmt in else_branch {
+                    match_statement(ctx, current, stmt);
+                }
+
+                let else_result = match_expression(ctx, current, else_value);
+
+                incoming_values.push(else_result);
+                incoming_blocks.push(else_block);
+            }
+
+            // The problem is that we continue off from the wrong block.
+            // We need to keep track of the currently used block in order for
+            // nested control flow (among other things) to work.
+
+            let end_block = llvm
+                ::core
+                ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_end_branch"));
+
+            let count = incoming_values.len() as u32;
+
+            // This is non-applicable garbage.
+            for i in 1..count as usize {
+                let previous_block = &incoming_blocks[i- 1];
+                // let current_block  = &incoming_blocks[i];
+
+                llvm::core::LLVMPositionBuilderAtEnd(current.builder, *previous_block);
+                llvm::core::LLVMBuildBr(current.builder, end_block);
+
+
+                // if let Some(cond) = current_block.cond {
+                //     llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.parent_block);
+                //     llvm::core::LLVMBuildCondBr(current.builder, cond, previous_block.block, current_block.block);
+                // } else {
+                //     if let Some(previous_cond) = previous_block.cond {
+                //         llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.parent_block);
+                //         llvm::core::LLVMBuildCondBr(current.builder, previous_cond, previous_block.block, current_block.block);
+                //     }
+
+                //     llvm::core::LLVMPositionBuilderAtEnd(current.builder, previous_block.block);
+                //     llvm::core::LLVMBuildBr(current.builder, end_block);
+                // }
+            }
+
+            let Some(last) = incoming_blocks.last() else {
+                panic!();
+            };
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, *last);
+            llvm::core::LLVMBuildBr(current.builder, end_block);
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, branch_entry_block);
+
+            llvm
+                ::core
+                ::LLVMBuildCondBr(current.builder, condition_expr, then_block, *last);
+
+            let incoming_values = incoming_values.as_mut_ptr();
+            let incoming_blocks = incoming_blocks.as_mut_ptr();
+
+            llvm::core::LLVMPositionBuilderAtEnd(current.builder, end_block);
+
+            let branch_value_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+            let phi_node = llvm::core::LLVMBuildPhi(current.builder, branch_value_type, binary_cstr!("_branchphi"));
+            llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
+
+            // let after_block = llvm
+            //     ::core
+            //     ::LLVMAppendBasicBlockInContext(ctx.llvm_ctx, current.function.function, binary_cstr!("_after_branch"));
+            // llvm::core::LLVMPositionBuilderAtEnd(current.builder, after_block);
+
+            phi_node
+        },
 
         compiler::Expr::Binary { left, right, operator }
             => binary_expr(ctx, current, left.as_ref(), right.as_ref(), operator),
@@ -586,6 +692,11 @@ pub unsafe fn binary_expr
         scan::TokenKind::LeftAngle => llvm
             ::core
             ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
+
+        scan::TokenKind::RightAngle => llvm
+            ::core
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_ltcomp")),
+
 
         _ => panic!()
     }

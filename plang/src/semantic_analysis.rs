@@ -107,7 +107,7 @@ pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
 {
     let symbol_table = forward_declarations(program);
 
-    println!("{:#?}", symbol_table);
+    // println!("{:#?}", symbol_table);
 
     symbol_table
 }
@@ -187,7 +187,7 @@ pub fn match_expression(expr: &compiler::Expr)
 
         compiler::Expr::Block { statements: _, value: _ } => (),
 
-        compiler::Expr::If { condition: _, then_branch: _, else_branch: _ } => (),
+        compiler::Expr::If { condition: _, then_branch: _, then_value: _, else_branch: _, else_value: _ } => (),
 
         compiler::Expr::Binary { left: _, right: _, operator: _ } => (),
 
