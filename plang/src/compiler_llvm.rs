@@ -425,8 +425,9 @@ pub unsafe fn match_statement
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            ctx.current_scope_mut().variables.insert(name.value.clone(), variable);
-            ctx.current_scope_mut().variable_types.insert(name.value.clone(), type_ref);
+            let scope = ctx.current_scope_mut();
+            scope.variables.insert(name.value.clone(), variable);
+            scope.variable_types.insert(name.value.clone(), type_ref);
         },
 
         compiler::Stmt::For { } => (),
