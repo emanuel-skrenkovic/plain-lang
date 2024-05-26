@@ -600,7 +600,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             block::Value::Unit =>
                 llvm
                     ::core
-                    ::LLVMConstNull(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx)),
+                    ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)),
 
             _ => panic!()
         },

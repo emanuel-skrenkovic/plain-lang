@@ -1,21 +1,12 @@
 add2 :: (a: number, b: number)
 {
-    c :: if a > b {
-        if b + 2 == a {
-            a + b + 15
-        } else {
-          0
-        }
-    } else {
-        a - b
-    };
+    c := 0;
 
-    d := 0;
-    while d != 15 {
-        d = d + 1;
+    if a > b {
+       c = 15;
     }
 
-    a + b + c + d
+    a + b + c
 }
 
 main :: ()

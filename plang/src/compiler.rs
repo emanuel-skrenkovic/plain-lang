@@ -1122,7 +1122,7 @@ impl Compiler
             let (branch, value) = self.block();
             (Some(branch), Some(value))
         } else {
-            (None, None)
+            (Some(vec![]), Some(Box::new(Expr::Literal { value: block::Value::Unit })))
         };
 
         Expr::If {
