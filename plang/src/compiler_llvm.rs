@@ -689,7 +689,7 @@ pub unsafe fn binary_expr
 
         scan::TokenKind::RightAngle => llvm
             ::core
-            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_ltcomp")),
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp")),
 
         scan::TokenKind::EqualEqual => llvm
             ::core
