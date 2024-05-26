@@ -9,11 +9,15 @@ use crate::{block, compiler, scan, semantic_analysis};
 pub struct FunctionCall
 {
     pub name: String,
+
     pub function: llvm::prelude::LLVMValueRef,
     pub function_type: llvm::prelude::LLVMTypeRef,
+
     pub arity: usize,
     pub param_types: Vec<llvm::prelude::LLVMTypeRef>,
+
     pub return_type: llvm::prelude::LLVMTypeRef,
+
     pub code: Vec<compiler::Stmt>,
 }
 
@@ -106,11 +110,11 @@ pub struct Scope
 pub struct Current
 {
     pub ctx: llvm::prelude::LLVMContextRef,
+    pub module: llvm::prelude::LLVMModuleRef,
 
     pub builder: llvm::prelude::LLVMBuilderRef,
     pub basic_block: llvm::prelude::LLVMBasicBlockRef,
 
-    pub module: llvm::prelude::LLVMModuleRef,
     pub function: FunctionCall,
 }
 
@@ -744,7 +748,7 @@ unsafe fn closure
     let mut function_current = Current::new(ctx.llvm_ctx, current.module, function_call);
 
     for (i, param) in closed_params.iter().enumerate() {
-        let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
+        let param_ref = llvm::core::LLVMGetParam(function_ref, i as u32);
         llvm::core::LLVMSetValueName2(param_ref, param.as_ptr() as * const _, param.len());
 
         let scope = ctx.current_scope_mut();
@@ -757,9 +761,7 @@ unsafe fn closure
     }
 
     let result = match body.last().unwrap().as_ref() {
-        compiler::Stmt::Expr { expr } => {
-            match_expression(ctx, &mut function_current, expr)
-        }
+        compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
         _ => panic!() // TODO
     };
 
