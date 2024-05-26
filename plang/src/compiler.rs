@@ -454,7 +454,6 @@ impl Function
 #[derive(Clone, Debug)]
 pub struct Program
 {
-    pub block: block::Block,
     pub scopes: Vec<Scope>,
     pub functions: Vec<Function>,
 }
@@ -464,8 +463,6 @@ impl Default for Program
     fn default() -> Self
     {
         Self {
-            block: block::Block::new(1024),
-
             scopes: vec!
             [
                 Scope {
@@ -1249,50 +1246,6 @@ impl Compiler
     // calls, again again).
     fn pipe(&mut self) -> Expr
     {
-        if self.parser.previous.kind.discriminant() != scan::TokenKind::Pipe.discriminant() {
-            return self.error_at
-            (
-                &format!("Expected infix token '{}' found '{}'", "|>", self.parser.previous.value),
-                &self.parser.previous.clone()
-            );
-        }
-
-        let Some(function_name) = self.parser.peek(0) else {
-            return self
-                .error_at("Failed to parse function name - no function name found.", &self.parser.current.clone());
-        };
-
-        let Some((function_index, _, _)) = self.find_variable_by_name(&function_name.value) else {
-            return self
-                .error_at(&format!("Failed to find function '{}'.", &function_name.value), &function_name.clone());
-        };
-
-        let block = if let Some(variable_function_index) = function_index {
-            &self.program.functions[variable_function_index].block
-        } else {
-            &self.program.block
-        };
-
-        // Get the scope of the variable, then find it by name in the scopes constants.
-        let function = block
-            .constants
-            .iter()
-            .find(|c| match c {
-                block::Value::Function { name, .. } => name == &function_name.value,
-                _ => false
-            });
-
-        let Some(block::Value::Function { arity, ..}) = function else {
-            return self
-                .error_at(&format!("Function with name '{}' not in scope", &function_name.value), &function_name.clone())
-        };
-
-        if arity != &1 {
-            return self
-                .error_at("Function must take only one argument to be able to work with pipes.", &function_name.clone());
-        }
-
-        self.match_token(scan::TokenKind::Semicolon);
         todo!()
     }
 
