@@ -6,7 +6,7 @@ use macros::binary_cstr;
 use crate::{block, compiler, scan, semantic_analysis};
 
 #[derive(Clone, Debug)]
-pub struct FunctionCall
+pub struct FunctionDefinition
 {
     pub name: String,
 
@@ -21,7 +21,7 @@ pub struct FunctionCall
     pub code: Vec<compiler::Stmt>,
 }
 
-impl FunctionCall
+impl FunctionDefinition
 {
     unsafe fn build
     (
@@ -32,7 +32,7 @@ impl FunctionCall
         argument_type_names: Vec<Option<String>>,
         return_type_name: String,
         code: Vec<compiler::Stmt>,
-    ) -> FunctionCall
+    ) -> Self
     {
         let return_type = match return_type_name.as_str() {
             "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
@@ -58,7 +58,7 @@ impl FunctionCall
             ::core
             ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type);
 
-        FunctionCall {
+        FunctionDefinition {
             name,
             function,
             function_type,
@@ -115,7 +115,7 @@ pub struct Current
     pub builder: llvm::prelude::LLVMBuilderRef,
     pub basic_block: llvm::prelude::LLVMBasicBlockRef,
 
-    pub function: FunctionCall,
+    pub function: FunctionDefinition,
 }
 
 impl Current
@@ -124,7 +124,7 @@ impl Current
     (
         llvm_ctx: llvm::prelude::LLVMContextRef,
         module: llvm::prelude::LLVMModuleRef,
-        function: FunctionCall,
+        function: FunctionDefinition,
     ) -> Self
     {
 
@@ -198,7 +198,7 @@ pub struct Context
     pub scopes: Vec<Scope>,
     pub current_scope_index: usize,
 
-    pub declarations: HashMap<String, (usize, FunctionCall)>,
+    pub declarations: HashMap<String, (usize, FunctionDefinition)>,
 
     pub symbol_table: semantic_analysis::SymbolTable,
 }
@@ -312,7 +312,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         for (name, declaration) in &scope.declarations {
             match &declaration {
                 &semantic_analysis::Declaration::Function { params, body } => {
-                    let function_call = FunctionCall::build
+                    let function_call = FunctionDefinition::build
                     (
                         ctx.llvm_ctx,
                         module,
@@ -733,7 +733,7 @@ unsafe fn closure
     name: &str,
     params: Vec<scan::Token>,
     body: Vec<Box<compiler::Stmt>>,
-) -> FunctionCall
+) -> FunctionDefinition
 {
     ctx.begin_scope();
 
@@ -752,7 +752,7 @@ unsafe fn closure
     closed_params.append(&mut params);
     closed_params.append(&mut closed_variables);
 
-    let function_call = FunctionCall::build
+    let function_call = FunctionDefinition::build
     (
         ctx.llvm_ctx,
         current.module,
@@ -901,7 +901,7 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
 pub unsafe fn printf_function
 (
     ctx: &mut Context, module: llvm::prelude::LLVMModuleRef,
-) -> FunctionCall
+) -> FunctionDefinition
 {
     let printf_type = llvm::core::LLVMFunctionType
     (
@@ -915,7 +915,7 @@ pub unsafe fn printf_function
         ::core
         ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
 
-    FunctionCall {
+    FunctionDefinition {
         name: "printf".to_string(),
         function: printf,
         function_type: printf_type,
