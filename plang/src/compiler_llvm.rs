@@ -366,17 +366,20 @@ pub unsafe fn match_statement
             ctx.begin_scope();
 
             let (_, function_call) = ctx.declarations.get(&name.value).unwrap();
+
+            // TODO: I don't like this clone here.
             let function_call = function_call.clone();
-            let function_ref = function_call.function;
+            let function_ref  = function_call.function;
 
             let mut function_current = Current::new(ctx.llvm_ctx, current.module, function_call);
 
             for (i, param) in params.iter().enumerate() {
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
                 llvm::core::LLVMSetValueName2(param_ref, param.value.as_ptr() as * const _, param.value.len());
-                let param_name = &param.value;
 
-                let scope = ctx.current_scope_mut();
+                let param_name = &param.value;
+                let scope      = ctx.current_scope_mut();
+
                 scope.variables.insert(param_name.clone(), param_ref);
                 scope.variable_types.insert(param_name.clone(), llvm::core::LLVMTypeOf(param_ref));
             }
@@ -386,7 +389,7 @@ pub unsafe fn match_statement
             }
 
             let return_type = current.function.return_type;
-            let result = match body.last().unwrap().as_ref() {
+            let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
                 compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
                 _                             => llvm::core::LLVMConstNull(return_type) // TODO
             };
@@ -524,6 +527,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
                     incoming_values.push(else_result);
                     incoming_blocks.push(current.basic_block);
+
                     Some(else_block)
                 }
                 _ => None,
@@ -585,8 +589,9 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         compiler::Expr::Variable { name } => ctx.get_variable(&name.value).unwrap(),
 
         compiler::Expr::Assignment { name, value } => {
-            let value_expr = match_expression(ctx, current, value);
+            let value_expr   = match_expression(ctx, current, value);
             let variable_ref = ctx.get_variable(&name.value).unwrap();
+
             llvm::core::LLVMBuildStore(current.builder, value_expr, variable_ref)
         },
 
@@ -604,9 +609,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 panic!("Function '{}' not in scope.", name.value);
             }
 
+            let mut closed_variables: Vec<llvm::prelude::LLVMValueRef> = variables_in_scope(ctx)
+                .iter()
+                .map(|(_, var)| deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)))
+                .collect();
+
             // TODO: I'm not sure of the semantics of arguments.
             // I'm thinking copy by default and take the reference explicitly.
-            let mut args: Vec<llvm::prelude::LLVMValueRef> = arguments
+            let mut initial_args: Vec<llvm::prelude::LLVMValueRef> = arguments
                 .iter()
                 .enumerate()
                 .map(|(i, a)| {
@@ -615,11 +625,10 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 })
                 .collect();
 
-            let mut closed_variables: Vec<llvm::prelude::LLVMValueRef> = variables_in_scope(ctx)
-                .iter()
-                .map(|(_, var)| deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)))
-                .collect();
+            let total_args_count = initial_args.len() + closed_variables.len();
 
+            let mut args: Vec<llvm::prelude::LLVMValueRef> = Vec::with_capacity(total_args_count);
+            args.append(&mut initial_args);
             args.append(&mut closed_variables);
 
             let result = llvm::core::LLVMBuildCall2
@@ -738,8 +747,9 @@ unsafe fn closure
         let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
         llvm::core::LLVMSetValueName2(param_ref, param.as_ptr() as * const _, param.len());
 
-        ctx.current_scope_mut().variables.insert(param.clone(), param_ref);
-        ctx.current_scope_mut().variable_types.insert(param.clone(), llvm::core::LLVMTypeOf(param_ref));
+        let scope = ctx.current_scope_mut();
+        scope.variables.insert(param.clone(), param_ref);
+        scope.variable_types.insert(param.clone(), llvm::core::LLVMTypeOf(param_ref));
     }
 
     for stmt in &body[..body.len()-1] {
