@@ -226,13 +226,14 @@ impl Context
 
         // New scope path will contain the parent as well, so extending with the
         // index of the parent.
-        let new_scope_path = if let Some(parent_scope) = parent_scope {
-            let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
-            new_scope_path.extend_from_slice(&parent_scope.path);
-            new_scope_path.push(parent_scope.index);
-            new_scope_path
-        } else {
-            vec![]
+        let new_scope_path = match parent_scope {
+            Some(parent_scope) => {
+                let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
+                new_scope_path.extend_from_slice(&parent_scope.path);
+                new_scope_path.push(parent_scope.index);
+                new_scope_path
+            }
+            _ => vec![],
         };
 
         let new_scope = Scope {
