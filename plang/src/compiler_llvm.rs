@@ -509,42 +509,36 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let mut incoming_values = vec![then_result];
             let mut incoming_blocks = vec![current.basic_block];
 
-            if let (Some(else_branch), Some(else_value)) = (else_branch, else_value) {
-                let else_block = current.append_block(ctx.llvm_ctx, "_else_branch");
-                current.set_position(else_block);
+            let else_block = match (else_branch, else_value) {
+                (Some(else_branch), Some(else_value)) => {
+                    let else_block = current.append_block(ctx.llvm_ctx, "_else_branch");
+                    current.set_position(else_block);
 
-                for stmt in else_branch {
-                    match_statement(ctx, current, stmt);
+                    for stmt in else_branch {
+                        match_statement(ctx, current, stmt);
+                    }
+
+                    let else_result = match_expression(ctx, current, else_value);
+
+                    incoming_values.push(else_result);
+                    incoming_blocks.push(current.basic_block);
+                    Some(else_block)
                 }
-
-                let else_result = match_expression(ctx, current, else_value);
-
-                incoming_values.push(else_result);
-                incoming_blocks.push(current.basic_block);
-            }
+                _ => None,
+            };
 
             let end_block = current.append_block(ctx.llvm_ctx, "_end_branch");
 
             let count = incoming_values.len() as u32;
 
-            // This is non-applicable garbage.
-            for i in 1..count as usize {
-                let previous_block = &incoming_blocks[i- 1];
-                // let current_block  = &incoming_blocks[i];
-
-                current.set_position(*previous_block);
+            for block in &incoming_blocks {
+                current.set_position(*block);
                 current.build_break(end_block);
             }
 
-            let Some(last) = incoming_blocks.last() else {
-                panic!();
-            };
-            current.set_position(*last);
-            current.build_break(end_block);
-
             current.set_position(branch_entry_block);
 
-            current.build_condition(condition_expr, then_block, *last);
+            current.build_condition(condition_expr, then_block, else_block.unwrap(/* TODO: remove unwrap */));
 
             let incoming_values = incoming_values.as_mut_ptr();
             let incoming_blocks = incoming_blocks.as_mut_ptr();
