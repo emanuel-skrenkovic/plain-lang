@@ -520,38 +520,40 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let condition_expr = match_expression(ctx, current, condition);
 
-            // if
+            let mut incoming_values = Vec::with_capacity(2);
+            let mut incoming_blocks = Vec::with_capacity(2);
 
             let then_block = current.append_block("_then_branch");
             current.set_position(then_block);
 
-            // TODO: I think I need to start a block here.
-            for stmt in then_branch {
-                match_statement(ctx, current, stmt);
-            }
+            let (then_result, then_exit_block) = {
+                for stmt in then_branch {
+                    match_statement(ctx, current, stmt);
+                }
 
-            let then_result = match_expression(ctx, current, then_value);
+                let then_result = match_expression(ctx, current, then_value);
 
-            let mut incoming_values = vec![then_result];
-            let mut incoming_blocks = vec![current.basic_block];
+                (then_result, current.basic_block)
+            };
 
-            // end if
-
-            // else
+            incoming_values.push(then_result);
+            incoming_blocks.push(then_exit_block);
 
             let else_block = current.append_block("_else_branch");
             current.set_position(else_block);
 
-            for stmt in else_branch {
-                match_statement(ctx, current, stmt);
-            }
+            let (else_result, else_exit_block) = {
+                for stmt in else_branch {
+                    match_statement(ctx, current, stmt);
+                }
 
-            let else_result = match_expression(ctx, current, else_value);
+                let else_result = match_expression(ctx, current, else_value);
+
+                (else_result, current.basic_block)
+            };
 
             incoming_values.push(else_result);
-            incoming_blocks.push(current.basic_block);
-
-            // end else
+            incoming_blocks.push(else_exit_block);
 
             let end_block = current.append_block("_end_branch");
 
