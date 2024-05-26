@@ -520,6 +520,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let condition_expr = match_expression(ctx, current, condition);
 
+            // if
+
             let then_block = current.append_block("_then_branch");
             current.set_position(then_block);
 
@@ -533,24 +535,23 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let mut incoming_values = vec![then_result];
             let mut incoming_blocks = vec![current.basic_block];
 
-            let else_block = match (else_branch, else_value) {
-                (Some(else_branch), Some(else_value)) => {
-                    let else_block = current.append_block("_else_branch");
-                    current.set_position(else_block);
+            // end if
 
-                    for stmt in else_branch {
-                        match_statement(ctx, current, stmt);
-                    }
+            // else
 
-                    let else_result = match_expression(ctx, current, else_value);
+            let else_block = current.append_block("_else_branch");
+            current.set_position(else_block);
 
-                    incoming_values.push(else_result);
-                    incoming_blocks.push(current.basic_block);
+            for stmt in else_branch {
+                match_statement(ctx, current, stmt);
+            }
 
-                    Some(else_block)
-                }
-                _ => None,
-            };
+            let else_result = match_expression(ctx, current, else_value);
+
+            incoming_values.push(else_result);
+            incoming_blocks.push(current.basic_block);
+
+            // end else
 
             let end_block = current.append_block("_end_branch");
 
@@ -563,7 +564,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             current.set_position(branch_entry_block);
 
-            current.build_condition(condition_expr, then_block, else_block.unwrap(/* TODO: remove unwrap */));
+            current.build_condition(condition_expr, then_block, else_block);
 
             let incoming_values = incoming_values.as_mut_ptr();
             let incoming_blocks = incoming_blocks.as_mut_ptr();

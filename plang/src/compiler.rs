@@ -85,8 +85,8 @@ pub enum Expr
         condition: Box<Expr>,
         then_branch: Vec<Box<Stmt>>,
         then_value: Box<Expr>,
-        else_branch: Option<Vec<Box<Stmt>>>,
-        else_value: Option<Box<Expr>>,
+        else_branch: Vec<Box<Stmt>>,
+        else_value: Box<Expr>,
     },
 
     Binary
@@ -1120,9 +1120,9 @@ impl Compiler
             self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
             let (branch, value) = self.block();
-            (Some(branch), Some(value))
+            (branch, value)
         } else {
-            (Some(vec![]), Some(Box::new(Expr::Literal { value: block::Value::Unit })))
+            (vec![], Box::new(Expr::Literal { value: block::Value::Unit }))
         };
 
         Expr::If {
