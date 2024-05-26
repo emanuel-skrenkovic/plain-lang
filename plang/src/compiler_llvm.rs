@@ -342,24 +342,25 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 
     let mut current = Current::new(ctx.llvm_ctx, module, main_function_call.clone());
 
-    ctx.begin_scope();
+    // Compile main first.
+    {
+        ctx.begin_scope();
 
-    for stmt in &main_function_call.code[..main_function_call.code.len()-1] {
-        match_statement(ctx, &mut current, stmt);
+        for stmt in &main_function_call.code[..main_function_call.code.len()-1] {
+            match_statement(ctx, &mut current, stmt);
+        }
+
+        let result = match main_function_call.code.last().unwrap() {
+            compiler::Stmt::Expr { expr } => match_expression(ctx, &mut current, expr),
+            _ => panic!() // TODO
+        };
+
+        let return_type = current.function.return_type;
+        let result      = deref_if_ptr(current.builder, result, return_type);
+        llvm::core::LLVMBuildRet(current.builder, result);
+
+        ctx.end_scope();
     }
-
-    let result = match main_function_call.code.last().unwrap() {
-        compiler::Stmt::Expr { expr } => match_expression(ctx, &mut current, expr),
-        _ => panic!() // TODO
-    };
-
-    let return_type = current.function.return_type;
-    let result = deref_if_ptr(current.builder, result, return_type);
-    llvm::core::LLVMBuildRet(current.builder, result);
-
-    ctx.end_scope();
-
-    // end main
 
     // Compile the rest of the program
 
