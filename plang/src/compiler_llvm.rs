@@ -615,23 +615,12 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 })
                 .collect();
 
-            let scope = ctx.current_scope();
+            let mut closed_variables: Vec<llvm::prelude::LLVMValueRef> = variables_in_scope(ctx)
+                .iter()
+                .map(|(_, var)| deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)))
+                .collect();
 
-            // TODO: the order of the variables gets shuffled
-            // depending on the variables since we're dealing with a hashmap.
-            for var in scope.variables.values() {
-                let arg = deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
-                args.push(arg);
-            }
-
-            for i in &scope.path {
-                let closed_scope = &ctx.scopes[*i];
-
-                for var in closed_scope.variables.values() {
-                    let arg = deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
-                    args.push(arg);
-                }
-            }
+            args.append(&mut closed_variables);
 
             let result = llvm::core::LLVMBuildCall2
             (
@@ -716,21 +705,20 @@ unsafe fn closure
 {
     ctx.begin_scope();
 
-    let mut closed_params: Vec<String> = params.iter().map(|p| p.value.clone()).collect();
+    let mut closed_variables: Vec<String> = variables_in_scope(ctx)
+        .into_iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
+    let mut params: Vec<String> = params
+        .iter()
+        .map(|p| p.value.clone())
+        .collect();
 
-    let scope = ctx.current_scope();
+    let total_values_count = params.len() + closed_variables.len();
 
-    for var in scope.variables.keys() {
-        closed_params.push(var.clone());
-    }
-
-    for i in &scope.path {
-        let closed_scope = &ctx.scopes[*i];
-
-        for value in closed_scope.variables.keys() {
-            closed_params.push(value.to_string());
-        }
-    }
+    let mut closed_params: Vec<String> = Vec::with_capacity(total_values_count);
+    closed_params.append(&mut params);
+    closed_params.append(&mut closed_variables);
 
     let function_call = FunctionCall::build
     (
@@ -819,6 +807,27 @@ unsafe fn deref_if_ptr
     }
 
     value
+}
+
+pub unsafe fn variables_in_scope(ctx: &Context) -> Vec<(&str, llvm::prelude::LLVMValueRef)>
+{
+    let scope = ctx.current_scope();
+
+    let mut vars: Vec<(&str, llvm::prelude::LLVMValueRef)> = Vec::with_capacity(1024);
+
+    for (key, value) in &scope.variables {
+        vars.push((key, *value));
+    }
+
+    for i in &scope.path {
+        let closed_scope = &ctx.scopes[*i];
+
+        for (key, value) in &closed_scope.variables {
+            vars.push((key, *value));
+        }
+    }
+
+    vars
 }
 
 pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
