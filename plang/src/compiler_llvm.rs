@@ -601,7 +601,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let (scope, function) = ctx
                 .declarations
                 .get(&name.value)
-                .unwrap()
+                .unwrap(/* TODO: remove unwrap */)
                 .clone();
 
             let current_scope = ctx.current_scope();
@@ -843,8 +843,8 @@ pub unsafe fn variables_in_scope(ctx: &Context) -> Vec<(&str, llvm::prelude::LLV
 pub unsafe fn verify_module(module: llvm::prelude::LLVMModuleRef)
 {
     let failure_action = llvm
-    ::analysis
-    ::LLVMVerifierFailureAction::LLVMPrintMessageAction;
+        ::analysis
+        ::LLVMVerifierFailureAction::LLVMPrintMessageAction;
 
     let mut error: *mut i8 = std::ptr::null_mut();
     if llvm::analysis::LLVMVerifyModule(module, failure_action, &mut error) != 0 {
