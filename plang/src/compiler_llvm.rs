@@ -105,6 +105,8 @@ pub struct Scope
 #[derive(Debug)]
 pub struct Current
 {
+    pub ctx: llvm::prelude::LLVMContextRef,
+
     pub builder: llvm::prelude::LLVMBuilderRef,
     pub basic_block: llvm::prelude::LLVMBasicBlockRef,
 
@@ -133,6 +135,7 @@ impl Current
         llvm::core::LLVMPositionBuilderAtEnd(builder, entry_block);
 
         Current {
+            ctx: llvm_ctx,
             builder,
             basic_block: entry_block,
             module,
@@ -149,7 +152,6 @@ impl Current
     pub unsafe fn append_block
     (
         &self,
-        llvm_ctx: llvm::prelude::LLVMContextRef,
         name: &str
     ) -> llvm::prelude::LLVMBasicBlockRef
     {
@@ -157,9 +159,9 @@ impl Current
         let block_name = CString::new(name).unwrap();
         llvm::core::LLVMAppendBasicBlockInContext
         (
-            llvm_ctx,
+            self.ctx,
             self.function.function,
-            block_name.as_ptr() as *const i8
+            block_name.as_ptr(),
         )
     }
 
@@ -433,9 +435,9 @@ pub unsafe fn match_statement
         compiler::Stmt::For { } => (),
 
         compiler::Stmt::While { condition, body } => {
-            let start_branch = current.append_block(ctx.llvm_ctx, "_while_start");
-            let body_branch  = current.append_block(ctx.llvm_ctx, "_while_body");
-            let end_branch   = current.append_block(ctx.llvm_ctx, "_while_end");
+            let start_branch = current.append_block("_while_start");
+            let body_branch  = current.append_block("_while_body");
+            let end_branch   = current.append_block("_while_end");
 
             current.build_break(start_branch);
 
@@ -490,13 +492,13 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         },
 
         compiler::Expr::If { condition, then_branch, then_value, else_branch, else_value } => {
-            let branch_entry_block = current.append_block(ctx.llvm_ctx, "_entry_branch");
+            let branch_entry_block = current.append_block("_entry_branch");
             current.build_break(branch_entry_block);
             current.set_position(branch_entry_block);
 
             let condition_expr = match_expression(ctx, current, condition);
 
-            let then_block = current.append_block(ctx.llvm_ctx, "_then_branch");
+            let then_block = current.append_block("_then_branch");
             current.set_position(then_block);
 
             // TODO: I think I need to start a block here.
@@ -511,7 +513,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let else_block = match (else_branch, else_value) {
                 (Some(else_branch), Some(else_value)) => {
-                    let else_block = current.append_block(ctx.llvm_ctx, "_else_branch");
+                    let else_block = current.append_block("_else_branch");
                     current.set_position(else_block);
 
                     for stmt in else_branch {
@@ -527,7 +529,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 _ => None,
             };
 
-            let end_block = current.append_block(ctx.llvm_ctx, "_end_branch");
+            let end_block = current.append_block("_end_branch");
 
             let count = incoming_values.len() as u32;
 
