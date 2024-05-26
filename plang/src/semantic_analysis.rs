@@ -106,10 +106,28 @@ impl SymbolTable
 pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
 {
     let symbol_table = forward_declarations(program);
+    ensure_main(&symbol_table);
 
     println!("{:#?}", symbol_table);
 
     symbol_table
+}
+
+pub fn ensure_main(symbol_table: &SymbolTable)
+{
+    let entry_scope = &symbol_table.scopes[0]; // TODO: is this correct?
+
+    let Some(main) = entry_scope.declarations.get("main") else {
+        panic!("Expect 'main' function");
+    };
+
+    let Declaration::Function { params, body: _ } = main; /*else {
+        panic!("Main is not a function!");
+    };*/
+
+    if !params.is_empty() {
+        panic!("Invalid main function signature: expect no parameters.");
+    }
 }
 
 pub fn forward_declarations(program: &[compiler::Stmt]) -> SymbolTable

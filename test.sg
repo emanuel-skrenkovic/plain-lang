@@ -18,6 +18,10 @@ add2 :: (a: number, b: number)
     a + b + c + d
 }
 
-result :: add2(3, 1);
-f_str :: "%d\0";
-printf(f_str, result);
+main :: ()
+{
+    result :: add2(3, 1);
+    f_str :: "%d\0";
+    printf(f_str, result);
+    0
+}

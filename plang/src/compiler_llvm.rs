@@ -303,19 +303,9 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
-    // TODO: this is a temporary mess.
-    let main_function_call = FunctionCall::build
-    (
-        ctx.llvm_ctx,
-        module,
-        "main".to_string(),
-        0,
-        vec![],
-        "number".to_string(),
-        ctx.program.clone(),
-    );
-
-    let mut current = Current::new(ctx.llvm_ctx, module, main_function_call);
+    // Adding globals.
+    let printf = printf_function(ctx, module);
+    ctx.declarations.insert("printf".to_owned(), (0, printf));
 
     for scope in &ctx.symbol_table.scopes {
         for (name, declaration) in &scope.declarations {
@@ -324,7 +314,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
                     let function_call = FunctionCall::build
                     (
                         ctx.llvm_ctx,
-                        current.module,
+                        module,
                         name.to_string(),
                         params.len(),
                         // TODO: actual types should be available after semantic analysis.
@@ -339,20 +329,42 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
     }
 
-    // Adding globals.
-    let printf = printf_function(ctx, module);
-    ctx.declarations.insert("printf".to_owned(), (0, printf));
+    // start main
 
     ctx.begin_scope();
+
+    let (_, main_function_call) = ctx
+        .declarations
+        .get("main")
+        .expect("Expect main function.")
+        .clone();
+
+    let mut current = Current::new(ctx.llvm_ctx, module, main_function_call.clone());
+
+    ctx.begin_scope();
+
+    for stmt in &main_function_call.code[..main_function_call.code.len()-1] {
+        match_statement(ctx, &mut current, stmt);
+    }
+
+    let result = match main_function_call.code.last().unwrap() {
+        compiler::Stmt::Expr { expr } => match_expression(ctx, &mut current, expr),
+        _ => panic!() // TODO
+    };
+
+    let return_type = current.function.return_type;
+    let result = deref_if_ptr(current.builder, result, return_type);
+    llvm::core::LLVMBuildRet(current.builder, result);
+
+    ctx.end_scope();
+
+    // end main
+
+    // Compile the rest of the program
 
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
-
-    let return_value = llvm
-        ::core
-        ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 0);
-    llvm::core::LLVMBuildRet(current.builder, return_value);
 
     verify_module(module);
     module
@@ -367,6 +379,8 @@ pub unsafe fn match_statement
 {
     match stmt {
         compiler::Stmt::Function { name, params, body } => {
+            if name.value == "main" { return }
+
             ctx.begin_scope();
 
             let (_, function_call) = ctx.declarations.get(&name.value).unwrap();
