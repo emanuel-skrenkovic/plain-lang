@@ -548,7 +548,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             current.set_position(end_block);
 
             let branch_value_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
-            let phi_node = llvm::core::LLVMBuildPhi(current.builder, branch_value_type, binary_cstr!("_branchphi"));
+            let phi_node          = llvm::core::LLVMBuildPhi(current.builder, branch_value_type, binary_cstr!("_branchphi"));
+
             llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
 
             phi_node
