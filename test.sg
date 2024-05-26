@@ -1,7 +1,7 @@
 add2 :: (a: number, b: number)
 {
     c :: if a > b {
-        if b + 3 > a {
+        if b + 2 == a {
             a + b + 15
         } else {
           0
@@ -11,7 +11,7 @@ add2 :: (a: number, b: number)
     };
 
     d := 0;
-    while d < 15 {
+    while d != 15 {
         d = d + 1;
     }
 

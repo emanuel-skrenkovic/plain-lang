@@ -690,6 +690,13 @@ pub unsafe fn binary_expr
             ::core
             ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_ltcomp")),
 
+        scan::TokenKind::EqualEqual => llvm
+            ::core
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp")),
+
+        scan::TokenKind::BangEqual => llvm
+            ::core
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_neqcomp")),
 
         _ => panic!()
     }
