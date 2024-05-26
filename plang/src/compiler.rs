@@ -306,8 +306,6 @@ impl Parser
 
     fn advance(&mut self) -> Result<(), CompilerError>
     {
-        self.previous = self.current.clone();
-
         if matches!(self.current.kind, scan::TokenKind::End) {
             return Ok(())
         }
@@ -316,6 +314,7 @@ impl Parser
             return Ok(())
         }
 
+        std::mem::swap(&mut self.previous, &mut self.current);
         self.current = self.tokens[self.current_index].clone();
 
         if matches!(self.current.kind, scan::TokenKind::End) {
