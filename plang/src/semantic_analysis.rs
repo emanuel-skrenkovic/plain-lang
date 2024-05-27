@@ -68,6 +68,8 @@ pub fn forward_declarations(program: &[compiler::Stmt]) -> SymbolTable
         match_statement(&mut symbol_table, stmt);
     }
 
+    symbol_table.module.end_scope();
+
     symbol_table
 }
 

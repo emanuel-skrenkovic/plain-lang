@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct Scope<T>
-    where T : Clone + Debug
+    where T : Debug
 {
     pub index: usize,
     pub path: Vec<usize>,
@@ -13,14 +13,14 @@ pub struct Scope<T>
 
 #[derive(Debug)]
 pub struct Module<T>
-    where T : Clone + Debug
+    where T : Debug
 {
     pub scopes: Vec<Scope<T>>,
     pub current_scope_index: usize,
 }
 
 impl <T> Module<T>
-    where T : Clone + Debug
+    where T : Debug
 {
     pub fn new() -> Self
     {
@@ -42,7 +42,7 @@ impl <T> Module<T>
 
     pub fn begin_scope(&mut self)
     {
-                let parent_scope = if self.scopes.is_empty() { None }
+        let parent_scope = if self.scopes.is_empty() { None }
                            else                      { Some(&self.scopes[self.current_scope_index]) };
 
         // New scope path will contain the parent as well, so extending with the
@@ -64,29 +64,34 @@ impl <T> Module<T>
         };
 
         self.current_scope_index = new_scope.index;
-        self.scopes.push(new_scope);    }
+        self.scopes.push(new_scope);
+    }
 
     pub fn end_scope(&mut self)
     {
-        let scope                = &self.scopes[self.current_scope_index];
+        let scope = &self.scopes[self.current_scope_index];
+        if scope.path.is_empty() { return }
+
         let parent_scope         = scope.path.last().unwrap();
         self.current_scope_index = *parent_scope;
     }
 
-    pub fn get(&self, name: &str) -> Option<T>
+    pub fn get(&self, name: &str) -> Option<&T>
     {
         let scope = self.current_scope();
 
-        if let Some(decl) = scope.values.get(name) {
-            return Some(decl.clone())
-        };
+        let val = scope.values.get(name);
+        if val.is_some() {
+            return val
+        }
 
         for i in scope.path.iter().rev() {
             let scope = &self.scopes[*i];
 
-            if let Some(decl) = scope.values.get(name) {
-                return Some(decl.clone())
-            };
+            let val = scope.values.get(name);
+            if val.is_some() {
+                return val
+            }
         }
 
         None
@@ -94,7 +99,7 @@ impl <T> Module<T>
 }
 
 impl<T> Default for Module<T>
-    where T : Clone + Debug
+    where T : Debug
 {
     fn default() -> Self
     {

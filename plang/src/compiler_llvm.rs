@@ -269,8 +269,6 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 
     // start main
 
-    ctx.module_scopes.begin_scope();
-
     let (_, main_function_call) = ctx
         .declarations
         .get("main")
@@ -300,10 +298,13 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     }
 
     // Compile the rest of the program
+    ctx.module_scopes.begin_scope();
 
     for stmt in &ctx.program.clone() {
         match_statement(ctx, &mut current, stmt);
     }
+
+    ctx.module_scopes.end_scope();
 
     verify_module(module);
     module
@@ -550,14 +551,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
         compiler::Expr::Variable { name } => {
             let (variable, _) = ctx.module_scopes.get(&name.value).unwrap();
-            variable
+            *variable
         }
 
         compiler::Expr::Assignment { name, value } => {
             let value_expr        = match_expression(ctx, current, value);
             let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
 
-            llvm::core::LLVMBuildStore(current.builder, value_expr, variable_ref)
+            llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
         },
 
         compiler::Expr::Logical => todo!(),
