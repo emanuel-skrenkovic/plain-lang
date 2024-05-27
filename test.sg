@@ -1,0 +1,18 @@
+add2 :: (a: number, b: number)
+{
+    c := 0;
+
+    if a > b {
+       c = 15;
+    }
+
+    a + b + c
+}
+
+main :: ()
+{
+    result :: add2(3, 1);
+    f_str :: "%d\0";
+    printf(f_str, result);
+    0
+}

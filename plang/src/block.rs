@@ -6,7 +6,14 @@ pub enum Value
     String { val: String },
     Number { val: i32 },
     Bool   { val: bool },
-    Function { name: String, arity: usize, closure: Closure },
+    Function {
+        name: String,
+        arity: usize,
+        closure: Closure,
+        argument_type_names:
+        Vec<Option<String>>,
+        return_type_name: String
+    },
     Closure { val: Closure },
     Unit
 }
@@ -30,8 +37,43 @@ pub enum Op
     DeclareVariable, SetLocal, GetLocal,
     SetUpvalue, GetUpvalue,
     Frame, Return,
-    Jump, CondJump, LoopJump,
+    Jump, CondJump,
+    Loop, LoopCondJump, LoopJump,
     Call
+}
+
+impl core::fmt::Display for Op {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match *self {
+            Op::Pop             => write!(f, "POP"),
+            Op::True            => write!(f, "TRUE"),
+            Op::False           => write!(f, "FALSE"),
+            Op::Not             => write!(f, "NOT"),
+            Op::Add             => write!(f, "ADD"),
+            Op::Subtract        => write!(f, "SUBTRACT"),
+            Op::Multiply        => write!(f, "MUL"),
+            Op::Divide          => write!(f, "DIV"),
+            Op::Constant        => write!(f, "CONSTANT"),
+            Op::Equal           => write!(f, "EQ"),
+            Op::Less            => write!(f, "LESS"),
+            Op::Greater         => write!(f, "GR"),
+            Op::GreaterEqual    => write!(f, "GE"),
+            Op::LessEqual       => write!(f, "LE"),
+            Op::DeclareVariable => write!(f, "DECLARE_VAR"),
+            Op::SetLocal        => write!(f, "SET_LOCAL"),
+            Op::GetLocal        => write!(f, "GET_LOCAL"),
+            Op::SetUpvalue      => write!(f, "SET_UPVALUE"),
+            Op::GetUpvalue      => write!(f, "GET_UPVALUE"),
+            Op::Frame           => write!(f, "FRAME"),
+            Op::Return          => write!(f, "RETURN"),
+            Op::Jump            => write!(f, "JUMP"),
+            Op::CondJump        => write!(f, "COND_JUMP"),
+            Op::Loop            => write!(f, "JUMP"),
+            Op::LoopCondJump    => write!(f, "LOOP_COND_JUMP"),
+            Op::LoopJump        => write!(f, "LOOP_JUMP"),
+            Op::Call            => write!(f, "CALL"),
+        }
+    }
 }
 
 impl TryFrom<u8> for Op
@@ -64,6 +106,8 @@ impl TryFrom<u8> for Op
             x if x == Op::Return as u8          => Ok(Op::Return),
             x if x == Op::Jump as u8            => Ok(Op::Jump),
             x if x == Op::CondJump as u8        => Ok(Op::CondJump),
+            x if x == Op::Loop as u8            => Ok(Op::Loop),
+            x if x == Op::LoopCondJump as u8    => Ok(Op::LoopCondJump),
             x if x == Op::LoopJump as u8        => Ok(Op::LoopJump),
             x if x == Op::Call as u8            => Ok(Op::Call),
             _ => Err(()),
@@ -72,10 +116,28 @@ impl TryFrom<u8> for Op
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub struct TypeInfo
+{
+    name: String,
+    kind: TypeKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum TypeKind
+{
+    Bool,
+    Number,
+    String,
+    // Struct,
+}
+
+#[derive(Clone, Debug)]
 pub struct Block
 {
     pub code: Vec<u8>,
-    pub constants: Vec<Value>
+    pub constants: Vec<Value>,
+    pub type_info: Vec<TypeInfo>,
 }
 
 impl Block
@@ -84,7 +146,8 @@ impl Block
     {
         Block {
             code: Vec::with_capacity(capacity),
-            constants: vec![]
+            constants: vec![],
+            type_info: vec![],
         }
     }
 

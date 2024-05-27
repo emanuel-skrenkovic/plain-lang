@@ -1,0 +1,43 @@
+OP CONSTANT             |
+OP DECLARE_VARIABLE     |
+OP SET_LOCAL            |
+OP CALL                 |
+OP CONSTANT             |
+OP DECLARE_VARIABLE     |
+OP SET_LOCAL            |
+OP CONSTANT             |
+OP DECLARE_VARIABLE     |
+OP SET_LOCAL            |
+OP LOOP                 |
+OP GET_LOCAL            |
+OP CONSTANT             |
+OP LESS                 |
+OP LOOP_COND_JUMP       |
+OP JUMP                 |
+OP GET_LOCAL            |
+OP CONSTANT             |
+OP ADD                  |
+OP SET_LOCAL            |
+OP POP                  |
+OP LOOP_JUMP            |
+OP GET_LOCAL            |
+OP CONSTANT             |
+OP SUBTRACT             |
+OP SET_LOCAL            |
+OP POP                  |
+OP LOOP_JUMP            |
+OP POP                  |
+OP GET_LOCAL            |
+OP RETURN               |
+OP DECLARE_VARIABLE     |
+OP SET_LOCAL            |
+
+
+Idea #1:
+--------
+Have Op::Jump create a new block as a part of the thingy.
+Have Op::LoopJump create a break into the next block.
+Have some kind of counter which will then loop back the next block to be the
+final block of the loop.
+
+This might be able to work with both branching (with else-if) and loops (both 'for' and 'while').

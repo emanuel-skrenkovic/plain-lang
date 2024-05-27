@@ -1,9 +1,11 @@
 [package]
-name = "plangc"
+name = "plang"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
-plang = { path = "./plang" }
-macros = { path = "./macros" }
+macros = { path = "../macros" }
+llvm-sys = "170.0.1"
+

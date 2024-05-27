@@ -1,5 +1,5 @@
 use std::fmt;
-use std::mem::{discriminant, Discriminant};
+use std::mem;
 
 #[derive(Debug, Clone, Copy)]
 pub enum TokenKind
@@ -21,9 +21,9 @@ impl TokenKind
 {
     // TODO: not sure about this. Feels slightly better though.
     // Also seems more in line with how Rust usually does things.
-    pub fn discriminant(&self) -> Discriminant<TokenKind>
+    pub fn discriminant(&self) -> mem::Discriminant<TokenKind>
     {
-        std::mem::discriminant(self)
+        mem::discriminant(self)
     }
 }
 
@@ -57,7 +57,7 @@ impl fmt::Display for Token
     }
 }
 
-impl std::default::Default for Token
+impl Default for Token
 {
     fn default() -> Self
     {
@@ -68,6 +68,7 @@ impl std::default::Default for Token
 pub struct Scanner
 {
     source: String,
+    source_len: usize,
 
     current: usize,
     start: usize,
@@ -81,6 +82,7 @@ impl Scanner
     pub fn new(source: String) -> Scanner
     {
         Scanner {
+            source_len: source.len(),
             source,
 
             current: 0,
@@ -92,11 +94,11 @@ impl Scanner
 
     pub fn scan_tokens(&mut self) -> Vec<Token>
     {
-        let mut tokens: Vec<Token> = vec![];
+        let mut tokens: Vec<Token> = Vec::with_capacity(1024 * 8);
 
         loop {
             let current = self.scan_token();
-            let end = discriminant(&current.kind) == discriminant(&TokenKind::End);
+            let end = current.kind.discriminant() == TokenKind::End.discriminant();
 
             tokens.push(current);
 
@@ -170,6 +172,15 @@ impl Scanner
 
                 self.emit(TokenKind::Bang)
             }
+            '"' => {
+                while self.peek() != '\"' && !self.source_end() {
+                    self.advance();
+                }
+                // Get the ending quotes as well.
+                self.advance();
+
+                self.emit(TokenKind::Literal)
+            }
             '='  => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::EqualEqual)
@@ -184,8 +195,10 @@ impl Scanner
 
     fn identifier(&mut self) -> Token
     {
-        while self.peek().is_alphanumeric() {
+        let mut c = self.peek();
+        while c.is_alphanumeric() || c == '_' {
             self.advance();
+            c = self.peek();
         }
 
         self.emit(self.identifier_type())
@@ -193,12 +206,12 @@ impl Scanner
 
     fn identifier_type(&self) -> TokenKind
     {
-        let identifier_first_char = self.source.chars().nth(self.start).unwrap();
+        let identifier_first_char = self.source_char_at(self.start);
 
         match identifier_first_char {
             'b' => self.check_keyword(1, 4, "reak", TokenKind::Break),
             'c' => {
-                if self.source.chars().nth(self.start + 1).unwrap() == 'a' { // TODO: fix
+                if self.source_char_at(self.start + 1) == 'a' {
                     return self.check_keyword(2, 2, "se", TokenKind::Case)
                 }
 
@@ -206,32 +219,32 @@ impl Scanner
             },
             'e' => self.check_keyword(1, 3, "lse", TokenKind::Else),
             'f' => {
-                if self.source.chars().nth(self.start + 1).unwrap() == 'o' { // TODO: fix
+                if self.source_char_at(self.start + 1) == 'o' { // TODO: fix
                     return self.check_keyword(2, 1, "r", TokenKind::For)
                 }
 
-                if self.source.chars().nth(self.start + 1).unwrap() == 'a' { // TODO: fix
+                if self.source_char_at(self.start + 1) == 'a' { // TODO: fix
                     return self.check_keyword(2, 3, "lse", TokenKind::False)
                 }
 
                 self.check_keyword(2, 2, "nc", TokenKind::Func)
             },
             'i' => {
-                if self.source.chars().nth(self.start + 1).unwrap() == 'f' { // TODO: fix
+                if self.source_char_at(self.start + 1) == 'f' { // TODO: fix
                     return TokenKind::If
                 }
 
                 self.check_keyword(1, 8, "nterface", TokenKind::If)
             },
             's' => {
-                if self.source.chars().nth(self.start + 1).unwrap() == 't' { // TODO: fix
+                if self.source_char_at(self.start + 1) == 't' { // TODO: fix
                     return self.check_keyword(2, 4, "ruct", TokenKind::Struct)
                 }
 
                 self.check_keyword(2, 4, "itch", TokenKind::Switch)
             },
             't' => {
-                if self.source.chars().nth(self.start + 1).unwrap() == 'r' {
+                if self.source_char_at(self.start + 1) == 'r' {
                     return self.check_keyword(2, 2, "ue", TokenKind::True)
                 }
 
@@ -280,10 +293,7 @@ impl Scanner
     {
         self.current += 1;
 
-        self.source
-            .chars()
-            .nth(self.current - 1)
-            .unwrap()
+        self.source_char_at(self.current - 1)
     }
 
     fn peek(&self) -> char
@@ -303,7 +313,8 @@ impl Scanner
 
     fn source_char_at(&self, i: usize) -> char
     {
-        self.source.chars().nth(i).unwrap_or('\0')
+        if i >= self.source_len { return '\0' }
+        self.source.as_bytes()[i] as char
     }
 
     fn skip_whitespace(&mut self)

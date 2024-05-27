@@ -1,11 +1,11 @@
-use sage::block::Value;
-use sage::compiler::Compiler;
-use sage::vm::VM;
+use plang::block::Value;
+use plang::compiler::Compiler;
+use plang::vm::VM;
 
 #[cfg(test)]
 mod equals_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn equals_not_equal() {
@@ -13,7 +13,7 @@ mod equals_operator {
 
         let mut scanner = Scanner::new(source.to_string());
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -34,7 +34,7 @@ mod equals_operator {
 
         let mut scanner = Scanner::new(source.to_string());
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -57,7 +57,7 @@ mod equals_operator {
 
         let mut scanner = Scanner::new(source.to_string());
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(scanner.scan_tokens());
         let program = program.unwrap();
 
@@ -69,7 +69,7 @@ mod equals_operator {
 #[cfg(test)]
 mod not_equals_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn not_equals_not_equal() {
@@ -77,7 +77,7 @@ mod not_equals_operator {
 
         let mut scanner = Scanner::new(source.to_string());
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -98,7 +98,7 @@ mod not_equals_operator {
 
         let mut scanner = Scanner::new(source.to_string());
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(scanner.scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -118,7 +118,7 @@ mod not_equals_operator {
     fn not_equals_different_types() {
         let source = "5 != true";
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source.to_string()).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -130,13 +130,13 @@ mod not_equals_operator {
 #[cfg(test)]
 mod plus_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn add() {
         let source = "5 + 6";
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source.to_string()).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -155,7 +155,7 @@ mod plus_operator {
     fn add_multiple_values() {
         let source = "5 + 6 + 7 + 8";
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source.to_string()).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -175,7 +175,7 @@ mod plus_operator {
     fn add_different_types() {
         let source = "5 + true";
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source.to_string()).scan_tokens());
 
         let mut vm = VM::new(program.unwrap());
@@ -186,13 +186,13 @@ mod plus_operator {
 #[cfg(test)]
 mod minus_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn subtract() {
         let source = "5 - 6".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source.to_string()).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -213,7 +213,7 @@ mod minus_operator {
     fn subtract_different_types() {
         let source = "5 - true";
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source.to_string()).scan_tokens());
 
         let mut vm = VM::new(program.unwrap());
@@ -224,13 +224,13 @@ mod minus_operator {
 #[cfg(test)]
 mod greater_than_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn greater_than_lesser() {
         let source = "5 > 6".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -250,7 +250,7 @@ mod greater_than_operator {
     fn greater_than_greater() {
         let source = "5 > 4".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -271,7 +271,7 @@ mod greater_than_operator {
     fn greater_than_different_types() {
         let source = "5 > true".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -284,13 +284,13 @@ mod greater_than_operator {
 #[cfg(test)]
 mod less_than_operator {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn less_than_lesser() {
         let source = "5 < 6".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -310,7 +310,7 @@ mod less_than_operator {
     fn less_than_greater() {
         let source = "5 < 4".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -331,7 +331,7 @@ mod less_than_operator {
     fn less_than_different_types() {
         let source = "5 > true".to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -344,7 +344,7 @@ mod less_than_operator {
 #[cfg(test)]
 mod block_expression {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     #[should_panic]
@@ -356,7 +356,7 @@ mod block_expression {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -380,7 +380,7 @@ mod block_expression {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -405,7 +405,7 @@ mod block_expression {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -425,7 +425,7 @@ mod block_expression {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -446,7 +446,7 @@ mod block_expression {
 #[cfg(test)]
 mod function {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn t() {
@@ -455,7 +455,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -465,11 +465,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name: _,
-                arity: _,
-                closure: _,
-            } => {}
+            Value::Function { .. } => {}
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -483,7 +479,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -493,11 +489,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name: _,
-                arity: _,
-                closure: _,
-            } => {}
+            Value::Function { .. } => {}
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -511,7 +503,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -521,11 +513,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name: _,
-                arity,
-                closure: _,
-            } => debug_assert_eq!(arity, 2),
+            Value::Function { arity, .. } => debug_assert_eq!(arity, 2),
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -539,7 +527,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -549,11 +537,7 @@ mod function {
         let value = vm.pop();
 
         match value {
-            Value::Function {
-                name,
-                arity: _,
-                closure: _,
-            } => debug_assert_eq!(name, "test"),
+            Value::Function { name, .. } => debug_assert_eq!(name, "test"),
             _ => debug_assert!(false, "Value on stack is not a function."),
         }
     }
@@ -569,7 +553,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -597,7 +581,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -627,7 +611,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -656,7 +640,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -686,7 +670,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -716,7 +700,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -746,7 +730,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -782,7 +766,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -817,7 +801,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -835,13 +819,7 @@ mod function {
 
         let value = vm.pop();
         match value {
-            Value::Function {
-                name,
-                arity: _,
-                closure: _,
-            } => {
-                debug_assert_eq!(name, "test")
-            }
+            Value::Function { name, .. } => debug_assert_eq!(name, "test"),
             _ => debug_assert!(false, "Value of incorrect type pushed onto the stack."),
         }
     }
@@ -854,7 +832,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
@@ -871,7 +849,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -901,7 +879,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -933,7 +911,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -955,9 +933,9 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
-        debug_assert!(program.is_ok());
+        // debug_assert!(program.is_ok());
         let program = program.unwrap();
 
         // Act
@@ -983,7 +961,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1011,7 +989,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1045,7 +1023,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1078,7 +1056,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1113,7 +1091,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1149,7 +1127,7 @@ mod function {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1175,7 +1153,7 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1194,7 +1172,7 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1218,7 +1196,7 @@ mod function {
         ".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1248,7 +1226,7 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1278,7 +1256,7 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1304,7 +1282,7 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1330,7 +1308,7 @@ mod function {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1360,7 +1338,7 @@ mod function {
         ".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1376,12 +1354,82 @@ mod function {
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
     }
+
+    #[test]
+    fn called_function_return_type_defined()
+    {
+        // Arrange
+        let source = "
+            add :: (a, b, c): number { a + b * c };
+            result :: add(1, 2, 3);
+            result;
+        ".to_owned();
+
+        // Act
+        let compiler = Compiler::new(source.to_string());
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Assert
+        match &program.block.constants[0] {
+            Value::Function { return_type_name, .. } => debug_assert_eq!(return_type_name, "number"),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            // 3 + 2 + 3 + 3 + 2 + 1 = 14
+            Value::Number { val } => debug_assert_eq!(val, 7),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+
+    #[test]
+    fn nested()
+    {
+        // Arrange
+        let source = "
+            add :: (a, b, c): number {
+                plus :: (d, f): number { d * f };
+                a + b * c  + plus(a, b)
+            };
+            result :: add(1, 2, 3);
+            result;
+        ".to_owned();
+
+        // Act
+        let compiler = Compiler::new(source.to_string());
+        let program = compiler.compile(Scanner::new(source).scan_tokens());
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        // Assert
+        match &program.block.constants[0] {
+            Value::Function { return_type_name, .. } => debug_assert_eq!(return_type_name, "number"),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            // 1 + 2 * 3 + (1 * 2) = 9
+            // Python3 says 9 is the correct answer.
+            Value::Number { val } => debug_assert_eq!(val, 9),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
 }
 
 #[cfg(test)]
 mod closure {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn closure_should_access_variable_from_outside_scope() {
@@ -1392,7 +1440,7 @@ mod closure {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
 
@@ -1416,7 +1464,7 @@ mod closure {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
@@ -1425,7 +1473,7 @@ mod closure {
 #[cfg(test)]
 mod var_variables {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn var_defined_with_number_value() {
@@ -1433,7 +1481,7 @@ mod var_variables {
         let source = "a := 5;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1452,7 +1500,7 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1474,7 +1522,7 @@ mod var_variables {
         let source = "a := true;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1493,7 +1541,7 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1516,7 +1564,7 @@ mod var_variables {
     //     let source = "var a;".to_owned();
     //
     //     // Act
-    //     let mut compiler = Compiler::new(source.to_string());
+    //     let compiler = Compiler::new(source.to_string());
     //     let program = compiler.compile(Scanner::new(source).scan_tokens());
     //     debug_assert!(program.is_ok());
     //     let program = program.unwrap();
@@ -1535,7 +1583,7 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1555,7 +1603,7 @@ mod var_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1583,7 +1631,7 @@ mod var_variables {
     //     .to_owned();
     //
     //     // Act
-    //     let mut compiler = Compiler::new(source.to_string());
+    //     let compiler = Compiler::new(source.to_string());
     //     let program = compiler.compile(Scanner::new(source).scan_tokens());
     //     debug_assert!(program.is_ok());
     //     let program = program.unwrap();
@@ -1603,7 +1651,7 @@ mod var_variables {
 #[cfg(test)]
 mod let_variables {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn let_defined_with_number_value() {
@@ -1611,7 +1659,7 @@ mod let_variables {
         let source = "a :: 5;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1630,7 +1678,7 @@ mod let_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1652,7 +1700,7 @@ mod let_variables {
         let source = "a :: true;".to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1671,7 +1719,7 @@ mod let_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1694,7 +1742,7 @@ mod let_variables {
     //     let source = "let a;".to_owned();
     //
     //     // Act
-    //     let mut compiler = Compiler::new(source.to_string());
+    //     let compiler = Compiler::new(source.to_string());
     //     let program = compiler.compile(Scanner::new(source).scan_tokens());
     //     debug_assert!(!program.is_ok());
     // }
@@ -1709,7 +1757,7 @@ mod let_variables {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(!program.is_ok());
     }
@@ -1718,7 +1766,7 @@ mod let_variables {
 #[cfg(test)]
 mod colon_equals {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn declaration() {
@@ -1727,7 +1775,7 @@ mod colon_equals {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
     }
@@ -1741,7 +1789,7 @@ mod colon_equals {
         "
         .to_owned();
 
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
     }
@@ -1750,7 +1798,7 @@ mod colon_equals {
 #[cfg(test)]
 mod control_flow {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn if_expression_true_branch() {
@@ -1763,7 +1811,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1791,7 +1839,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1816,7 +1864,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1844,7 +1892,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1874,7 +1922,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1904,7 +1952,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1934,7 +1982,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1963,7 +2011,7 @@ mod control_flow {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -1980,7 +2028,7 @@ mod control_flow {
 #[cfg(test)]
 mod for_loop {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn for_parsed_interpreted() {
@@ -1992,7 +2040,7 @@ mod for_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -2014,7 +2062,7 @@ mod for_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -2037,7 +2085,7 @@ mod for_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -2056,7 +2104,7 @@ mod for_loop {
 #[cfg(test)]
 mod while_loop {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn while_parsed_and_interpreted() {
@@ -2069,7 +2117,7 @@ mod while_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -2092,7 +2140,7 @@ mod while_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -2121,7 +2169,7 @@ mod while_loop {
         .to_owned();
 
         // Act
-        let mut compiler = Compiler::new(source.to_string());
+        let compiler = Compiler::new(source.to_string());
         let program = compiler.compile(Scanner::new(source).scan_tokens());
         debug_assert!(program.is_ok());
         let program = program.unwrap();
@@ -2141,7 +2189,7 @@ mod while_loop {
 mod pipe
 {
     use super::*;
-    use sage::scan::Scanner;
+    use plang::scan::Scanner;
 
     #[test]
     fn pipe()
@@ -2168,5 +2216,111 @@ mod pipe
             Value::Number { val } => debug_assert_eq!(val, 5),
             _ => debug_assert!(false, "Value is of incorrect type."),
         }
+    }
+}
+
+#[cfg(test)]
+mod type_definition
+{
+    use super::*;
+    use plang::scan::Scanner;
+
+    #[test]
+    fn variable_type()
+    {
+        let source = "
+            test : string = \"HI THERE\";
+            test;
+        ".to_owned();
+
+        let tokens = Scanner::new(source.clone()).scan_tokens();
+        println!("{:?}", tokens);
+        // Act
+        let program = Compiler::new(source.clone())
+            .compile(tokens);
+
+        // Assert
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::String { val } => debug_assert_eq!(val, "HI THERE"),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+
+    #[test]
+    fn addition_with_types()
+    {
+        let source = "
+            a : int = 5;
+            b : int = 6;
+            a + b;
+        ".to_owned();
+
+        let tokens = Scanner::new(source.clone()).scan_tokens();
+        // Act
+        let program = Compiler::new(source.clone())
+            .compile(tokens);
+
+        // Assert
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        let value = vm.pop();
+        match value {
+            Value::Number { val } => debug_assert_eq!(val, 11),
+            _ => debug_assert!(false, "Value is of incorrect type."),
+        }
+    }
+}
+
+#[cfg(test)]
+mod llvm
+{
+    use plang::compiler::Compiler;
+    use plang::scan::Scanner;
+    use plang::vm::VM;
+
+    #[test]
+    fn llvm()
+    {
+        let source = "
+            test :: (initial: number, end: number): number {
+                acc := initial;
+                while acc < end {
+                    acc = acc + 1;
+                };
+
+                acc
+            }
+
+            c :: test(1, 5);
+        ".to_owned();
+
+        let tokens = Scanner::new(source.clone()).scan_tokens();
+        // Act
+        let program = Compiler::new(source.clone())
+            .compile(tokens);
+
+        // Assert
+        debug_assert!(program.is_ok());
+        let program = program.unwrap();
+
+        let mut vm = VM::new(program);
+        vm.interpret();
+
+        // let value = vm.pop();
+        // match value {
+        //     Value::Number { val } => debug_assert_eq!(val, 11),
+        //     _ => debug_assert!(false, "Value is of incorrect type."),
+        // }
     }
 }
