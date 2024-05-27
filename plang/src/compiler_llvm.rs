@@ -193,12 +193,9 @@ pub struct Context
     pub llvm_ctx: llvm::prelude::LLVMContextRef,
     pub modules: Vec<llvm::prelude::LLVMModuleRef>,
 
-    pub module_scopes: scope::Module<(llvm::prelude::LLVMValueRef, llvm::prelude::LLVMTypeRef)>,
-
     pub program: Vec<compiler::Stmt>,
 
-    pub current_scope_index: usize,
-
+    pub module_scopes: scope::Module<(llvm::prelude::LLVMValueRef, llvm::prelude::LLVMTypeRef)>,
     pub declarations: HashMap<String, (usize, FunctionDefinition)>,
 
     pub symbol_table: semantic_analysis::SymbolTable,
@@ -212,9 +209,8 @@ impl Context
         Self {
             llvm_ctx: llvm::core::LLVMContextCreate(),
             modules: Vec::with_capacity(1),
-            module_scopes: scope::Module::new(),
             program,
-            current_scope_index: 0,
+            module_scopes: scope::Module::new(),
             declarations: HashMap::new(),
             symbol_table,
         }
