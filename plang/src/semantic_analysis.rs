@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{compiler, scan};
+use crate::{compiler, scan, scope};
 
 
 #[derive(Debug)]
@@ -23,81 +23,7 @@ pub enum Declaration
 #[derive(Debug)]
 pub struct SymbolTable
 {
-    pub scopes: Vec<Scope>,
-    pub current_scope_index: usize,
-}
-
-// TODO: implement a generic scope?
-impl SymbolTable
-{
-    pub fn current_scope(&self) -> &Scope
-    {
-        &self.scopes[self.current_scope_index]
-    }
-
-    pub fn current_scope_mut(&mut self) -> &mut Scope
-    {
-        &mut self.scopes[self.current_scope_index]
-    }
-
-    pub fn begin_scope(&mut self)
-    {
-        let parent_scope = if self.scopes.is_empty() { None }
-                           else                      { Some(&self.scopes[self.current_scope_index]) };
-
-        // New scope path will contain the parent as well, so extending with the
-        // index of the parent.
-        let new_scope_path = if let Some(parent_scope) = parent_scope {
-            let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
-
-            new_scope_path.extend_from_slice(&parent_scope.path);
-            new_scope_path.push(parent_scope.index);
-
-            new_scope_path
-        } else {
-            vec![]
-        };
-
-        let new_scope = Scope {
-            index: 0,
-            path: new_scope_path,
-            declarations: HashMap::new(),
-        };
-
-        // Push the new scope and get its index. Use it as the ID of the Scope struct.
-        self.scopes.push(new_scope);
-
-        let new_scope_index = self.scopes.len() - 1;
-        self.scopes[new_scope_index].index = new_scope_index;
-
-        self.current_scope_index = new_scope_index;
-    }
-
-    pub fn end_scope(&mut self)
-    {
-        let scope                = &self.scopes[self.current_scope_index];
-        let parent_scope         = scope.path.last().unwrap();
-        self.current_scope_index = *parent_scope;
-    }
-
-    pub fn get_declaration(&self, name: &str) -> Option<Declaration>
-    {
-        let scope = self.current_scope();
-
-        if let Some(decl) = scope.declarations.get(name) {
-            return Some(decl.clone())
-        };
-
-        for i in scope.path.iter().rev() {
-            let scope = &self.scopes[*i];
-
-            if let Some(decl) = scope.declarations.get(name) {
-                return Some(decl.clone())
-            };
-        }
-
-        None
-    }
+    pub module: scope::Module<Declaration>,
 }
 
 // TODO: build symbol table to forward-declare
@@ -115,9 +41,9 @@ pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
 
 pub fn ensure_main(symbol_table: &SymbolTable)
 {
-    let entry_scope = &symbol_table.scopes[0]; // TODO: is this correct?
+    let entry_scope = &symbol_table.module.scopes[0]; // TODO: is this correct?
 
-    let Some(main) = entry_scope.declarations.get("main") else {
+    let Some(main) = entry_scope.values.get("main") else {
         panic!("Expect 'main' function");
     };
 
@@ -133,11 +59,10 @@ pub fn ensure_main(symbol_table: &SymbolTable)
 pub fn forward_declarations(program: &[compiler::Stmt]) -> SymbolTable
 {
     let mut symbol_table = SymbolTable {
-        scopes: vec![],
-        current_scope_index: 0,
+        module: scope::Module::new(),
     };
 
-    symbol_table.begin_scope();
+    symbol_table.module.begin_scope();
 
     for stmt in &program.to_owned() {
         match_statement(&mut symbol_table, stmt);
@@ -150,7 +75,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 {
     match stmt {
         compiler::Stmt::Function { name, params, body } => {
-            symbol_table.current_scope_mut().declarations.insert
+            symbol_table.module.current_scope_mut().values.insert
             (
                 name.value.clone(),
                 Declaration::Function {
@@ -159,7 +84,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 },
             );
 
-            symbol_table.begin_scope();
+            symbol_table.module.begin_scope();
 
             for stmt in &body[..body.len()-1] {
                 match_statement(symbol_table, stmt);
@@ -172,7 +97,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 }
             }
 
-            symbol_table.end_scope();
+            symbol_table.module.end_scope();
         },
 
         compiler::Stmt::Declaration { name: _, initializer: _ } => (),
