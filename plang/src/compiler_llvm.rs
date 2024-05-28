@@ -391,7 +391,47 @@ pub unsafe fn match_statement
             scope.values.insert(name.value.clone(), (variable, type_ref));
         },
 
-        compiler::Stmt::For { } => (),
+        compiler::Stmt::For { initializer, condition, advancement, body } => {
+            let start_branch       = current.append_block("_for_start");
+            let condition_branch   = current.append_block("_for_condition");
+            let body_branch        = current.append_block("_for_body");
+            let advancement_branch = current.append_block("_for_advancement");
+            let end_branch         = current.append_block("_for_end");
+
+            current.build_break(start_branch);
+
+            // initializer
+            {
+                current.set_position(start_branch);
+                match_statement(ctx, current, initializer);
+                current.build_break(body_branch);
+            }
+
+            // condition
+            {
+                current.set_position(condition_branch);
+                let condition_expr = match_expression(ctx, current, condition);
+                current.build_condition(condition_expr, body_branch, end_branch);
+            }
+
+            // body
+            {
+                current.set_position(body_branch);
+                for stmt in body {
+                    match_statement(ctx, current, stmt);
+                }
+                current.build_break(advancement_branch);
+            }
+
+            // advancement
+            {
+                current.set_position(advancement_branch);
+                match_statement(ctx, current, advancement);
+                current.build_break(condition_branch);
+            }
+
+            current.set_position(end_branch);
+        },
 
         compiler::Stmt::While { condition, body } => {
             let start_branch = current.append_block("_while_start");

@@ -108,7 +108,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
         compiler::Stmt::Const { name: _, initializer: _ } => (),
 
-        compiler::Stmt::For {  } => (),
+        compiler::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
 
         compiler::Stmt::While { condition: _, body: _ } => (),
 

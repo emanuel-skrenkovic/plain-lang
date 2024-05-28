@@ -2,8 +2,8 @@ add2 :: (a: number, b: number)
 {
     c := 0;
 
-    if a > b {
-       c = 15;
+    for i := 0; i < 15; i = i + 1 {
+        c = c + i;
     }
 
     a + b + c

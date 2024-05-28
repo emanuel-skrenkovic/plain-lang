@@ -48,7 +48,12 @@ pub enum Stmt
         initializer: Box<Expr>,
     },
 
-    For { },
+    For {
+        initializer: Box<Stmt>,
+        condition: Box<Expr>,
+        advancement: Box<Stmt>,
+        body: Vec<Box<Stmt>>,
+    },
 
     While
     {
@@ -1161,38 +1166,29 @@ impl Compiler
     // will make up for everything.
     fn _for(&mut self) -> Stmt
     {
-        // loop variable
-
-        // TODO: think about this if condition.
-        // let variable_expr = if self.match_token(scan::TokenKind::Identifier) { self.variable_statement(); }
-        //                     else                                             { self.expression() };
-
         // TODO: no unwrap
-        let variable         = self.variable_statement().unwrap();
-        let condition_expr   = self.expression();
-        let advancement_expr = self.expression();
+        let variable       = self.variable_statement().unwrap();
+        let condition_expr = self.expression();
+        // TODO: needs to be just unary statement.
+        let advancement    = self.declaration();
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body: Vec<Box<Stmt>> = vec![Box::new(variable)];
+        let mut body: Vec<Box<Stmt>> = vec![];
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
             body.push(Box::new(self.declaration()));
         }
 
-        body.push
-        (
-            // Box::new(Box::new(Box::new(Box::new(B...))))
-            Box::new(Stmt::Expr { expr: Box::new(advancement_expr) })
-        );
-
-        self.match_token(scan::TokenKind::RightBracket);
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' after the 'for' block.");
 
         // end body
 
-        Stmt::While {
+        Stmt::For {
+            initializer: Box::new(variable),
             condition: Box::new(condition_expr),
+            advancement: Box::new(advancement),
             body,
         }
     }
