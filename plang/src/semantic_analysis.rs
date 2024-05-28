@@ -92,11 +92,9 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 match_statement(symbol_table, stmt);
             }
 
-            // TODO: remove as much as possible of the unwraps and clones.
-            if let Some(last) = body.last() {
-                if let compiler::Stmt::Expr { expr } = last.as_ref() {
-                    match_expression(expr);
-                }
+            match body.last().map(|s| s.as_ref()) {
+                Some(compiler::Stmt::Expr { expr }) => match_expression(expr),
+                _                                   => ()
             }
 
             symbol_table.module.end_scope();

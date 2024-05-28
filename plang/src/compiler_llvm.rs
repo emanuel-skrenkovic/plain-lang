@@ -281,9 +281,9 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
             match_statement(ctx, &mut current, stmt);
         }
 
-        let result = match main_function_call.code.last().unwrap() {
-            compiler::Stmt::Expr { expr } => match_expression(ctx, &mut current, expr),
-            _ => panic!() // TODO
+        let result = match main_function_call.code.last() {
+            Some(compiler::Stmt::Expr { expr }) => match_expression(ctx, &mut current, expr),
+            _                                   => panic!() // TODO
         };
 
         let return_type = current.function.return_type;
@@ -494,8 +494,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let end_block = current.append_block("_end_branch");
 
-            let count = incoming_values.len() as u32;
-
             for block in &incoming_blocks {
                 current.set_position(*block);
                 current.build_break(end_block);
@@ -505,6 +503,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             current.build_condition(condition_expr, then_block, else_block);
 
+            let count           = incoming_values.len() as u32;
             let incoming_values = incoming_values.as_mut_ptr();
             let incoming_blocks = incoming_blocks.as_mut_ptr();
 
