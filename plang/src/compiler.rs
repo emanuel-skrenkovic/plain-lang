@@ -144,6 +144,7 @@ pub enum CompilerErrorKind
 pub struct CompilerError
 {
     pub line: usize,
+    pub token_index: usize,
     pub source_line: String,
     pub token: String,
     pub msg: String,
@@ -154,14 +155,21 @@ impl fmt::Display for CompilerError
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
+        let token_len             = self.token.len();
+        let token_underline_range = self.token_index..self.token_index + token_len + 1;
+        let mut underline         = " ".repeat(self.source_line.len());
+
+        underline.replace_range(token_underline_range, &"^".repeat(token_len));
+
+        let line1 = format!("{line:<width$} {line_text}", line=format!("{}:", self.line), line_text=self.source_line, width=6);
+        let line2 = format!("{line:<width$} {line_text}", line="", line_text=underline, width=6);
+
         write!(
             f,
-            "\n{} | {:?}: {}\nat token: '{}'\nline: {}",
-            self.line,
-            self.kind,
+            "Error: {}\n\n{}\n{}",
             self.msg,
-            self.token,
-            self.source_line,
+            line1,
+            line2,
         )
     }
 }
@@ -376,6 +384,7 @@ impl Parser
         CompilerError {
             msg: message.to_owned(),
             line: token.line,
+            token_index: token.token_index,
             source_line: lines[token.line - 1].clone(),
             token: token.value.clone(),
             kind: CompilerErrorKind::ParseError,
@@ -579,7 +588,6 @@ impl Compiler
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
         match get_rule(self.parser.previous.kind).prefix {
-
             Some(prefix) => {
                 let prefix_expr = prefix(self);
                 self.stack.push(prefix_expr);
@@ -760,7 +768,7 @@ impl Compiler
             // even more #horribleways
             let error = self.error_at
             (
-                &format!("Cannot redeclare variable with name '{}'.", &variable_token),
+                &format!("Cannot redeclare variable with name '{}'.", &variable_token.value),
                 &variable_token.clone()
             );
             return Some(Stmt::Expr { expr: Box::new(error) })

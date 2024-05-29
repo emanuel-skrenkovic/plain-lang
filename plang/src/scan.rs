@@ -33,6 +33,7 @@ pub struct Token
     pub kind: TokenKind,
     pub value: String,
     pub line: usize,
+    pub token_index: usize,
 }
 
 impl Clone for Token
@@ -42,7 +43,8 @@ impl Clone for Token
         Token {
             kind: self.kind,
             value: self.value.clone(),
-            line: self.line
+            line: self.line,
+            token_index: self.token_index,
         }
     }
 }
@@ -61,7 +63,7 @@ impl Default for Token
 {
     fn default() -> Self
     {
-        Token { kind: TokenKind::Error, value: "".to_owned(), line: 0 }
+        Token { kind: TokenKind::Error, value: "".to_owned(), line: 0, token_index: 0 }
     }
 }
 
@@ -73,7 +75,8 @@ pub struct Scanner
     current: usize,
     start: usize,
 
-    line: usize
+    line: usize,
+    char_index: usize,
 }
 
 impl Scanner
@@ -88,7 +91,8 @@ impl Scanner
             current: 0,
             start: 0,
 
-            line: 1
+            line: 1,
+            char_index: 0,
         }
     }
 
@@ -293,7 +297,14 @@ impl Scanner
     {
         self.current += 1;
 
-        self.source_char_at(self.current - 1)
+        let c = self.source_char_at(self.current - 1);
+
+        match c {
+            '\n' => self.char_index = 0,
+            _    => self.char_index += 1,
+        }
+
+        c
     }
 
     fn peek(&self) -> char
@@ -343,7 +354,8 @@ impl Scanner
         Token {
             kind,
             value: self.source[self.start..self.current].to_owned(),
-            line: self.line
+            line: self.line,
+            token_index: self.char_index - (self.current - self.start),
         }
     }
 }
