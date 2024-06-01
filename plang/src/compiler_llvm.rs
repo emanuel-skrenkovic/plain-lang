@@ -70,33 +70,6 @@ impl FunctionDefinition
     }
 }
 
-pub struct CompilationState
-{
-    pub variables: Vec<HashMap<String, llvm::prelude::LLVMValueRef>>,
-    pub variable_types: Vec<HashMap<String, llvm::prelude::LLVMTypeRef>>,
-}
-
-impl Default for CompilationState
-{
-    fn default() -> Self
-    {
-        Self::new()
-    }
-}
-
-impl CompilationState
-{
-    const DEFAULT_CAP: usize = 1024;
-
-    pub fn new() -> Self
-    {
-        Self {
-            variables: Vec::with_capacity(Self::DEFAULT_CAP),
-            variable_types: Vec::with_capacity(Self::DEFAULT_CAP),
-        }
-    }
-}
-
 pub struct Scope
 {
     pub index: usize,
