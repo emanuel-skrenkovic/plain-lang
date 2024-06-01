@@ -1,23 +1,27 @@
-use std::collections::HashMap;
-
 use crate::{compiler, scan, scope};
 
-
-#[derive(Debug)]
-pub struct Scope
+#[derive(Clone, Debug)]
+pub struct Function
 {
-    pub index: usize,
-    pub path: Vec<usize>,
-    pub declarations: HashMap<String, Declaration>,
+    pub params: Vec<scan::Token>,
+    pub body: Vec<Box::<compiler::Stmt>>,
 }
 
 #[derive(Clone, Debug)]
 pub enum Declaration
 {
     Function {
-        params: Vec<scan::Token>,
-        body: Vec<Box::<compiler::Stmt>>
-    }
+        function: Function
+    },
+
+    Closure {
+        captures: Vec<String>,
+        function: Function,
+    },
+
+    Const,
+
+    Var,
 }
 
 #[derive(Debug)]
@@ -29,34 +33,7 @@ pub struct SymbolTable
 // TODO: build symbol table to forward-declare
 // all declarations.
 // Walking the AST later is problematic if we don't have this.
-pub fn analyse(program: &[compiler::Stmt]) -> SymbolTable
-{
-    let symbol_table = forward_declarations(program);
-    ensure_main(&symbol_table);
-
-    println!("{:#?}", symbol_table);
-
-    symbol_table
-}
-
-pub fn ensure_main(symbol_table: &SymbolTable)
-{
-    let entry_scope = &symbol_table.module.scopes[0]; // TODO: is this correct?
-
-    let Some(main) = entry_scope.values.get("main") else {
-        panic!("Expect 'main' function");
-    };
-
-    let Declaration::Function { params, body: _ } = main; /*else {
-        panic!("Main is not a function!");
-    };*/
-
-    if !params.is_empty() {
-        panic!("Invalid main function signature: expect no parameters.");
-    }
-}
-
-pub fn forward_declarations(program: &[compiler::Stmt]) -> SymbolTable
+pub fn analyse(program: &[compiler::Stmt]) -> Result<SymbolTable, String>
 {
     let mut symbol_table = SymbolTable {
         module: scope::Module::new(),
@@ -64,25 +41,32 @@ pub fn forward_declarations(program: &[compiler::Stmt]) -> SymbolTable
 
     symbol_table.module.begin_scope();
 
-    for stmt in &program.to_owned() {
-        match_statement(&mut symbol_table, stmt);
-    }
+    declare_main(program, &mut symbol_table)?;
+    forward_declarations(program, &mut symbol_table);
 
     symbol_table.module.end_scope();
 
-    symbol_table
+    println!("{:#?}", symbol_table);
+
+    Ok(symbol_table)
 }
 
-pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
+pub fn declare_main(program: &[compiler::Stmt], symbol_table: &mut SymbolTable) -> Result<(), String>
 {
-    match stmt {
-        compiler::Stmt::Function { name, params, body } => {
+    for statement in program {
+        if let compiler::Stmt::Function { name, params, body } = statement {
+            if name.value != "main" {
+                continue
+            }
+
             symbol_table.module.current_scope_mut().values.insert
             (
                 name.value.clone(),
                 Declaration::Function {
-                    params: params.clone(),
-                    body: body.clone(),
+                    function: Function {
+                        params: params.clone(),
+                        body: body.clone(),
+                    },
                 },
             );
 
@@ -92,10 +76,51 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 match_statement(symbol_table, stmt);
             }
 
-            match body.last().map(|s| s.as_ref()) {
-                Some(compiler::Stmt::Expr { expr }) => match_expression(expr),
-                _                                   => ()
+            if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                match_expression(expr);
+            };
+
+            symbol_table.module.end_scope();
+            return Ok(())
+        }
+    }
+
+    Err("Expect 'main' function".to_string())
+}
+
+pub fn forward_declarations(program: &[compiler::Stmt], symbol_table: &mut SymbolTable)
+{
+    for stmt in &program.to_owned() {
+        match_statement(symbol_table, stmt);
+    }
+}
+
+pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
+{
+    match stmt {
+        compiler::Stmt::Function { name, params, body } => {
+            if name.value == "main" { return }
+
+            symbol_table.module.current_scope_mut().values.insert
+            (
+                name.value.clone(),
+                Declaration::Function {
+                    function: Function {
+                        params: params.clone(),
+                        body: body.clone(),
+                    }
+                },
+            );
+
+            symbol_table.module.begin_scope();
+
+            for stmt in &body[..body.len()-1] {
+                match_statement(symbol_table, stmt);
             }
+
+            if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                match_expression(expr);
+            };
 
             symbol_table.module.end_scope();
         },
@@ -104,9 +129,85 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
         compiler::Stmt::Block { statements: _ } => (),
 
-        compiler::Stmt::Var { name: _, initializer: _ } => (),
+        compiler::Stmt::Var { name, initializer } => {
+            match initializer.as_ref() {
+                compiler::Expr::Function { params, body } => {
+                    symbol_table.module.current_scope_mut().values.insert
+                    (
+                        name.value.clone(),
+                        Declaration::Function {
+                            function: Function {
+                                params: params.clone(),
+                                body: body.clone(),
+                            },
+                        },
+                    );
 
-        compiler::Stmt::Const { name: _, initializer: _ } => (),
+                    symbol_table.module.begin_scope();
+
+                    for stmt in &body[..body.len()-1] {
+                        match_statement(symbol_table, stmt);
+                    }
+
+                    if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                        match_expression(expr);
+                    };
+
+                    symbol_table.module.end_scope();
+                }
+                _ => {
+                    symbol_table
+                        .module
+                        .current_scope_mut()
+                        .values
+                        .insert
+                        (name.value.clone(), Declaration::Var);
+                }
+            }
+        }
+
+        compiler::Stmt::Const { name, initializer } => {
+            match initializer.as_ref() {
+                compiler::Expr::Function { params, body } => {
+                    let function = Function {
+                        params: params.clone(),
+                        body: body.clone(),
+                    };
+
+                    let captures = symbol_table.module.captures();
+
+                    symbol_table.module.current_scope_mut().values.insert
+                    (
+                        name.value.clone(),
+                        Declaration::Closure {
+                            captures,
+                            function,
+                        },
+                    );
+
+                    symbol_table.module.begin_scope();
+
+                    for stmt in &body[..body.len()-1] {
+                        match_statement(symbol_table, stmt);
+                    }
+
+                    if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                        match_expression(expr);
+                    };
+
+                    symbol_table.module.end_scope();
+                }
+                _ => {
+                    symbol_table
+                        .module
+                        .current_scope_mut()
+                        .values
+                        .insert
+                        (name.value.clone(), Declaration::Const);
+                }
+            }
+        }
+,
 
         compiler::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
 

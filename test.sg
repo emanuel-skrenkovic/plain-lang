@@ -1,18 +1,29 @@
-add2 :: (a: number, b: number)
+test :: (a: number, b: number)
 {
-    c := 0;
+    result := 0;
 
-    for i := 0; i < 15; i = i + 1 {
-        c = c + i;
+    for i := 0; i <= 15; i = i + 1 {
+        result = result + i;
     }
 
-    a + b + c
+    j := 15;
+
+    while j >= 0 {
+        result = result - j;
+        j = j - 1;
+    }
+
+    a + b - result
 }
 
 main :: ()
 {
-    result :: add2(3, 1);
-    f_str :: "%d\0";
-    printf(f_str, result);
+    result := test(1, 2);
+    result = result + 13;
+
+    add :: () { result + 14 };
+
+    printf("%d", add());
+
     0
 }

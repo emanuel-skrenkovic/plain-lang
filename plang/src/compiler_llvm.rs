@@ -232,36 +232,22 @@ impl Drop for Context
     }
 }
 
+// TODO: there is a problem with the different order of compilation.
+// Here, we compile the main function first, in other places, we evaluate in
+// order of declaration.
 pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 {
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
+    // start global scope
+    ctx.module_scopes.begin_scope();
+
     // Adding globals.
     let printf = printf_function(ctx, module);
     ctx.declarations.insert("printf".to_owned(), (0, printf));
 
-    for scope in &ctx.symbol_table.module.scopes {
-        for (name, declaration) in &scope.values {
-            match &declaration {
-                &semantic_analysis::Declaration::Function { params, body } => {
-                    let function_call = FunctionDefinition::build
-                    (
-                        ctx.llvm_ctx,
-                        module,
-                        name.to_string(),
-                        params.len(),
-                        // TODO: actual types should be available after semantic analysis.
-                        vec![Some("number".to_string()); params.len()],
-                        "number".to_string(),
-                        body.iter().map(|s| *s.clone()).collect(),
-                    );
-
-                    ctx.declarations.insert(name.clone(), (scope.index, function_call));
-                }
-            }
-        }
-    }
+    forward_declare(ctx);
 
     // start main
 
@@ -300,6 +286,9 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         match_statement(ctx, &mut current, stmt);
     }
 
+    ctx.module_scopes.end_scope();
+
+    // Global scope.
     ctx.module_scopes.end_scope();
 
     verify_module(module);
@@ -441,25 +430,23 @@ pub unsafe fn match_statement
             current.build_break(start_branch);
 
             // condition
-
-            current.set_position(start_branch);
-
-            let condition_expr = match_expression(ctx, current, condition);
-            current.build_condition(condition_expr, body_branch, end_branch);
-
-            // body
-
-            current.set_position(body_branch);
-
-            for stmt in body {
-                match_statement(ctx, current, stmt);
+            {
+                current.set_position(start_branch);
+                let condition_expr = match_expression(ctx, current, condition);
+                current.build_condition(condition_expr, body_branch, end_branch);
             }
 
-            current.build_break(start_branch);
-
-            // end
+            // body
+            {
+                current.set_position(body_branch);
+                for stmt in body {
+                    match_statement(ctx, current, stmt);
+                }
+                current.build_break(start_branch);
+            }
 
             current.set_position(end_branch);
+
         },
 
         compiler::Stmt::Unary { } => (),
@@ -574,7 +561,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             block::Value::String { val } =>
                 llvm
                     ::core
-                    ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 1),
+                    ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 0),
 
             block::Value::Unit =>
                 llvm
@@ -602,7 +589,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let (scope, function) = ctx
                 .declarations
                 .get(&name.value)
-                .unwrap(/* TODO: remove unwrap */)
+                .unwrap_or_else(|| panic!("Expect variable '{}'.", &name.value))
                 .clone();
 
             let current_scope = ctx.module_scopes.current_scope();
@@ -612,7 +599,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let mut closed_variables: Vec<llvm::prelude::LLVMValueRef> = variables_in_scope(ctx)
                 .iter()
-                .map(|(_, var)| deref_if_ptr(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)))
+                .map(|(_, var)| prime_argument(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)))
                 .collect();
 
             // TODO: I'm not sure of the semantics of arguments.
@@ -622,7 +609,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 .enumerate()
                 .map(|(i, a)| {
                     let arg = match_expression(ctx, current, a);
-                    deref_if_primitive(current.builder, arg, function.param_types[i])
+                    prime_argument(current.builder, arg, function.param_types[i])
                 })
                 .collect();
 
@@ -646,7 +633,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         },
 
         compiler::Expr::Function { params, body }
-            => closure(ctx, current, "_closure", params.to_vec(), body.to_vec()).function,
+            => closure(ctx, current, "add", params.to_vec(), body.to_vec()).function,
     }
 }
 
@@ -700,6 +687,14 @@ pub unsafe fn binary_expr
             ::core
             ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_neqcomp")),
 
+        scan::TokenKind::GreaterEqual => llvm
+            ::core
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs, binary_cstr!("_gecomp")),
+
+        scan::TokenKind::LessEqual => llvm
+            ::core
+            ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp")),
+
         _ => panic!()
     }
 }
@@ -730,19 +725,11 @@ unsafe fn closure
     closed_params.append(&mut params);
     closed_params.append(&mut closed_variables);
 
-    let function_call = FunctionDefinition::build
-    (
-        ctx.llvm_ctx,
-        current.module,
-        name.to_string(),
-        closed_params.len(),
-        vec![Some("number".to_string()); closed_params.len()],
-        "number".to_string(),
-        body.iter().map(|s| *s.clone()).collect(),
-    );
+    let (_, function_call) = ctx.declarations.get(name).unwrap();
+
     let function_ref = function_call.function;
 
-    let mut function_current = Current::new(ctx.llvm_ctx, current.module, function_call);
+    let mut function_current = Current::new(ctx.llvm_ctx, current.module, function_call.clone());
 
     for (i, param) in closed_params.iter().enumerate() {
         let param_ref = llvm::core::LLVMGetParam(function_ref, i as u32);
@@ -770,6 +757,60 @@ unsafe fn closure
     current.function.to_owned()
 }
 
+unsafe fn forward_declare(ctx: &mut Context)
+{
+    for scope in &ctx.symbol_table.module.scopes {
+        for (name, declaration) in &scope.values {
+            match declaration {
+                semantic_analysis::Declaration::Function {
+                    function: semantic_analysis::Function { params, body }
+                } => {
+                    let function_call = FunctionDefinition::build
+                    (
+                        ctx.llvm_ctx,
+                        ctx.modules[0],
+                        name.to_string(),
+                        params.len(),
+
+                        // TODO: actual types should be available after semantic analysis.
+                        // TODO: closures here act differently.
+                        vec![Some("number".to_string()); params.len()],
+
+                        "number".to_string(),
+                        body.iter().map(|s| *s.clone()).collect(),
+                    );
+
+                    ctx.declarations.insert(name.clone(), (scope.index, function_call));
+                }
+
+                semantic_analysis::Declaration::Closure {
+                    captures,
+                    function: semantic_analysis::Function { params, body }
+                } => {
+                    let function_call = FunctionDefinition::build
+                    (
+                        ctx.llvm_ctx,
+                        ctx.modules[0],
+                        name.to_string(),
+                        captures.len() + params.len(),
+
+                        // TODO: actual types should be available after semantic analysis.
+                        // TODO: closures here act differently.
+                        vec![Some("number".to_string()); captures.len() + params.len()],
+
+                        "number".to_string(),
+                        body.iter().map(|s| *s.clone()).collect(),
+                    );
+
+                    ctx.declarations.insert(name.clone(), (scope.index, function_call));
+                }
+
+                _ => (),
+            }
+        }
+    }
+}
+
 unsafe fn is_pointer(var: llvm::prelude::LLVMValueRef) -> bool
 {
     let var_type      = llvm::core::LLVMTypeOf(var);
@@ -782,24 +823,52 @@ const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 1] = [
     llvm::LLVMTypeKind::LLVMIntegerTypeKind
 ];
 
-unsafe fn deref_if_primitive
+// TODO: shit name
+unsafe fn prime_argument
 (
     builder: llvm::prelude::LLVMBuilderRef,
     value: llvm::prelude::LLVMValueRef,
     expected_type: llvm::prelude::LLVMTypeRef,
 ) -> llvm::prelude::LLVMValueRef
 {
-    // TODO: cache this?
     let type_kind = llvm::core::LLVMGetTypeKind(expected_type);
 
-    if is_pointer(value) && PRIMITIVE_TYPES.contains(&type_kind) {
+    if PRIMITIVE_TYPES.contains(&type_kind) && is_pointer(value) {
+        // Deref pointers of primitive types.
         return llvm
             ::core
             ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
+    } else if !PRIMITIVE_TYPES.contains(&type_kind) && !is_pointer(value) {
+        // Take address of raw, non-primitive types.
+        let ptr = llvm
+            ::core
+            ::LLVMBuildAlloca(builder, llvm::core::LLVMTypeOf(value), binary_cstr!("_alloc"));
+        llvm::core::LLVMBuildStore(builder, value, ptr);
+        return ptr
     }
 
     value
 }
+
+// TODO
+// unsafe fn deref_if_primitive
+// (
+//     builder: llvm::prelude::LLVMBuilderRef,
+//     value: llvm::prelude::LLVMValueRef,
+//     expected_type: llvm::prelude::LLVMTypeRef,
+// ) -> llvm::prelude::LLVMValueRef
+// {
+//     // TODO: cache this?
+//     let type_kind = llvm::core::LLVMGetTypeKind(expected_type);
+
+//     if is_pointer(value) && PRIMITIVE_TYPES.contains(&type_kind) {
+//         return llvm
+//             ::core
+//             ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
+//     }
+
+//     value
+// }
 
 unsafe fn deref_if_ptr
 (

@@ -96,6 +96,27 @@ impl <T> Module<T>
 
         None
     }
+
+    pub fn captures(&self) -> Vec<String>
+    {
+        let scope = self.current_scope();
+
+        let mut vars = Vec::with_capacity(1024);
+
+        for key in scope.values.keys() {
+            vars.push(key.clone());
+        }
+
+        for i in scope.path.iter().filter(|s| **s != 0) {
+            let closed_scope = &self.scopes[*i];
+
+            for key in closed_scope.values.keys() {
+                vars.push(key.clone());
+            }
+        }
+
+        vars
+    }
 }
 
 impl<T> Default for Module<T>
