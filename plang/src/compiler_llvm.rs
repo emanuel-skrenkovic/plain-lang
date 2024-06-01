@@ -321,9 +321,7 @@ pub unsafe fn match_statement
                 llvm::core::LLVMSetValueName2(param_ref, param.value.as_ptr() as * const _, param.value.len());
 
                 let param_name = &param.value;
-                let scope      = ctx.module_scopes.current_scope_mut();
-
-                scope.values.insert(param_name.clone(), (param_ref, llvm::core::LLVMTypeOf(param_ref)));
+                ctx.module_scopes.add_to_current(&param_name, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
             }
 
             for stmt in &body[..body.len()-1] {
@@ -360,9 +358,7 @@ pub unsafe fn match_statement
 
             ctx
                 .module_scopes
-                .current_scope_mut()
-                .values
-                .insert(name.value.clone(), (variable, llvm::core::LLVMTypeOf(variable)));
+                .add_to_current(&name.value, (variable, llvm::core::LLVMTypeOf(variable)));
         },
 
         compiler::Stmt::Const { name, initializer } => {
@@ -376,8 +372,7 @@ pub unsafe fn match_statement
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
-            let scope = ctx.module_scopes.current_scope_mut();
-            scope.values.insert(name.value.clone(), (variable, type_ref));
+            ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
         },
 
         compiler::Stmt::For { initializer, condition, advancement, body } => {
@@ -735,8 +730,7 @@ unsafe fn closure
         let param_ref = llvm::core::LLVMGetParam(function_ref, i as u32);
         llvm::core::LLVMSetValueName2(param_ref, param.as_ptr() as * const _, param.len());
 
-        let scope = ctx.module_scopes.current_scope_mut();
-        scope.values.insert(param.clone(), (param_ref, llvm::core::LLVMTypeOf(param_ref)));
+        ctx.module_scopes.add_to_current(&param, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
     }
 
     for stmt in &body[..body.len()-1] {
@@ -760,7 +754,10 @@ unsafe fn closure
 unsafe fn forward_declare(ctx: &mut Context)
 {
     for scope in &ctx.symbol_table.module.scopes {
-        for (name, declaration) in &scope.values {
+        for i in 0..scope.values.len() {
+            let name        = &scope.names[i];
+            let declaration = &scope.values[i];
+
             match declaration {
                 semantic_analysis::Declaration::Function {
                     function: semantic_analysis::Function { params, body }
@@ -892,14 +889,20 @@ pub unsafe fn variables_in_scope(ctx: &Context) -> Vec<(&str, llvm::prelude::LLV
 
     let mut vars: Vec<(&str, llvm::prelude::LLVMValueRef)> = Vec::with_capacity(1024);
 
-    for (key, (value, _)) in &scope.values {
+    for i in 0..scope.values.len() {
+        let key        = &scope.names[i];
+        let (value, _) = &scope.values[i];
+
         vars.push((key, *value));
     }
 
     for i in &scope.path {
         let closed_scope = &ctx.module_scopes.scopes[*i];
 
-        for (key, (value, _)) in &closed_scope.values {
+        for i in 0..closed_scope.values.len() {
+            let key        = &closed_scope.names[i];
+            let (value, _) = &closed_scope.values[i];
+
             vars.push((key, *value));
         }
     }

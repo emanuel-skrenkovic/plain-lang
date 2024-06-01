@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 
 
@@ -8,7 +7,12 @@ pub struct Scope<T>
 {
     pub index: usize,
     pub path: Vec<usize>,
-    pub values: HashMap<String, T>,
+
+    // Keep name + values in vec in order to preserve order.
+    // Using HashMap had the issue of essentially randomizing
+    // the parameter order, which is less than ideal in any case.
+    pub names: Vec<String>,
+    pub values: Vec<T>,
 }
 
 #[derive(Debug)]
@@ -60,7 +64,8 @@ impl <T> Module<T>
         let new_scope = Scope {
             index: self.scopes.len(),
             path: new_scope_path,
-            values: HashMap::new(),
+            names: Vec::with_capacity(1024),
+            values: Vec::with_capacity(1024),
         };
 
         self.current_scope_index = new_scope.index;
@@ -80,21 +85,28 @@ impl <T> Module<T>
     {
         let scope = self.current_scope();
 
-        let val = scope.values.get(name);
-        if val.is_some() {
-            return val
+        let index = scope.names.iter().position(|n| n == name);
+        if let Some(index) = index {
+            return Some(&scope.values[index])
         }
 
         for i in scope.path.iter().rev() {
             let scope = &self.scopes[*i];
 
-            let val = scope.values.get(name);
-            if val.is_some() {
-                return val
+            let index = scope.names.iter().position(|n| n == name);
+            if let Some(index) = index {
+                return Some(&scope.values[index])
             }
         }
 
         None
+    }
+
+    pub fn add_to_current(&mut self, name: &str, value: T)
+    {
+        let scope = self.current_scope_mut();
+        scope.names.push(name.to_string());
+        scope.values.push(value);
     }
 
     pub fn captures(&self) -> Vec<String>
@@ -103,15 +115,15 @@ impl <T> Module<T>
 
         let mut vars = Vec::with_capacity(1024);
 
-        for key in scope.values.keys() {
-            vars.push(key.clone());
+        for name in &scope.names {
+            vars.push(name.clone());
         }
 
         for i in scope.path.iter().filter(|s| **s != 0) {
             let closed_scope = &self.scopes[*i];
 
-            for key in closed_scope.values.keys() {
-                vars.push(key.clone());
+            for name in &closed_scope.names {
+                vars.push(name.clone());
             }
         }
 

@@ -59,9 +59,9 @@ pub fn declare_main(program: &[compiler::Stmt], symbol_table: &mut SymbolTable) 
                 continue
             }
 
-            symbol_table.module.current_scope_mut().values.insert
+            symbol_table.module.add_to_current
             (
-                name.value.clone(),
+                &name.value,
                 Declaration::Function {
                     function: Function {
                         params: params.clone(),
@@ -101,15 +101,14 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
         compiler::Stmt::Function { name, params, body } => {
             if name.value == "main" { return }
 
-            symbol_table.module.current_scope_mut().values.insert
-            (
-                name.value.clone(),
+            symbol_table.module.add_to_current(
+                &name.value.clone(),
                 Declaration::Function {
                     function: Function {
                         params: params.clone(),
                         body: body.clone(),
                     }
-                },
+                }
             );
 
             symbol_table.module.begin_scope();
@@ -132,9 +131,8 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
         compiler::Stmt::Var { name, initializer } => {
             match initializer.as_ref() {
                 compiler::Expr::Function { params, body } => {
-                    symbol_table.module.current_scope_mut().values.insert
-                    (
-                        name.value.clone(),
+                    symbol_table.module.add_to_current(
+                        &name.value,
                         Declaration::Function {
                             function: Function {
                                 params: params.clone(),
@@ -158,10 +156,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 _ => {
                     symbol_table
                         .module
-                        .current_scope_mut()
-                        .values
-                        .insert
-                        (name.value.clone(), Declaration::Var);
+                        .add_to_current(&name.value.clone(), Declaration::Var);
                 }
             }
         }
@@ -176,9 +171,9 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
                     let captures = symbol_table.module.captures();
 
-                    symbol_table.module.current_scope_mut().values.insert
+                    symbol_table.module.add_to_current
                     (
-                        name.value.clone(),
+                        &name.value,
                         Declaration::Closure {
                             captures,
                             function,
@@ -200,10 +195,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                 _ => {
                     symbol_table
                         .module
-                        .current_scope_mut()
-                        .values
-                        .insert
-                        (name.value.clone(), Declaration::Const);
+                        .add_to_current(&name.value, Declaration::Const);
                 }
             }
         }

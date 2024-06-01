@@ -481,14 +481,14 @@ impl Default for Program
             [
                 Scope {
                     index: 0,
-                    path: vec![],
-                    variables: vec![],
+                    path: Vec::with_capacity(1024),
+                    variables: Vec::with_capacity(1024),
                     scope_depth: 0,
                     parent_function: None,
                 }
             ],
 
-            functions: vec![],
+            functions: Vec::with_capacity(1024),
         }
     }
 }
@@ -902,9 +902,8 @@ impl Compiler
         // let function_token = self.parser.peek(-3).unwrap().clone();
         // let function_name = function_token.value.clone();
 
-        let mut argument_type_names: Vec<Option<String>> = vec![];
-
-        let mut params = vec![];
+        let mut argument_type_names: Vec<Option<String>> = Vec::with_capacity(512);
+        let mut params                                   = Vec::with_capacity(512);
 
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -947,7 +946,7 @@ impl Compiler
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
-        let mut body = vec![];
+        let mut body = Vec::with_capacity(512);
 
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
             let stmt = self.declaration();
