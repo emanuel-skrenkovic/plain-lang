@@ -70,7 +70,7 @@ pub fn declare_main
 ) -> Result<(), String>
 {
     for statement in program {
-        if let ast::Stmt::Function { name, params, param_types, body } = statement {
+        if let ast::Stmt::Function { name, params, param_types: _, body } = statement {
             if name.value != "main" {
                 continue
             }
@@ -124,7 +124,7 @@ pub fn match_statement
 )
 {
     match stmt {
-        ast::Stmt::Function { name, params, param_types, body } => {
+        ast::Stmt::Function { name, params, param_types: _, body } => {
             if name.value == "main" { return }
 
             let declaration = Declaration {
@@ -158,7 +158,7 @@ pub fn match_statement
 
         ast::Stmt::Var { name, initializer } => {
             match initializer.as_ref() {
-                ast::Expr::Function { params, param_types, body } => {
+                ast::Expr::Function { params, param_types: _, body } => {
                     let kind = DeclarationKind::Function {
                         function: Function {
                             params: params.clone(),
@@ -201,7 +201,7 @@ pub fn match_statement
 
         ast::Stmt::Const { name, initializer } => {
             match initializer.as_ref() {
-                ast::Expr::Function { params, param_types, body } => {
+                ast::Expr::Function { params, param_types: _, body } => {
                     let function = Function {
                         params: params.clone(),
                         body: body.clone(),
