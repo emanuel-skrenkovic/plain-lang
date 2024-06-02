@@ -1,121 +1,198 @@
-use crate::block;
+use crate::{compiler, scan, scope};
 
-pub trait Equatable
+#[derive(Clone, Debug, PartialEq)]
+pub enum TypeKind
 {
-    fn equals(&self, other: &Self) -> Result<bool, ()>;
+    Unknown,
+
+    Unit,
+
+    Bool,
+
+    I32,
+
+    String,
+
+    Function {
+        parameter_kinds: Vec<Box<TypeKind>>,
+        return_kind: Box<TypeKind>,
+    },
+
+    Closure {
+        captured_kinds: Vec<Box<TypeKind>>,
+        parameter_kinds: Vec<Box<TypeKind>>,
+        return_kind: Box<TypeKind>,
+    },
+
+    Reference {
+        underlying: Box<TypeKind>,
+    },
 }
 
-impl Equatable for block::Value
+pub fn infer_types(program: &[compiler::Stmt]) -> scope::Module<TypeKind>
 {
-    fn equals(&self, other: &block::Value) -> Result<bool, ()> {
-        match self {
-            block::Value::Number { val } => {
-                match other {
-                    block::Value::Number { val: other_val } => Ok(val == other_val),
-                    _ => { Err(()) }
-                }
-            },
-            block::Value::Bool { val } => {
-                match other {
-                    block::Value::Bool { val: other_val } => Ok(val == other_val),
-                    _ => { Err(()) }
-                }
-            },
-            _ => { Err(()) }
+    let mut type_info: scope::Module<TypeKind> = scope::Module::new();
+
+    type_info.begin_scope();
+
+    for stmt in &program.to_owned() {
+        match_statement(&mut type_info, stmt);
+    }
+
+    type_info.end_scope();
+
+    println!("{:#?}", type_info);
+
+    type_info
+}
+
+pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &compiler::Stmt)
+{
+    match stmt {
+        compiler::Stmt::Function { name, params: _, param_types, body } => {
+            type_info.begin_scope();
+
+            for statement in body {
+                match_statement(type_info, statement);
+            }
+
+            let return_kind = if body.is_empty() {
+                TypeKind::Unit
+            } else if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                match_expression(type_info, expr)
+            } else {
+                TypeKind::Unit
+            };
+
+            type_info.end_scope();
+
+            let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                .iter()
+                .map(token_type)
+                .map(Box::new)
+                .collect();
+
+            let kind = TypeKind::Function {
+                parameter_kinds,
+                return_kind: Box::new(return_kind),
+            };
+
+            type_info.add_to_current(&name.value, kind);
+        },
+
+        compiler::Stmt::Declaration { name: _, initializer: _ } => (),
+
+        compiler::Stmt::Block { statements: _ } => (),
+
+        compiler::Stmt::Var { name, initializer } => {
+            let kind = match_expression(type_info, initializer);
+            type_info.add_to_current(&name.value, kind);
         }
+
+        compiler::Stmt::Const { name, initializer } => {
+            let kind = match_expression(type_info, initializer);
+            type_info.add_to_current(&name.value, kind);
+        }
+
+        compiler::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
+
+        compiler::Stmt::While { condition: _, body: _ } => (),
+
+        compiler::Stmt::Unary { } => (),
+
+        compiler::Stmt::Return { } => (),
+
+        compiler::Stmt::Expr { expr: _ } => (),
     }
 }
 
-// pub struct TypedProgram
-// {
-//     pub block: block::Block, // block Block bLoCk BlOcK blocK BLOCK
-//     pub scopes: Vec<Scope>,
-//     pub current_scope: usize,
-//     pub scope_depth: usize,
-// }
-//
-// pub struct CallFrame
-// {
-//     pub position: usize,
-//     pub i: usize,
-//     pub block: block::Block
-// }
-//
-// impl CallFrame
-// {
-//     #[must_use]
-//     pub fn new(position: usize, block: block::Block) -> Self
-//     {
-//         CallFrame {
-//             position,
-//             i: 0,
-//             block
-//         }
-//     }
-//
-//     pub fn get_value
-//     (
-//         &self,
-//         index: usize,
-//         stack: &VecDeque<llvm::prelude::LLVMValueRef>
-//     ) -> llvm::prelude::LLVMValueRef
-//     {
-//         stack[index + self.position].clone()
-//     }
-//
-//     pub fn set_value
-//     (
-//         &mut self,
-//         index: usize,
-//         value: llvm::prelude::LLVMValueRef,
-//         stack: &mut VecDeque<llvm::prelude::LLVMValueRef>
-//     )
-//     {
-//         stack[index + self.position] = value;
-//     }
-//
-//     pub fn read_byte(&mut self) -> u8
-//     {
-//         let ip = self.block.code[self.i];
-//         self.i += 1;
-//
-//         ip
-//     }
-//
-//     pub fn read_constant(&mut self, index: usize) -> block::Value
-//     {
-//         self.block.constants[index].clone()
-//     }
-//
-//     pub fn peek_op(&self, index: usize) -> u8
-//     {
-//         self.block.code[index]
-//     }
-// }
-//
-// fn check_types(program: compiler::Program)
-// {
-//     let mut frames = VecDeque::new();
-//     frames.push_front(
-//         todo!()
-//     );
-//
-//     loop {
-//         let frame_index = frames.len() - 1;
-//
-//         if frames[frame_index].i == frames[frame_index].block.code.len() {
-//             break;
-//         }
-//
-//         let frame = &mut frames[frame_index];
-//         let ip = frame.read_byte();
-//
-//         let Ok(operation) = ip.try_into() else {
-//             panic!("Could not parse operation '{}'.", ip);
-//         };
-//
-//         match operation {
-//             _ => { frame.i += 1; }
-//         }
-//     }
-// }
+pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &compiler::Expr) -> TypeKind
+{
+    match expr {
+        compiler::Expr::Bad { token: _ } => TypeKind::Unknown,
+
+        compiler::Expr::Block { statements: _, value } => match_expression(type_info, value),
+
+        compiler::Expr::If { condition: _, then_branch: _, then_value, else_branch: _, else_value } => {
+            let then_branch_type = match_expression(type_info, then_value);
+            let else_branch_type = match_expression(type_info, else_value);
+
+            if then_branch_type != else_branch_type {
+                panic!("Incompatible types between branches");
+            }
+
+            then_branch_type
+        },
+
+        compiler::Expr::Binary { left, right, operator: _ } => {
+            let left_type  = match_expression(type_info, left);
+            let right_type = match_expression(type_info, right);
+
+            if left_type != right_type {
+                panic!("Binary operation between incompatible types.");
+            }
+
+            left_type
+        },
+
+        compiler::Expr::Literal { value } => token_type(value),
+        compiler::Expr::Variable { name } => {
+            // TODO: fetch defined variable and return its type.
+            type_info.get(&name.value).unwrap().clone()
+        },
+
+        compiler::Expr::Assignment { name: _, value: _ } => TypeKind::Unit,
+
+        compiler::Expr::Logical => todo!(),
+
+        compiler::Expr::Call { name: _, arguments: _ } => {
+            // TODO: get function by name
+            // and then use its return type kind as the type kind here.
+            todo!()
+        },
+
+        compiler::Expr::Function { params: _, param_types, body } => {
+            // TODO: handle captured variables as well.
+
+            let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                .iter()
+                .map(token_type)
+                .map(Box::new)
+                .collect();
+
+            let return_kind = if body.is_empty() {
+                TypeKind::Unit
+            } else if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                match_expression(type_info, expr)
+            } else {
+                TypeKind::Unit
+            };
+
+            TypeKind::Function { parameter_kinds, return_kind: Box::new(return_kind) }
+        },
+    }
+}
+
+fn token_type(token: &scan::Token) -> TypeKind
+{
+    match token.kind {
+        scan::TokenKind::True | scan::TokenKind::False  => TypeKind::Bool,
+        _ => {
+            if token.value.starts_with('\"') {
+                TypeKind::String
+            } else if let Some(first) = token.value.chars().nth(0) {
+                if !char::is_numeric(first) {
+                    return TypeKind::Unknown
+                }
+
+                let Ok(_) = token.value.parse::<i32>() else {
+                    return TypeKind::Unknown
+                };
+
+                TypeKind::I32
+            } else {
+                TypeKind::Unknown
+            }
+        }
+    }
+}

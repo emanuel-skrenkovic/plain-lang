@@ -102,6 +102,20 @@ impl <T> Module<T>
         None
     }
 
+    pub fn get_in_scope(&self, scope: usize, name: &str) -> Option<&T>
+    {
+        let Some(scope) = self.scopes.get(scope) else {
+            return None
+        };
+
+        let index = scope.names.iter().position(|n| n == name);
+        if let Some(index) = index {
+            return Some(&scope.values[index])
+        }
+
+        None
+    }
+
     pub fn add_to_current(&mut self, name: &str, value: T)
     {
         let scope = self.current_scope_mut();

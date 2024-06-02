@@ -1,13 +1,10 @@
 main :: ()
 {
-    result := 3;
+    result :: 3;
 
-    b :: ()
-    {
-        result + 3
-    };
+    f_str :: "%d";
+    printf(f_str, result);
 
-    printf("%d", b());
-
-    0
+    exit :: 0;
+    exit
 }

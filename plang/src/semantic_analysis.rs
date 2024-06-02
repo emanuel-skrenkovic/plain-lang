@@ -1,4 +1,4 @@
-use crate::{compiler, scan, scope};
+use crate::{compiler, scan, scope, types};
 
 #[derive(Clone, Debug)]
 pub struct Function
@@ -8,7 +8,14 @@ pub struct Function
 }
 
 #[derive(Clone, Debug)]
-pub enum Declaration
+pub struct Declaration
+{
+    pub kind: DeclarationKind,
+    pub type_kind: types::TypeKind,
+}
+
+#[derive(Clone, Debug)]
+pub enum DeclarationKind
 {
     Function {
         function: Function
@@ -33,7 +40,11 @@ pub struct SymbolTable
 // TODO: build symbol table to forward-declare
 // all declarations.
 // Walking the AST later is problematic if we don't have this.
-pub fn analyse(program: &[compiler::Stmt]) -> Result<SymbolTable, String>
+pub fn analyse
+(
+    program: &[compiler::Stmt],
+    type_info: &scope::Module<types::TypeKind>,
+) -> Result<SymbolTable, String>
 {
     let mut symbol_table = SymbolTable {
         module: scope::Module::new(),
@@ -41,8 +52,8 @@ pub fn analyse(program: &[compiler::Stmt]) -> Result<SymbolTable, String>
 
     symbol_table.module.begin_scope();
 
-    declare_main(program, &mut symbol_table)?;
-    forward_declarations(program, &mut symbol_table);
+    declare_main(program, &mut symbol_table, type_info)?;
+    forward_declarations(program, &mut symbol_table, type_info);
 
     symbol_table.module.end_scope();
 
@@ -51,29 +62,35 @@ pub fn analyse(program: &[compiler::Stmt]) -> Result<SymbolTable, String>
     Ok(symbol_table)
 }
 
-pub fn declare_main(program: &[compiler::Stmt], symbol_table: &mut SymbolTable) -> Result<(), String>
+pub fn declare_main
+(
+    program: &[compiler::Stmt],
+    symbol_table: &mut SymbolTable,
+    type_info: &scope::Module<types::TypeKind>,
+) -> Result<(), String>
 {
     for statement in program {
-        if let compiler::Stmt::Function { name, params, body } = statement {
+        if let compiler::Stmt::Function { name, params, param_types, body } = statement {
             if name.value != "main" {
                 continue
             }
 
-            symbol_table.module.add_to_current
-            (
-                &name.value,
-                Declaration::Function {
+            let declaration = Declaration {
+                kind: DeclarationKind::Function {
                     function: Function {
                         params: params.clone(),
                         body: body.clone(),
                     },
                 },
-            );
+                type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+            };
+
+            symbol_table.module.add_to_current(&name.value, declaration);
 
             symbol_table.module.begin_scope();
 
             for stmt in &body[..body.len()-1] {
-                match_statement(symbol_table, stmt);
+                match_statement(symbol_table, type_info, stmt);
             }
 
             if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
@@ -88,33 +105,44 @@ pub fn declare_main(program: &[compiler::Stmt], symbol_table: &mut SymbolTable) 
     Err("Expect 'main' function".to_string())
 }
 
-pub fn forward_declarations(program: &[compiler::Stmt], symbol_table: &mut SymbolTable)
+pub fn forward_declarations(
+    program: &[compiler::Stmt],
+    symbol_table: &mut SymbolTable,
+    type_info: &scope::Module<types::TypeKind>,
+)
 {
     for stmt in &program.to_owned() {
-        match_statement(symbol_table, stmt);
+        match_statement(symbol_table, type_info, stmt);
     }
 }
 
-pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
+pub fn match_statement
+(
+    symbol_table: &mut SymbolTable,
+    type_info: &scope::Module<types::TypeKind>,
+    stmt: &compiler::Stmt,
+)
 {
     match stmt {
-        compiler::Stmt::Function { name, params, body } => {
+        compiler::Stmt::Function { name, params, param_types, body } => {
             if name.value == "main" { return }
 
-            symbol_table.module.add_to_current(
-                &name.value.clone(),
-                Declaration::Function {
+            let declaration = Declaration {
+                kind: DeclarationKind::Function {
                     function: Function {
                         params: params.clone(),
                         body: body.clone(),
                     }
-                }
-            );
+                },
+                type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+            };
+
+            symbol_table.module.add_to_current(&name.value.clone(), declaration);
 
             symbol_table.module.begin_scope();
 
             for stmt in &body[..body.len()-1] {
-                match_statement(symbol_table, stmt);
+                match_statement(symbol_table, type_info, stmt);
             }
 
             if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
@@ -130,63 +158,25 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
         compiler::Stmt::Var { name, initializer } => {
             match initializer.as_ref() {
-                compiler::Expr::Function { params, body } => {
-                    symbol_table.module.add_to_current(
-                        &name.value,
-                        Declaration::Function {
-                            function: Function {
-                                params: params.clone(),
-                                body: body.clone(),
-                            },
+                compiler::Expr::Function { params, param_types, body } => {
+                    let kind = DeclarationKind::Function {
+                        function: Function {
+                            params: params.clone(),
+                            body: body.clone(),
                         },
-                    );
-
-                    symbol_table.module.begin_scope();
-
-                    for stmt in &body[..body.len()-1] {
-                        match_statement(symbol_table, stmt);
-                    }
-
-                    if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                        match_expression(expr);
+                    };
+                    let declaration = Declaration {
+                        kind,
+                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
                     };
 
-                    symbol_table.module.end_scope();
-                }
-                _ => {
-                    symbol_table
-                        .module
-                        .add_to_current(&name.value.clone(), Declaration::Var);
-                }
-            }
-        }
-
-        compiler::Stmt::Const { name, initializer } => {
-            match initializer.as_ref() {
-                compiler::Expr::Function { params, body } => {
-                    let function = Function {
-                        params: params.clone(),
-                        body: body.clone(),
-                    };
-
-                    let captures = symbol_table
-                        .module
-                        .captures();
-
-                    symbol_table.module.add_to_current
-                    (
-                        &name.value,
-                        Declaration::Closure {
-                            captures,
-                            function,
-                        },
-                    );
+                    symbol_table.module.add_to_current(&name.value, declaration);
 
                     symbol_table.module.begin_scope();
 
                     if body.len() > 0 {
                         for stmt in &body[..body.len()-1] {
-                            match_statement(symbol_table, stmt);
+                            match_statement(symbol_table, type_info, stmt);
                         }
                     }
 
@@ -197,9 +187,62 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                     symbol_table.module.end_scope();
                 }
                 _ => {
+                    let declaration = Declaration {
+                        kind: DeclarationKind::Var,
+                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+                    };
+
                     symbol_table
                         .module
-                        .add_to_current(&name.value, Declaration::Const);
+                        .add_to_current(&name.value.clone(), declaration);
+                }
+            }
+        }
+
+        compiler::Stmt::Const { name, initializer } => {
+            match initializer.as_ref() {
+                compiler::Expr::Function { params, param_types, body } => {
+                    let function = Function {
+                        params: params.clone(),
+                        body: body.clone(),
+                    };
+
+                    let captures = symbol_table
+                        .module
+                        .captures();
+
+                    let declaration = Declaration {
+                        kind: DeclarationKind::Closure {
+                            captures,
+                            function,
+                        },
+                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+                    };
+
+                    symbol_table.module.add_to_current(&name.value, declaration);
+
+                    symbol_table.module.begin_scope();
+
+                    if body.len() > 0 {
+                        for stmt in &body[..body.len()-1] {
+                            match_statement(symbol_table, type_info, stmt);
+                        }
+                    }
+
+                    if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                        match_expression(expr);
+                    };
+
+                    symbol_table.module.end_scope();
+                }
+                _ => {
+                    let declaration = Declaration {
+                        kind: DeclarationKind::Const,
+                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+                    };
+                    symbol_table
+                        .module
+                        .add_to_current(&name.value, declaration);
                 }
             }
         }
@@ -229,7 +272,6 @@ pub fn match_expression(expr: &compiler::Expr)
         compiler::Expr::Binary { left: _, right: _, operator: _ } => (),
 
         compiler::Expr::Literal { value: _ } => (),
-
         compiler::Expr::Variable { name: _ } => (),
 
         compiler::Expr::Assignment { name: _, value: _ } => (),
@@ -238,6 +280,6 @@ pub fn match_expression(expr: &compiler::Expr)
 
         compiler::Expr::Call { name: _, arguments: _ } => (),
 
-        compiler::Expr::Function { params: _, body: _ } => (),
+        compiler::Expr::Function { params: _, param_types: _, body: _ } => (),
     }
 }

@@ -3,6 +3,7 @@ use std::io::{stderr, Write};
 use plang::compiler_llvm;
 use plang::compiler;
 use plang::scan;
+use plang::types;
 use plang::semantic_analysis;
 
 
@@ -36,8 +37,12 @@ fn main()
         }
     };
 
+    let now_type_analysis = std::time::Instant::now();
+    let type_info = types::infer_types(&program);
+    let after_type_analysis = now_type_analysis.elapsed();
+
     let now_semantic_analysis = std::time::Instant::now();
-    let symbol_table = semantic_analysis::analyse(&program).unwrap();
+    let symbol_table = semantic_analysis::analyse(&program, &type_info).unwrap();
     let after_semantic_analysis = now_semantic_analysis.elapsed();
 
     let after_llvm = unsafe {
@@ -75,6 +80,7 @@ fn main()
 "
      Tokenization: {:?}.
      Parsing: {:?}.
+     Type analysis: {:?}
      Semantic analysis: {:?}
      LLVM backend: {:?}.
      Compiling bytecode: {:?}
@@ -84,6 +90,7 @@ fn main()
 ",
         after_scanning,
         after_compiling,
+        after_type_analysis,
         after_semantic_analysis,
         after_llvm,
         after_compiling_bytecode,

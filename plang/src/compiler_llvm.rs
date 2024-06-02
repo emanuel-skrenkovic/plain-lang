@@ -3,7 +3,7 @@ extern crate llvm_sys as llvm;
 use std::collections::HashMap;
 use macros::binary_cstr;
 
-use crate::{block, compiler, scope, scan, semantic_analysis};
+use crate::{compiler, scope, scan, semantic_analysis, types};
 
 #[derive(Clone, Debug)]
 pub struct FunctionDefinition
@@ -31,28 +31,30 @@ impl FunctionDefinition
         module: llvm::prelude::LLVMModuleRef,
         name: String,
         arity: usize,
-        argument_type_names: Vec<Option<String>>,
-        return_type_name: String,
+        argument_type_kinds: &[Box<types::TypeKind>],
+        return_type_kind: &types::TypeKind,
         code: Vec<compiler::Stmt>,
         closure: bool,
     ) -> Self
     {
-        let return_type = match return_type_name.as_str() {
-            "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
-            "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
-            "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
-            _        => panic!("Unknown return type.") // TODO
-        };
+        let return_type = to_llvm_type(context_ref, return_type_kind);
 
-        let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_names
+        // let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_names
+        //     .iter()
+        //     .filter_map(Option::as_ref)
+        //     .map(|arg| match arg.as_str() {
+        //         "unit" => llvm::core::LLVMVoidTypeInContext(context_ref),
+        //         "i32"  => llvm::core::LLVMInt32TypeInContext(context_ref),
+        //         "bool" => llvm::core::LLVMInt8TypeInContext(context_ref),
+        //         _      => panic!()
+        //     }).collect();
+
+        let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_kinds
             .iter()
-            .filter_map(Option::as_ref)
-            .map(|arg| match arg.as_str() {
-                "unit"   => llvm::core::LLVMVoidTypeInContext(context_ref),
-                "number" => llvm::core::LLVMInt32TypeInContext(context_ref),
-                "bool"   => llvm::core::LLVMInt8TypeInContext(context_ref),
-                _        => panic!()
-            }).collect();
+            .map(|arg| {
+                to_llvm_type(context_ref, arg)
+            })
+            .collect();
 
         let function_type = llvm
             ::core
@@ -71,6 +73,20 @@ impl FunctionDefinition
             code,
             closure,
         }
+    }
+}
+
+pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
+{
+    match type_kind {
+        types::TypeKind::Unknown => todo!(),
+        types::TypeKind::Unit => llvm::core::LLVMVoidTypeInContext(context_ref),
+        types::TypeKind::Bool => llvm::core::LLVMInt8TypeInContext(context_ref),
+        types::TypeKind::I32 => llvm::core::LLVMInt32TypeInContext(context_ref),
+        types::TypeKind::String => todo!(),
+        types::TypeKind::Function { parameter_kinds: _, return_kind: _ } => todo!(),
+        types::TypeKind::Closure { captured_kinds: _, parameter_kinds: _, return_kind: _ } => todo!(),
+        types::TypeKind::Reference { underlying: _ } => todo!(),
     }
 }
 
@@ -282,7 +298,7 @@ pub unsafe fn match_statement
 )
 {
     match stmt {
-        compiler::Stmt::Function { name, params, body } => {
+        compiler::Stmt::Function { name, params, param_types, body } => {
             if name.value == "main" { return }
 
             ctx.module_scopes.begin_scope();
@@ -525,29 +541,44 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         compiler::Expr::Binary { left, right, operator }
             => binary_expr(ctx, current, left.as_ref(), right.as_ref(), operator),
 
-        compiler::Expr::Literal { value } => match value {
-            block::Value::Number { val } =>
-                llvm
-                    ::core
-                    ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), *val as u64, 1),
+        // TODO: maybe simply extend the AST with type information,
+        // instead of keeping the type info in a separate place.
+        // That would avoid the issue of finding type info for a freestanding
+        // literal expression.
+        compiler::Expr::Literal { value } => {
+            let name        = &current.name.take().unwrap();
+            let declaration = ctx.symbol_table.module.get_in_scope(ctx.module_scopes.current_scope_index, name).unwrap(/*TODO: remove unwrap*/);
 
-            block::Value::Bool { val } =>
-                llvm
-                    ::core
-                    ::LLVMConstInt(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), if *val { 1 } else { 0 }, 0),
+            match declaration.type_kind {
+                types::TypeKind::Unit =>
+                    llvm
+                        ::core
+                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)),
 
-            block::Value::String { val } =>
-                llvm
-                    ::core
-                    ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 0),
+                types::TypeKind::Bool =>
+                    llvm
+                        ::core
+                        ::LLVMConstInt(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), if value.value == "true" { 1 } else { 0 }, 0),
 
-            block::Value::Unit =>
-                llvm
-                    ::core
-                    ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)),
+                types::TypeKind::I32 => {
+                    let val = value.value.parse::<u64>().unwrap(/*TODO: remove unwrap*/);
+                    llvm
+                        ::core
+                        ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), val, 1)
+                }
 
-            _ => panic!()
-        },
+                types::TypeKind::String => {
+                    let value = &value.value;
+                    let val   = value[1..value.len()-1].to_string(); // Strip away '"' from start and end.
+                    llvm
+                        ::core
+                        ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 0)
+                }
+
+
+                _ => panic!(),
+            }
+        }
 
         compiler::Expr::Variable { name } => {
             let (variable, _) = ctx.module_scopes.get(&name.value).unwrap();
@@ -618,7 +649,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             deref_if_primitive(current.builder, result, function.function_type)
         },
 
-        compiler::Expr::Function { params, body }
+        compiler::Expr::Function { params, param_types, body }
             => {
                 let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())
@@ -757,10 +788,14 @@ unsafe fn forward_declare(ctx: &mut Context)
             let name        = &scope.names[i];
             let declaration = &scope.values[i];
 
-            match declaration {
-                semantic_analysis::Declaration::Function {
+            match &declaration.kind {
+                semantic_analysis::DeclarationKind::Function {
                     function: semantic_analysis::Function { params, body }
                 } => {
+                    let types::TypeKind::Function { parameter_kinds, return_kind } = &declaration.type_kind else {
+                        panic!("Expected function type kind.");
+                    };
+
                     let function_call = FunctionDefinition::build
                     (
                         ctx.llvm_ctx,
@@ -770,9 +805,10 @@ unsafe fn forward_declare(ctx: &mut Context)
 
                         // TODO: actual types should be available after semantic analysis.
                         // TODO: closures here act differently.
-                        vec![Some("number".to_string()); params.len()],
+                        // vec![Some("number".to_string()); params.len()],
+                        parameter_kinds,
 
-                        "number".to_string(),
+                        return_kind,
                         body.iter().map(|s| *s.clone()).collect(),
                         false,
                     );
@@ -780,10 +816,14 @@ unsafe fn forward_declare(ctx: &mut Context)
                     ctx.declarations.insert(name.clone(), (scope.index, function_call));
                 }
 
-                semantic_analysis::Declaration::Closure {
+                semantic_analysis::DeclarationKind::Closure {
                     captures,
                     function: semantic_analysis::Function { params, body }
                 } => {
+                    let types::TypeKind::Function { parameter_kinds, return_kind } = &declaration.type_kind else {
+                        panic!("Expected function type kind.");
+                    };
+
                     let function_call = FunctionDefinition::build
                     (
                         ctx.llvm_ctx,
@@ -793,9 +833,10 @@ unsafe fn forward_declare(ctx: &mut Context)
 
                         // TODO: actual types should be available after semantic analysis.
                         // TODO: closures here act differently.
-                        vec![Some("number".to_string()); captures.len() + params.len()],
+                        // vec![Some("number".to_string()); captures.len() + params.len()],
+                        parameter_kinds,
 
-                        "number".to_string(),
+                        return_kind,
                         body.iter().map(|s| *s.clone()).collect(),
                         true,
                     );

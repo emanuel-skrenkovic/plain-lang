@@ -1,6 +1,5 @@
 use std::fmt;
 
-use crate::block;
 use crate::scan;
 
 pub struct Ast
@@ -22,6 +21,7 @@ pub enum Stmt
     {
         name: scan::Token,
         params: Vec<scan::Token>,
+        param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
 
@@ -103,7 +103,7 @@ pub enum Expr
 
     Literal
     {
-        value: block::Value,
+        value: scan::Token,
     },
 
     Variable
@@ -128,6 +128,7 @@ pub enum Expr
     Function
     {
         params: Vec<scan::Token>,
+        param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
 }
@@ -444,8 +445,6 @@ pub struct Function
     // pub parent_scope: usize,
     pub parent_function_index: Option<usize>,
 
-    pub block: block::Block,
-
     pub scopes: Vec<usize>,
     pub scope_depth: usize,
 }
@@ -456,7 +455,6 @@ impl Function
     {
         Self {
             parent_function_index,
-            block: block::Block::new(1024),
             scope_depth: 0,
             scopes: vec![entry_scope_index],
         }
@@ -658,34 +656,7 @@ impl Compiler
 
     fn literal(&mut self) -> Expr
     {
-        let expr = match self.parser.previous.kind {
-            scan::TokenKind::True  => Expr::Literal { value: block::Value::Bool { val: true } },
-            scan::TokenKind::False => Expr::Literal { value: block::Value::Bool { val: false } },
-            _ => {
-                // Determine the type of the literal and create a matching value.
-                let t = self.parser.previous.value.clone();
-
-                // I don't like if else-if chains. >:(
-                if t.starts_with('\"') {
-                    // Removing the first and last chars because the token value contains the
-                    // starting and ending quotes.
-                    let val = t[1..t.len()-1].to_string();
-                    Expr::Literal { value: block::Value::String { val } }
-                } else if let Some(first) = t.chars().nth(0) {
-                    if !char::is_numeric(first) {
-                        return self.error_at("Failed to parse token as a literal.", &self.parser.previous.clone());
-                    }
-                    // This is incorrect - should be part of the outer if-else conditions.
-                    let Ok(val) = t.parse::<i32>() else {
-                        return self.error_at("Expected number.", &self.parser.previous.clone());
-                    };
-
-                    Expr::Literal { value: block::Value::Number { val } }
-                } else {
-                    return self.error_at("Failed to parse token as a literal.", &self.parser.previous.clone());
-                }
-            }
-        };
+        let expr = Expr::Literal { value: self.parser.previous.clone() };
 
         // Eat the semicolon only if present;
         self.match_token(scan::TokenKind::Semicolon);
@@ -756,12 +727,12 @@ impl Compiler
             // Declare self first to allow recursion.
             let index = self.declare_variable(variable_token.clone(), false, maybe_type_name);
 
-            let (params, body) = self.function();
+            let (params, param_types, body) = self.function();
 
             self.variable_declaration(index);
             self.variable_definition(index);
 
-            return Some(Stmt::Function { name: variable_token, params, body })
+            return Some(Stmt::Function { name: variable_token, params, param_types, body })
         }
 
         if self.variable_exists(&variable_name) {
@@ -888,11 +859,11 @@ impl Compiler
 
     fn function_expression(&mut self) -> Expr
     {
-        let (params, body) = self.function();
-        Expr::Function { params, body }
+        let (params, param_types, body) = self.function();
+        Expr::Function { params, param_types, body }
     }
 
-    fn function(&mut self) -> (Vec<scan::Token>, Vec<Box<Stmt>>)
+    fn function(&mut self) -> (Vec<scan::Token>, Vec<scan::Token>, Vec<Box<Stmt>>)
     {
         self.begin_function();
 
@@ -902,8 +873,8 @@ impl Compiler
         // let function_token = self.parser.peek(-3).unwrap().clone();
         // let function_name = function_token.value.clone();
 
-        let mut argument_type_names: Vec<Option<String>> = Vec::with_capacity(512);
-        let mut params                                   = Vec::with_capacity(512);
+        let mut argument_type_names = Vec::with_capacity(512);
+        let mut params              = Vec::with_capacity(512);
 
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -912,16 +883,14 @@ impl Compiler
                 let parameter_name_token = self.parser.previous.clone();
                 params.push(parameter_name_token.clone());
 
-                let maybe_type_name: Option<String> = if self.match_token(scan::TokenKind::Colon) {
-                    self.consume(scan::TokenKind::Identifier, "Expected identifier");
-                    Some(self.parser.previous.clone().value)
-                } else {
-                    None
-                };
+                self.consume(scan::TokenKind::Colon, "Expect type definition");
+                self.consume(scan::TokenKind::Identifier, "Expected type identifier");
 
-                argument_type_names.push(maybe_type_name.clone());
+                let type_name = &self.parser.previous;
+                argument_type_names.push(type_name.clone());
+
                 // Ooopsy whoopsy dooopsy hooopsy we just made it mutable.
-                self.declare_variable(parameter_name_token, true, maybe_type_name);
+                self.declare_variable(parameter_name_token, true, Some(type_name.value.clone()));
                 // self.variable_declaration(variable_key);
 
                 if !self.match_token(scan::TokenKind::Comma) { break }
@@ -965,7 +934,7 @@ impl Compiler
 
         let _ = self.end_function();
 
-        (params, body)
+        (params, argument_type_names, body)
     }
 
     fn block(&mut self) -> (Vec<Box<Stmt>>, Box<Expr>)
@@ -999,7 +968,7 @@ impl Compiler
                 _                   => panic!(),
             }
         } else {
-            Box::new(Expr::Literal { value: block::Value::Unit })
+            Box::new(Expr::Literal { value: scan::Token::default() }) // TODO: this is sucks.
         };
 
         self.end_scope();
@@ -1134,7 +1103,7 @@ impl Compiler
             let (branch, value) = self.block();
             (branch, value)
         } else {
-            (vec![], Box::new(Expr::Literal { value: block::Value::Unit }))
+            (vec![], Box::new(Expr::Literal { value: scan::Token::default() }))
         };
 
         Expr::If {
@@ -1296,7 +1265,7 @@ impl Compiler
         self.current_function = Some(self.program.functions.len() - 1);
     }
 
-    fn end_function(&mut self) -> block::Block
+    fn end_function(&mut self)
     {
         assert!(self.current_function.is_some());
 
@@ -1304,11 +1273,8 @@ impl Compiler
 
         let func         = self.current();
         let parent_index = func.parent_function_index;
-        let block        = func.block.clone();
 
         self.current_function = parent_index;
-
-        block
     }
 
     // TODO: both of these are broken and do not take scopes (especially parameter scopes)
@@ -1342,7 +1308,7 @@ impl Compiler
     fn semicolon(&mut self) -> Expr
     {
         self.match_token(scan::TokenKind::Semicolon);
-        Expr::Literal { value: block::Value::Unit }
+        Expr::Literal { value: scan::Token::default() }
     }
 
     // This section basically implements the parser methods, the difference is that the
