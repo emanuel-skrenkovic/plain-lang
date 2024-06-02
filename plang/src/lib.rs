@@ -1,3 +1,4 @@
+pub mod ast;
 pub mod scan;
 pub mod block;
 pub mod scope;

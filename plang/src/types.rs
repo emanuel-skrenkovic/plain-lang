@@ -1,4 +1,4 @@
-use crate::{compiler, scan, scope};
+use crate::{ast, scan, scope};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeKind
@@ -29,7 +29,7 @@ pub enum TypeKind
     },
 }
 
-pub fn infer_types(program: &[compiler::Stmt]) -> scope::Module<TypeKind>
+pub fn infer_types(program: &[ast::Stmt]) -> scope::Module<TypeKind>
 {
     let mut type_info: scope::Module<TypeKind> = scope::Module::new();
 
@@ -46,10 +46,10 @@ pub fn infer_types(program: &[compiler::Stmt]) -> scope::Module<TypeKind>
     type_info
 }
 
-pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &compiler::Stmt)
+pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &ast::Stmt)
 {
     match stmt {
-        compiler::Stmt::Function { name, params: _, param_types, body } => {
+        ast::Stmt::Function { name, params: _, param_types, body } => {
             type_info.begin_scope();
 
             for statement in body {
@@ -58,7 +58,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &compiler:
 
             let return_kind = if body.is_empty() {
                 TypeKind::Unit
-            } else if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+            } else if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
                 match_expression(type_info, expr)
             } else {
                 TypeKind::Unit
@@ -80,40 +80,40 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &compiler:
             type_info.add_to_current(&name.value, kind);
         },
 
-        compiler::Stmt::Declaration { name: _, initializer: _ } => (),
+        ast::Stmt::Declaration { name: _, initializer: _ } => (),
 
-        compiler::Stmt::Block { statements: _ } => (),
+        ast::Stmt::Block { statements: _ } => (),
 
-        compiler::Stmt::Var { name, initializer } => {
+        ast::Stmt::Var { name, initializer } => {
             let kind = match_expression(type_info, initializer);
             type_info.add_to_current(&name.value, kind);
         }
 
-        compiler::Stmt::Const { name, initializer } => {
+        ast::Stmt::Const { name, initializer } => {
             let kind = match_expression(type_info, initializer);
             type_info.add_to_current(&name.value, kind);
         }
 
-        compiler::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
+        ast::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
 
-        compiler::Stmt::While { condition: _, body: _ } => (),
+        ast::Stmt::While { condition: _, body: _ } => (),
 
-        compiler::Stmt::Unary { } => (),
+        ast::Stmt::Unary { } => (),
 
-        compiler::Stmt::Return { } => (),
+        ast::Stmt::Return { } => (),
 
-        compiler::Stmt::Expr { expr: _ } => (),
+        ast::Stmt::Expr { expr: _ } => (),
     }
 }
 
-pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &compiler::Expr) -> TypeKind
+pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &ast::Expr) -> TypeKind
 {
     match expr {
-        compiler::Expr::Bad { token: _ } => TypeKind::Unknown,
+        ast::Expr::Bad { token: _ } => TypeKind::Unknown,
 
-        compiler::Expr::Block { statements: _, value } => match_expression(type_info, value),
+        ast::Expr::Block { statements: _, value } => match_expression(type_info, value),
 
-        compiler::Expr::If { condition: _, then_branch: _, then_value, else_branch: _, else_value } => {
+        ast::Expr::If { condition: _, then_branch: _, then_value, else_branch: _, else_value } => {
             let then_branch_type = match_expression(type_info, then_value);
             let else_branch_type = match_expression(type_info, else_value);
 
@@ -124,7 +124,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &compiler
             then_branch_type
         },
 
-        compiler::Expr::Binary { left, right, operator: _ } => {
+        ast::Expr::Binary { left, right, operator: _ } => {
             let left_type  = match_expression(type_info, left);
             let right_type = match_expression(type_info, right);
 
@@ -135,23 +135,23 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &compiler
             left_type
         },
 
-        compiler::Expr::Literal { value } => token_type(value),
-        compiler::Expr::Variable { name } => {
+        ast::Expr::Literal { value } => token_type(value),
+        ast::Expr::Variable { name } => {
             // TODO: fetch defined variable and return its type.
             type_info.get(&name.value).unwrap().clone()
         },
 
-        compiler::Expr::Assignment { name: _, value: _ } => TypeKind::Unit,
+        ast::Expr::Assignment { name: _, value: _ } => TypeKind::Unit,
 
-        compiler::Expr::Logical => todo!(),
+        ast::Expr::Logical => todo!(),
 
-        compiler::Expr::Call { name: _, arguments: _ } => {
+        ast::Expr::Call { name: _, arguments: _ } => {
             // TODO: get function by name
             // and then use its return type kind as the type kind here.
             todo!()
         },
 
-        compiler::Expr::Function { params: _, param_types, body } => {
+        ast::Expr::Function { params: _, param_types, body } => {
             // TODO: handle captured variables as well.
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
@@ -162,7 +162,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &compiler
 
             let return_kind = if body.is_empty() {
                 TypeKind::Unit
-            } else if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+            } else if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
                 match_expression(type_info, expr)
             } else {
                 TypeKind::Unit

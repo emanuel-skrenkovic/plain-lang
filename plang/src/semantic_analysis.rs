@@ -1,10 +1,10 @@
-use crate::{compiler, scan, scope, types};
+use crate::{ast, scan, scope, types};
 
 #[derive(Clone, Debug)]
 pub struct Function
 {
     pub params: Vec<scan::Token>,
-    pub body: Vec<Box::<compiler::Stmt>>,
+    pub body: Vec<Box::<ast::Stmt>>,
 }
 
 #[derive(Clone, Debug)]
@@ -42,7 +42,7 @@ pub struct SymbolTable
 // Walking the AST later is problematic if we don't have this.
 pub fn analyse
 (
-    program: &[compiler::Stmt],
+    program: &[ast::Stmt],
     type_info: &scope::Module<types::TypeKind>,
 ) -> Result<SymbolTable, String>
 {
@@ -64,13 +64,13 @@ pub fn analyse
 
 pub fn declare_main
 (
-    program: &[compiler::Stmt],
+    program: &[ast::Stmt],
     symbol_table: &mut SymbolTable,
     type_info: &scope::Module<types::TypeKind>,
 ) -> Result<(), String>
 {
     for statement in program {
-        if let compiler::Stmt::Function { name, params, param_types, body } = statement {
+        if let ast::Stmt::Function { name, params, param_types, body } = statement {
             if name.value != "main" {
                 continue
             }
@@ -93,7 +93,7 @@ pub fn declare_main
                 match_statement(symbol_table, type_info, stmt);
             }
 
-            if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+            if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
                 match_expression(expr);
             };
 
@@ -106,7 +106,7 @@ pub fn declare_main
 }
 
 pub fn forward_declarations(
-    program: &[compiler::Stmt],
+    program: &[ast::Stmt],
     symbol_table: &mut SymbolTable,
     type_info: &scope::Module<types::TypeKind>,
 )
@@ -120,11 +120,11 @@ pub fn match_statement
 (
     symbol_table: &mut SymbolTable,
     type_info: &scope::Module<types::TypeKind>,
-    stmt: &compiler::Stmt,
+    stmt: &ast::Stmt,
 )
 {
     match stmt {
-        compiler::Stmt::Function { name, params, param_types, body } => {
+        ast::Stmt::Function { name, params, param_types, body } => {
             if name.value == "main" { return }
 
             let declaration = Declaration {
@@ -145,20 +145,20 @@ pub fn match_statement
                 match_statement(symbol_table, type_info, stmt);
             }
 
-            if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+            if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
                 match_expression(expr);
             };
 
             symbol_table.module.end_scope();
         },
 
-        compiler::Stmt::Declaration { name: _, initializer: _ } => (),
+        ast::Stmt::Declaration { name: _, initializer: _ } => (),
 
-        compiler::Stmt::Block { statements: _ } => (),
+        ast::Stmt::Block { statements: _ } => (),
 
-        compiler::Stmt::Var { name, initializer } => {
+        ast::Stmt::Var { name, initializer } => {
             match initializer.as_ref() {
-                compiler::Expr::Function { params, param_types, body } => {
+                ast::Expr::Function { params, param_types, body } => {
                     let kind = DeclarationKind::Function {
                         function: Function {
                             params: params.clone(),
@@ -180,7 +180,7 @@ pub fn match_statement
                         }
                     }
 
-                    if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                    if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
                         match_expression(expr);
                     };
 
@@ -199,9 +199,9 @@ pub fn match_statement
             }
         }
 
-        compiler::Stmt::Const { name, initializer } => {
+        ast::Stmt::Const { name, initializer } => {
             match initializer.as_ref() {
-                compiler::Expr::Function { params, param_types, body } => {
+                ast::Expr::Function { params, param_types, body } => {
                     let function = Function {
                         params: params.clone(),
                         body: body.clone(),
@@ -229,7 +229,7 @@ pub fn match_statement
                         }
                     }
 
-                    if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
+                    if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
                         match_expression(expr);
                     };
 
@@ -248,38 +248,39 @@ pub fn match_statement
         }
 ,
 
-        compiler::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
+        ast::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
 
-        compiler::Stmt::While { condition: _, body: _ } => (),
+        ast::Stmt::While { condition: _, body: _ } => (),
 
-        compiler::Stmt::Unary { } => (),
+        ast::Stmt::Unary { } => (),
 
-        compiler::Stmt::Return { } => (),
+        ast::Stmt::Return { } => (),
 
-        compiler::Stmt::Expr { expr: _ } => (),
+        ast::Stmt::Expr { expr: _ } => (),
     }
 }
 
-pub fn match_expression(expr: &compiler::Expr)
+pub fn match_expression(expr: &ast::Expr)
 {
     match expr {
-        compiler::Expr::Bad { token: _ } => (),
+        ast::Expr::Bad { token: _ } => (),
 
-        compiler::Expr::Block { statements: _, value: _ } => (),
+        ast::Expr::Block { statements: _, value: _ } => (),
 
-        compiler::Expr::If { condition: _, then_branch: _, then_value: _, else_branch: _, else_value: _ } => (),
+        ast::Expr::If { condition: _, then_branch: _, then_value: _, else_branch: _, else_value: _ } => (),
 
-        compiler::Expr::Binary { left: _, right: _, operator: _ } => (),
+        ast::Expr::Binary { left: _, right: _, operator: _ } => (),
 
-        compiler::Expr::Literal { value: _ } => (),
-        compiler::Expr::Variable { name: _ } => (),
+        ast::Expr::Literal { value: _ } => (),
 
-        compiler::Expr::Assignment { name: _, value: _ } => (),
+        ast::Expr::Variable { name: _ } => (),
 
-        compiler::Expr::Logical => (),
+        ast::Expr::Assignment { name: _, value: _ } => (),
 
-        compiler::Expr::Call { name: _, arguments: _ } => (),
+        ast::Expr::Logical => (),
 
-        compiler::Expr::Function { params: _, param_types: _, body: _ } => (),
+        ast::Expr::Call { name: _, arguments: _ } => (),
+
+        ast::Expr::Function { params: _, param_types: _, body: _ } => (),
     }
 }

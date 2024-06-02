@@ -1,139 +1,6 @@
 use std::fmt;
+use crate::{ast, scan};
 
-use crate::scan;
-
-pub struct Ast
-{
-    pub token: scan::Token,
-    pub nodes: Vec<Node>,
-}
-
-pub enum Node
-{
-    Stmt,
-    Expr,
-}
-
-#[derive(Debug, Clone)]
-pub enum Stmt
-{
-    Function
-    {
-        name: scan::Token,
-        params: Vec<scan::Token>,
-        param_types: Vec<scan::Token>,
-        body: Vec<Box<Stmt>>,
-    },
-
-    Declaration
-    {
-        name: scan::Token,
-        initializer: Box<Expr>,
-    },
-
-    Block
-    {
-        statements: Vec<Box<Stmt>>
-    },
-
-    Var
-    {
-        name: scan::Token,
-        initializer: Box<Expr>,
-    },
-
-    Const
-    {
-        name: scan::Token,
-        initializer: Box<Expr>,
-    },
-
-    For {
-        initializer: Box<Stmt>,
-        condition: Box<Expr>,
-        advancement: Box<Stmt>,
-        body: Vec<Box<Stmt>>,
-    },
-
-    While
-    {
-        condition: Box<Expr>,
-        body: Vec<Box<Stmt>>,
-    },
-
-    Unary { },
-
-    Return { },
-
-    Expr
-    {
-        expr: Box<Expr>,
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Expr
-{
-    Bad
-    {
-        token: scan::Token,
-    },
-
-    Block
-    {
-        statements: Vec<Box<Stmt>>,
-        value: Box<Expr>,
-    },
-
-    If
-    {
-        condition: Box<Expr>,
-        then_branch: Vec<Box<Stmt>>,
-        then_value: Box<Expr>,
-        else_branch: Vec<Box<Stmt>>,
-        else_value: Box<Expr>,
-    },
-
-    Binary
-    {
-        left: Box<Expr>,
-        right: Box<Expr>,
-        operator: scan::Token
-    },
-
-    Literal
-    {
-        value: scan::Token,
-    },
-
-    Variable
-    {
-        name: scan::Token,
-    },
-
-    Assignment
-    {
-        name: scan::Token,
-        value: Box<Expr>,
-    },
-
-    Logical,
-
-    Call
-    {
-        name: scan::Token,
-        arguments: Vec<Box<Expr>>,
-    },
-
-    Function
-    {
-        params: Vec<scan::Token>,
-        param_types: Vec<scan::Token>,
-        body: Vec<Box<Stmt>>,
-    },
-}
-
-// //
 
 #[derive(Debug)]
 pub enum CompilerErrorKind
@@ -223,7 +90,7 @@ impl TryFrom<u8> for Precedence
     }
 }
 
-type ParseFn = fn(&mut Compiler) -> Expr;
+type ParseFn = fn(&mut Compiler) -> ast::Expr;
 
 #[derive(Copy, Clone)]
 struct ParseRule
@@ -502,7 +369,7 @@ pub struct Compiler
     current_scope_index: usize,
     current_function: Option<usize>,
 
-    stack: Vec<Expr>,
+    stack: Vec<ast::Expr>,
 
     pub errors: Vec<CompilerError>,
 }
@@ -527,14 +394,14 @@ impl Compiler
         }
     }
 
-    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<Stmt>, Vec<CompilerError>>
+    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<ast::Stmt>, Vec<CompilerError>>
     {
         self.parser = Parser::new(self.source.clone(), tokens);
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
         // TODO: should probably enclose program itself.
 
-        let mut statements: Vec<Stmt> = Vec::with_capacity(1024 * 8);
+        let mut statements: Vec<ast::Stmt> = Vec::with_capacity(1024 * 8);
 
         loop {
             match self.parser.current.kind {
@@ -610,27 +477,27 @@ impl Compiler
         }
     }
 
-    fn expression_statement(&mut self) -> Stmt
+    fn expression_statement(&mut self) -> ast::Stmt
     {
-        Stmt::Expr {
+        ast::Stmt::Expr {
             expr: Box::new(self.expression()),
         }
     }
 
-    fn expression(&mut self) -> Expr
+    fn expression(&mut self) -> ast::Expr
     {
         self.parse_precedence(Precedence::Assignment);
         // TODO
         self.stack.pop().unwrap()
     }
 
-    fn block_expression(&mut self) -> Expr
+    fn block_expression(&mut self) -> ast::Expr
     {
         let (statements, value) = self.block();
-        Expr::Block { statements, value }
+        ast::Expr::Block { statements, value }
     }
 
-    fn binary(&mut self) -> Expr
+    fn binary(&mut self) -> ast::Expr
     {
         let operator   = self.parser.previous.clone();
         let parse_rule = get_rule(operator.kind);
@@ -644,7 +511,7 @@ impl Compiler
 
         let right = self.stack.pop().unwrap();
 
-        let expr = Expr::Binary {
+        let expr = ast::Expr::Binary {
             left: Box::new(left),
             right: Box::new(right),
             operator,
@@ -654,16 +521,16 @@ impl Compiler
         expr
     }
 
-    fn literal(&mut self) -> Expr
+    fn literal(&mut self) -> ast::Expr
     {
-        let expr = Expr::Literal { value: self.parser.previous.clone() };
+        let expr = ast::Expr::Literal { value: self.parser.previous.clone() };
 
         // Eat the semicolon only if present;
         self.match_token(scan::TokenKind::Semicolon);
         expr
     }
 
-    fn declaration(&mut self) -> Stmt
+    fn declaration(&mut self) -> ast::Stmt
     {
         match self.parser.current.kind {
             scan::TokenKind::While => {
@@ -681,7 +548,7 @@ impl Compiler
         }
     }
 
-    fn declaration_statement(&mut self) -> Option<Stmt>
+    fn declaration_statement(&mut self) -> Option<ast::Stmt>
     {
         let next = self.parser.peek(1)?;
 
@@ -709,7 +576,7 @@ impl Compiler
 
             if !self.match_token(scan::TokenKind::Equal) {
                 let error = self.error_at("Expected token '='.", &self.parser.current.clone());
-                return Some(Stmt::Expr { expr: Box::new(error) })
+                return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
         } else if mutable || immutable {
             let mutable = if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon };
@@ -732,7 +599,7 @@ impl Compiler
             self.variable_declaration(index);
             self.variable_definition(index);
 
-            return Some(Stmt::Function { name: variable_token, params, param_types, body })
+            return Some(ast::Stmt::Function { name: variable_token, params, param_types, body })
         }
 
         if self.variable_exists(&variable_name) {
@@ -742,7 +609,7 @@ impl Compiler
                 &format!("Cannot redeclare variable with name '{}'.", &variable_token.value),
                 &variable_token.clone()
             );
-            return Some(Stmt::Expr { expr: Box::new(error) })
+            return Some(ast::Stmt::Expr { expr: Box::new(error) })
         }
 
         let initializer = self.expression();
@@ -754,13 +621,13 @@ impl Compiler
         self.match_token(scan::TokenKind::Semicolon);
 
         let initializer = Box::new(initializer);
-        let stmt = if mutable { Stmt::Var { name: variable_token, initializer } }
-                   else       { Stmt::Const { name: variable_token, initializer } };
+        let stmt = if mutable { ast::Stmt::Var { name: variable_token, initializer } }
+                   else       { ast::Stmt::Const { name: variable_token, initializer } };
 
         Some(stmt)
     }
 
-    fn variable_statement(&mut self) -> Option<Stmt>
+    fn variable_statement(&mut self) -> Option<ast::Stmt>
     {
         let next = self.parser.peek(1)?;
 
@@ -788,7 +655,7 @@ impl Compiler
 
             if !self.match_token(scan::TokenKind::Equal) {
                 let error = self.error_at("Expected token '='.", &self.parser.current.clone());
-                return Some(Stmt::Expr { expr: Box::new(error) })
+                return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
         } else if mutable || immutable {
             self.match_token(
@@ -805,7 +672,7 @@ impl Compiler
                 &format!("Cannot redeclare variable with name '{}'.", &variable_token),
                 &variable_token.clone()
             );
-            return Some(Stmt::Expr { expr: Box::new(error) })
+            return Some(ast::Stmt::Expr { expr: Box::new(error) })
         }
 
         let initializer = self.expression();
@@ -816,12 +683,12 @@ impl Compiler
 
         self.match_token(scan::TokenKind::Semicolon);
         let stmt = if mutable {
-            Stmt::Var {
+            ast::Stmt::Var {
                 name: variable_token,
                 initializer: Box::new(initializer),
             }
         } else {
-            Stmt::Const {
+            ast::Stmt::Const {
                 name: variable_token,
                 initializer: Box::new(initializer),
             }
@@ -834,7 +701,7 @@ impl Compiler
     // Otherwise, infer the type (if possible) from the value assigned to the variable
     // during type checking.
     // I can already see problems forming with this inference system. sadface
-    fn variable(&mut self) -> Expr
+    fn variable(&mut self) -> ast::Expr
     {
         let name = self.parser.previous.clone();
 
@@ -846,7 +713,7 @@ impl Compiler
         // If the next token is equal, handle assignment expression.
         if self.parser.previous.kind.discriminant() == scan::TokenKind::Equal.discriminant() {
             let value_expr = self.expression();
-            return Expr::Assignment {
+            return ast::Expr::Assignment {
                 name,
                 value: Box::new(value_expr),
             }
@@ -854,16 +721,16 @@ impl Compiler
 
         // Handles variable expression here.
         self.match_token(scan::TokenKind::Semicolon);
-        Expr::Variable { name }
+        ast::Expr::Variable { name }
     }
 
-    fn function_expression(&mut self) -> Expr
+    fn function_expression(&mut self) -> ast::Expr
     {
         let (params, param_types, body) = self.function();
-        Expr::Function { params, param_types, body }
+        ast::Expr::Function { params, param_types, body }
     }
 
-    fn function(&mut self) -> (Vec<scan::Token>, Vec<scan::Token>, Vec<Box<Stmt>>)
+    fn function(&mut self) -> (Vec<scan::Token>, Vec<scan::Token>, Vec<Box<ast::Stmt>>)
     {
         self.begin_function();
 
@@ -937,7 +804,7 @@ impl Compiler
         (params, argument_type_names, body)
     }
 
-    fn block(&mut self) -> (Vec<Box<Stmt>>, Box<Expr>)
+    fn block(&mut self) -> (Vec<Box<ast::Stmt>>, Box<ast::Expr>)
     {
         self.begin_scope();
 
@@ -964,11 +831,11 @@ impl Compiler
         let expr = if has_value {
             let binding = statements.pop().unwrap();
             match binding.as_ref() {
-                Stmt::Expr { expr } => expr.to_owned(),
+                ast::Stmt::Expr { expr } => expr.to_owned(),
                 _                   => panic!(),
             }
         } else {
-            Box::new(Expr::Literal { value: scan::Token::default() }) // TODO: this is sucks.
+            Box::new(ast::Expr::Literal { value: scan::Token::default() }) // TODO: this is sucks.
         };
 
         self.end_scope();
@@ -1088,7 +955,7 @@ impl Compiler
             .defined = true;
     }
 
-    fn _if(&mut self) -> Expr
+    fn _if(&mut self) -> ast::Expr
     {
         let condition = self.expression();
 
@@ -1103,10 +970,10 @@ impl Compiler
             let (branch, value) = self.block();
             (branch, value)
         } else {
-            (vec![], Box::new(Expr::Literal { value: scan::Token::default() }))
+            (vec![], Box::new(ast::Expr::Literal { value: scan::Token::default() }))
         };
 
-        Expr::If {
+        ast::Expr::If {
             condition: Box::new(condition),
             then_branch,
             then_value,
@@ -1115,7 +982,7 @@ impl Compiler
         }
     }
 
-    fn _while(&mut self) -> Stmt
+    fn _while(&mut self) -> ast::Stmt
     {
         let condition = self.expression();
 
@@ -1131,7 +998,7 @@ impl Compiler
 
         self.match_token(scan::TokenKind::RightBracket);
 
-        Stmt::While {
+        ast::Stmt::While {
             condition: Box::new(condition),
             body,
         }
@@ -1140,7 +1007,7 @@ impl Compiler
     // In this implementation, all the parts of a for
     // loop declaration are required. While and iterators (when I get to that)
     // will make up for everything.
-    fn _for(&mut self) -> Stmt
+    fn _for(&mut self) -> ast::Stmt
     {
         // TODO: no unwrap
         let variable       = self.variable_statement().unwrap();
@@ -1150,7 +1017,7 @@ impl Compiler
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body: Vec<Box<Stmt>> = vec![];
+        let mut body: Vec<Box<ast::Stmt>> = vec![];
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
@@ -1161,7 +1028,7 @@ impl Compiler
 
         // end body
 
-        Stmt::For {
+        ast::Stmt::For {
             initializer: Box::new(variable),
             condition: Box::new(condition_expr),
             advancement: Box::new(advancement),
@@ -1169,7 +1036,7 @@ impl Compiler
         }
     }
 
-    fn function_invocation(&mut self) -> Expr
+    fn function_invocation(&mut self) -> ast::Expr
     {
         let Some(token) = self.parser.peek(-2) else {
             return self
@@ -1179,7 +1046,7 @@ impl Compiler
         let function_name_token = token.clone();
         let function_name       = function_name_token.value.clone();
 
-        let mut arguments: Vec<Box<Expr>> = vec![];
+        let mut arguments: Vec<Box<ast::Expr>> = vec![];
 
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -1201,7 +1068,7 @@ impl Compiler
 
         self.match_token(scan::TokenKind::Semicolon);
 
-        Expr::Call { name: function_name_token, arguments }
+        ast::Expr::Call { name: function_name_token, arguments }
     }
 
     // TODO: So far, piping into a function is only supported with functions
@@ -1216,7 +1083,7 @@ impl Compiler
     // Again, this makes things way easier when working with different execution orders, such as
     // when piping things into functions (as arguments are parsed in a different order from regular function
     // calls, again again).
-    fn pipe(&mut self) -> Expr
+    fn pipe(&mut self) -> ast::Expr
     {
         todo!()
     }
@@ -1305,10 +1172,10 @@ impl Compiler
         distance
     }
 
-    fn semicolon(&mut self) -> Expr
+    fn semicolon(&mut self) -> ast::Expr
     {
         self.match_token(scan::TokenKind::Semicolon);
-        Expr::Literal { value: scan::Token::default() }
+        ast::Expr::Literal { value: scan::Token::default() }
     }
 
     // This section basically implements the parser methods, the difference is that the
@@ -1334,11 +1201,11 @@ impl Compiler
 
     //
 
-    fn error_at(&mut self, msg: &str, token: &scan::Token) -> Expr
+    fn error_at(&mut self, msg: &str, token: &scan::Token) -> ast::Expr
     {
         let err = self.parser.error_at(msg, token);
         self.errors.push(err);
-        Expr::Bad { token: token.clone() }
+        ast::Expr::Bad { token: token.clone() }
     }
 
     fn error(&mut self, err: CompilerError)

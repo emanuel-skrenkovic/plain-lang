@@ -3,7 +3,7 @@ extern crate llvm_sys as llvm;
 use std::collections::HashMap;
 use macros::binary_cstr;
 
-use crate::{compiler, scope, scan, semantic_analysis, types};
+use crate::{ast, scope, scan, semantic_analysis, types};
 
 #[derive(Clone, Debug)]
 pub struct FunctionDefinition
@@ -18,7 +18,7 @@ pub struct FunctionDefinition
 
     pub return_type: llvm::prelude::LLVMTypeRef,
 
-    pub code: Vec<compiler::Stmt>,
+    pub code: Vec<ast::Stmt>,
 
     pub closure: bool,
 }
@@ -33,7 +33,7 @@ impl FunctionDefinition
         arity: usize,
         argument_type_kinds: &[Box<types::TypeKind>],
         return_type_kind: &types::TypeKind,
-        code: Vec<compiler::Stmt>,
+        code: Vec<ast::Stmt>,
         closure: bool,
     ) -> Self
     {
@@ -188,7 +188,7 @@ pub struct Context
     pub llvm_ctx: llvm::prelude::LLVMContextRef,
     pub modules: Vec<llvm::prelude::LLVMModuleRef>,
 
-    pub program: Vec<compiler::Stmt>,
+    pub program: Vec<ast::Stmt>,
 
     pub module_scopes: scope::Module<(llvm::prelude::LLVMValueRef, llvm::prelude::LLVMTypeRef)>,
     pub declarations: HashMap<String, (usize, FunctionDefinition)>,
@@ -199,7 +199,7 @@ pub struct Context
 impl Context
 {
     #[must_use]
-    pub unsafe fn new(program: Vec<compiler::Stmt>, symbol_table: semantic_analysis::SymbolTable) -> Self
+    pub unsafe fn new(program: Vec<ast::Stmt>, symbol_table: semantic_analysis::SymbolTable) -> Self
     {
         Self {
             llvm_ctx: llvm::core::LLVMContextCreate(),
@@ -263,7 +263,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
 
         let result = match main_function_call.code.last() {
-            Some(compiler::Stmt::Expr { expr }) => match_expression(ctx, &mut current, expr),
+            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut current, expr),
             _                                   => panic!() // TODO
         };
 
@@ -294,11 +294,11 @@ pub unsafe fn match_statement
 (
     ctx: &mut Context,
     current: &mut Current,
-    stmt: &compiler::Stmt
+    stmt: &ast::Stmt
 )
 {
     match stmt {
-        compiler::Stmt::Function { name, params, param_types, body } => {
+        ast::Stmt::Function { name, params, param_types, body } => {
             if name.value == "main" { return }
 
             ctx.module_scopes.begin_scope();
@@ -325,7 +325,7 @@ pub unsafe fn match_statement
             }
 
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
-                compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
+                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
                 _                             => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
@@ -336,11 +336,11 @@ pub unsafe fn match_statement
             ctx.module_scopes.end_scope();
         },
 
-        compiler::Stmt::Declaration { name: _, initializer: _ } => (),
+        ast::Stmt::Declaration { name: _, initializer: _ } => (),
 
-        compiler::Stmt::Block { statements: _ } => (),
+        ast::Stmt::Block { statements: _ } => (),
 
-        compiler::Stmt::Var { name, initializer } => {
+        ast::Stmt::Var { name, initializer } => {
             let type_ref      = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
             let variable_name = name.value.as_ptr();
 
@@ -358,7 +358,7 @@ pub unsafe fn match_statement
                 .add_to_current(&name.value, (variable, llvm::core::LLVMTypeOf(variable)));
         },
 
-        compiler::Stmt::Const { name, initializer } => {
+        ast::Stmt::Const { name, initializer } => {
             let type_ref      = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
             let variable_name = name.value.as_ptr();
 
@@ -374,7 +374,7 @@ pub unsafe fn match_statement
             ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
         },
 
-        compiler::Stmt::For { initializer, condition, advancement, body } => {
+        ast::Stmt::For { initializer, condition, advancement, body } => {
             let start_branch       = current.append_block("_for_start");
             let condition_branch   = current.append_block("_for_condition");
             let body_branch        = current.append_block("_for_body");
@@ -416,7 +416,7 @@ pub unsafe fn match_statement
             current.set_position(end_branch);
         },
 
-        compiler::Stmt::While { condition, body } => {
+        ast::Stmt::While { condition, body } => {
             let start_branch = current.append_block("_while_start");
             let body_branch  = current.append_block("_while_body");
             let end_branch   = current.append_block("_while_end");
@@ -443,20 +443,20 @@ pub unsafe fn match_statement
 
         },
 
-        compiler::Stmt::Unary { } => (),
+        ast::Stmt::Unary { } => (),
 
-        compiler::Stmt::Return { } => (),
+        ast::Stmt::Return { } => (),
 
-        compiler::Stmt::Expr { expr } => { match_expression(ctx, current, expr.as_ref()); },
+        ast::Stmt::Expr { expr } => { match_expression(ctx, current, expr.as_ref()); },
     }
 }
 
-pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &compiler::Expr) -> llvm::prelude::LLVMValueRef
+pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &ast::Expr) -> llvm::prelude::LLVMValueRef
 {
     match expr {
-        compiler::Expr::Bad { token: _ } => todo!(),
+        ast::Expr::Bad { token: _ } => todo!(),
 
-        compiler::Expr::Block { statements, value } => {
+        ast::Expr::Block { statements, value } => {
             ctx.module_scopes.begin_scope();
 
             for stmt in statements {
@@ -471,7 +471,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             deref_if_ptr(current.builder, expr, return_type)
         },
 
-        compiler::Expr::If { condition, then_branch, then_value, else_branch, else_value } => {
+        ast::Expr::If { condition, then_branch, then_value, else_branch, else_value } => {
             let branch_entry_block = current.append_block("_entry_branch");
             current.build_break(branch_entry_block);
             current.set_position(branch_entry_block);
@@ -538,14 +538,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             phi_node
         },
 
-        compiler::Expr::Binary { left, right, operator }
+        ast::Expr::Binary { left, right, operator }
             => binary_expr(ctx, current, left.as_ref(), right.as_ref(), operator),
 
         // TODO: maybe simply extend the AST with type information,
         // instead of keeping the type info in a separate place.
         // That would avoid the issue of finding type info for a freestanding
         // literal expression.
-        compiler::Expr::Literal { value } => {
+        ast::Expr::Literal { value } => {
             let name        = &current.name.take().unwrap();
             let declaration = ctx.symbol_table.module.get_in_scope(ctx.module_scopes.current_scope_index, name).unwrap(/*TODO: remove unwrap*/);
 
@@ -580,21 +580,21 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             }
         }
 
-        compiler::Expr::Variable { name } => {
+        ast::Expr::Variable { name } => {
             let (variable, _) = ctx.module_scopes.get(&name.value).unwrap();
             *variable
         }
 
-        compiler::Expr::Assignment { name, value } => {
+        ast::Expr::Assignment { name, value } => {
             let value_expr        = match_expression(ctx, current, value);
             let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
 
             llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
         },
 
-        compiler::Expr::Logical => todo!(),
+        ast::Expr::Logical => todo!(),
 
-        compiler::Expr::Call { name, arguments } => {
+        ast::Expr::Call { name, arguments } => {
             let (scope, function) = ctx
                 .declarations
                 .get(&name.value)
@@ -649,7 +649,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             deref_if_primitive(current.builder, result, function.function_type)
         },
 
-        compiler::Expr::Function { params, param_types, body }
+        ast::Expr::Function { params, param_types, body }
             => {
                 let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())
@@ -661,8 +661,8 @@ pub unsafe fn binary_expr
 (
     ctx: &mut Context,
     current: &mut Current,
-    left: &compiler::Expr,
-    right: &compiler::Expr,
+    left: &ast::Expr,
+    right: &ast::Expr,
     operator: &scan::Token,
 ) -> llvm::prelude::LLVMValueRef
 {
@@ -725,7 +725,7 @@ unsafe fn closure
     current: &mut Current,
     name: &str,
     params: Vec<scan::Token>,
-    body: Vec<Box<compiler::Stmt>>,
+    body: Vec<Box<ast::Stmt>>,
 ) -> llvm::prelude::LLVMValueRef
 {
     ctx.module_scopes.begin_scope();
@@ -768,7 +768,7 @@ unsafe fn closure
     }
 
     let result = match body.last().map(|s| s.as_ref()) {
-        Some(compiler::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, expr),
+        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, expr),
         _ => llvm::core::LLVMConstNull(return_type),
     };
 
