@@ -19,6 +19,8 @@ pub struct FunctionDefinition
     pub return_type: llvm::prelude::LLVMTypeRef,
 
     pub code: Vec<compiler::Stmt>,
+
+    pub closure: bool,
 }
 
 impl FunctionDefinition
@@ -32,6 +34,7 @@ impl FunctionDefinition
         argument_type_names: Vec<Option<String>>,
         return_type_name: String,
         code: Vec<compiler::Stmt>,
+        closure: bool,
     ) -> Self
     {
         let return_type = match return_type_name.as_str() {
@@ -66,6 +69,7 @@ impl FunctionDefinition
             param_types,
             return_type,
             code,
+            closure,
         }
     }
 }
@@ -89,6 +93,7 @@ pub struct Current
     pub basic_block: llvm::prelude::LLVMBasicBlockRef,
 
     pub function: FunctionDefinition,
+    pub name: Option<String>,
 }
 
 impl Current
@@ -117,6 +122,7 @@ impl Current
             basic_block: entry_block,
             module,
             function,
+            name: None,
         }
     }
 
@@ -245,8 +251,8 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
             _                                   => panic!() // TODO
         };
 
-        let return_type = current.function.return_type;
-        let result      = deref_if_ptr(current.builder, result, return_type);
+        let return_type = main_function_call.return_type;
+        let result      = deref_if_primitive(current.builder, result, return_type);
         llvm::core::LLVMBuildRet(current.builder, result);
 
         ctx.module_scopes.end_scope();
@@ -286,6 +292,7 @@ pub unsafe fn match_statement
             // TODO: I don't like this clone here.
             let function_call = function_call.clone();
             let function_ref  = function_call.function;
+            let return_type   = function_call.return_type;
 
             let mut function_current = Current::new(ctx.llvm_ctx, current.module, function_call);
 
@@ -301,13 +308,12 @@ pub unsafe fn match_statement
                 match_statement(ctx, &mut function_current, stmt);
             }
 
-            let return_type = current.function.return_type;
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
                 compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
                 _                             => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
-            let result = deref_if_ptr(function_current.builder, result, return_type);
+            let result = deref_if_primitive(function_current.builder, result, return_type);
 
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
@@ -326,6 +332,8 @@ pub unsafe fn match_statement
                 ::core
                 ::LLVMBuildAlloca(current.builder, type_ref, variable_name as *const _);
 
+            current.name = Some(name.value.clone());
+
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
@@ -341,6 +349,8 @@ pub unsafe fn match_statement
             let variable = llvm
                 ::core
                 ::LLVMBuildAlloca(current.builder, type_ref, variable_name as *const _);
+
+            current.name = Some(name.value.clone());
 
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
@@ -565,10 +575,18 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 panic!("Function '{}' not in scope.", name.value);
             }
 
-            let mut closed_variables: Vec<llvm::prelude::LLVMValueRef> = variables_in_scope(ctx)
-                .iter()
-                .map(|(_, var)| prime_argument(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)))
-                .collect();
+            // TODO: only do the below if it's a closure.
+            let mut closed_variables = if function.closure {
+                variables_in_scope(ctx)
+                    .iter()
+                    .filter(|(key, _)| key != &name.value)
+                    .map(|(key, var)| {
+                        prime_argument(current.builder, *var, llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx))
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
 
             // TODO: I'm not sure of the semantics of arguments.
             // I'm thinking copy by default and take the reference explicitly.
@@ -597,11 +615,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 format!("{}_call", function.name).as_ptr() as *const _,
             );
 
-            deref_if_ptr(current.builder, result, function.function_type)
+            deref_if_primitive(current.builder, result, function.function_type)
         },
 
         compiler::Expr::Function { params, body }
-            => closure(ctx, current, "add", params.to_vec(), body.to_vec()).function,
+            => {
+                let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
+                closure(ctx, current, &name, params.to_vec(), body.to_vec())
+            }
     }
 }
 
@@ -674,28 +695,31 @@ unsafe fn closure
     name: &str,
     params: Vec<scan::Token>,
     body: Vec<Box<compiler::Stmt>>,
-) -> FunctionDefinition
+) -> llvm::prelude::LLVMValueRef
 {
     ctx.module_scopes.begin_scope();
 
     let mut closed_variables: Vec<String> = variables_in_scope(ctx)
         .into_iter()
+        .filter(|(n, _)| n != &name)
         .map(|(name, _)| name.to_string())
         .collect();
+
     let mut params: Vec<String> = params
         .iter()
         .map(|p| p.value.clone())
         .collect();
 
     let total_values_count = params.len() + closed_variables.len();
+    let mut closed_params  = Vec::with_capacity(total_values_count);
 
-    let mut closed_params: Vec<String> = Vec::with_capacity(total_values_count);
     closed_params.append(&mut params);
     closed_params.append(&mut closed_variables);
 
     let (_, function_call) = ctx.declarations.get(name).unwrap();
 
     let function_ref = function_call.function;
+    let return_type  = function_call.return_type;
 
     let mut function_current = Current::new(ctx.llvm_ctx, current.module, function_call.clone());
 
@@ -706,22 +730,24 @@ unsafe fn closure
         ctx.module_scopes.add_to_current(&param, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
     }
 
-    for stmt in &body[..body.len()-1] {
-        match_statement(ctx, &mut function_current, stmt);
+    if body.len() > 0 {
+        for stmt in &body[..body.len()-1] {
+            match_statement(ctx, &mut function_current, stmt);
+        }
     }
 
-    let result = match body.last().unwrap().as_ref() {
-        compiler::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
-        _ => panic!() // TODO
+    let result = match body.last().map(|s| s.as_ref()) {
+        Some(compiler::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, expr),
+        _ => llvm::core::LLVMConstNull(return_type),
     };
 
-    let return_type = current.function.return_type;
-    let result = deref_if_ptr(function_current.builder, result, return_type);
+
+    let result = deref_if_primitive(function_current.builder, result, return_type);
     llvm::core::LLVMBuildRet(function_current.builder, result);
 
     ctx.module_scopes.end_scope();
 
-    current.function.to_owned()
+    function_ref
 }
 
 unsafe fn forward_declare(ctx: &mut Context)
@@ -748,6 +774,7 @@ unsafe fn forward_declare(ctx: &mut Context)
 
                         "number".to_string(),
                         body.iter().map(|s| *s.clone()).collect(),
+                        false,
                     );
 
                     ctx.declarations.insert(name.clone(), (scope.index, function_call));
@@ -770,6 +797,7 @@ unsafe fn forward_declare(ctx: &mut Context)
 
                         "number".to_string(),
                         body.iter().map(|s| *s.clone()).collect(),
+                        true,
                     );
 
                     ctx.declarations.insert(name.clone(), (scope.index, function_call));
@@ -821,24 +849,24 @@ unsafe fn prime_argument
 }
 
 // TODO
-// unsafe fn deref_if_primitive
-// (
-//     builder: llvm::prelude::LLVMBuilderRef,
-//     value: llvm::prelude::LLVMValueRef,
-//     expected_type: llvm::prelude::LLVMTypeRef,
-// ) -> llvm::prelude::LLVMValueRef
-// {
-//     // TODO: cache this?
-//     let type_kind = llvm::core::LLVMGetTypeKind(expected_type);
+unsafe fn deref_if_primitive
+(
+    builder: llvm::prelude::LLVMBuilderRef,
+    value: llvm::prelude::LLVMValueRef,
+    expected_type: llvm::prelude::LLVMTypeRef,
+) -> llvm::prelude::LLVMValueRef
+{
+    // TODO: cache this?
+    let type_kind = llvm::core::LLVMGetTypeKind(expected_type);
 
-//     if is_pointer(value) && PRIMITIVE_TYPES.contains(&type_kind) {
-//         return llvm
-//             ::core
-//             ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
-//     }
+    if is_pointer(value) && PRIMITIVE_TYPES.contains(&type_kind) {
+        return llvm
+            ::core
+            ::LLVMBuildLoad2(builder, expected_type, value, binary_cstr!("_deref"));
+    }
 
-//     value
-// }
+    value
+}
 
 unsafe fn deref_if_ptr
 (
@@ -945,5 +973,6 @@ pub unsafe fn printf_function
         param_types: vec![llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0), llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx)],
         return_type: llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
         code: vec![],
+        closure: false,
     }
 }

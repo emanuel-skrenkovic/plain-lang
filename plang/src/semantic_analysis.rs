@@ -169,7 +169,9 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
                         body: body.clone(),
                     };
 
-                    let captures = symbol_table.module.captures();
+                    let captures = symbol_table
+                        .module
+                        .captures();
 
                     symbol_table.module.add_to_current
                     (
@@ -182,8 +184,10 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &compiler::Stmt)
 
                     symbol_table.module.begin_scope();
 
-                    for stmt in &body[..body.len()-1] {
-                        match_statement(symbol_table, stmt);
+                    if body.len() > 0 {
+                        for stmt in &body[..body.len()-1] {
+                            match_statement(symbol_table, stmt);
+                        }
                     }
 
                     if let Some(compiler::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
