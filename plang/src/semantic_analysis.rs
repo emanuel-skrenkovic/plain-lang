@@ -99,7 +99,7 @@ pub fn declare_main
             }
 
             if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                match_expression(expr);
+                match_expression(&expr.value);
             };
 
             symbol_table.module.end_scope();
@@ -153,7 +153,7 @@ pub fn match_statement
             }
 
             if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                match_expression(expr);
+                match_expression(&expr.value);
             };
 
             symbol_table.module.end_scope();
@@ -164,7 +164,7 @@ pub fn match_statement
         ast::Stmt::Block { statements: _ } => (),
 
         ast::Stmt::Var { name, initializer } => {
-            match initializer.as_ref() {
+            match &initializer.value {
                 ast::Expr::Function { params, param_types: _, body } => {
                     let kind = DeclarationKind::Function {
                         function: Function {
@@ -188,7 +188,7 @@ pub fn match_statement
                     }
 
                     if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                        match_expression(expr);
+                        match_expression(&expr.value);
                     };
 
                     symbol_table.module.end_scope();
@@ -207,7 +207,7 @@ pub fn match_statement
         }
 
         ast::Stmt::Const { name, initializer } => {
-            match initializer.as_ref() {
+            match &initializer.value {
                 ast::Expr::Function { params, param_types: _, body } => {
                     let function = Function {
                         params: params.clone(),
@@ -237,7 +237,7 @@ pub fn match_statement
                     }
 
                     if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                        match_expression(expr);
+                        match_expression(&expr.value);
                     };
 
                     symbol_table.module.end_scope();

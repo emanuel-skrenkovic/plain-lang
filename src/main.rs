@@ -38,7 +38,7 @@ fn main()
     };
 
     let now_type_analysis = std::time::Instant::now();
-    let type_info = types::infer_types(&program);
+    let (typed_program, type_info) = types::infer_types(&program);
     let after_type_analysis = now_type_analysis.elapsed();
 
     let now_semantic_analysis = std::time::Instant::now();
@@ -47,7 +47,7 @@ fn main()
 
     let after_llvm = unsafe {
         let now_llvm = std::time::Instant::now();
-        let mut ctx = compiler_llvm::Context::new(program, symbol_table);
+        let mut ctx = compiler_llvm::Context::new(typed_program, symbol_table);
         let module = compiler_llvm::compile(&mut ctx);
         let llvm_elapsed = now_llvm.elapsed();
 

@@ -232,6 +232,8 @@ impl Drop for Context
 // order of declaration.
 pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 {
+    println!("{:#?}", ctx.program);
+
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
@@ -263,7 +265,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
 
         let result = match main_function_call.code.last() {
-            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut current, expr),
+            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut current, &expr.value),
             _                                   => panic!() // TODO
         };
 
@@ -327,7 +329,7 @@ pub unsafe fn match_statement
             }
 
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
-                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
+                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, &expr.value),
                 _                             => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
@@ -352,7 +354,7 @@ pub unsafe fn match_statement
 
             current.name = Some(name.value.clone());
 
-            let value = match_expression(ctx, current, initializer);
+            let value = match_expression(ctx, current, &initializer.value);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
             ctx
@@ -370,7 +372,7 @@ pub unsafe fn match_statement
 
             current.name = Some(name.value.clone());
 
-            let value = match_expression(ctx, current, initializer);
+            let value = match_expression(ctx, current, &initializer.value);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
             ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
@@ -395,7 +397,7 @@ pub unsafe fn match_statement
             // condition
             {
                 current.set_position(condition_branch);
-                let condition_expr = match_expression(ctx, current, condition);
+                let condition_expr = match_expression(ctx, current, &condition.value);
                 current.build_condition(condition_expr, body_branch, end_branch);
             }
 
@@ -428,7 +430,7 @@ pub unsafe fn match_statement
             // condition
             {
                 current.set_position(start_branch);
-                let condition_expr = match_expression(ctx, current, condition);
+                let condition_expr = match_expression(ctx, current, &condition.value);
                 current.build_condition(condition_expr, body_branch, end_branch);
             }
 
@@ -449,7 +451,7 @@ pub unsafe fn match_statement
 
         ast::Stmt::Return { } => (),
 
-        ast::Stmt::Expr { expr } => { match_expression(ctx, current, expr.as_ref()); },
+        ast::Stmt::Expr { expr } => { match_expression(ctx, current, &expr.value); },
     }
 }
 
@@ -770,7 +772,7 @@ unsafe fn closure
     }
 
     let result = match body.last().map(|s| s.as_ref()) {
-        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, expr),
+        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, &expr.value),
         _ => llvm::core::LLVMConstNull(return_type),
     };
 

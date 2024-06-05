@@ -13,6 +13,23 @@ pub enum Node
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct ExprInfo
+{
+    pub value: Expr,
+    pub type_kind: types::TypeKind,
+}
+
+impl ExprInfo
+{
+    pub fn new(value: Expr) -> Self
+    {
+        Self {
+            value,
+            type_kind: types::TypeKind::Unknown,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Stmt
@@ -28,7 +45,7 @@ pub enum Stmt
     Declaration
     {
         name: scan::Token,
-        initializer: Box<Expr>,
+        initializer: Box<ExprInfo>,
     },
 
     Block
@@ -39,25 +56,25 @@ pub enum Stmt
     Var
     {
         name: scan::Token,
-        initializer: Box<Expr>,
+        initializer: Box<ExprInfo>,
     },
 
     Const
     {
         name: scan::Token,
-        initializer: Box<Expr>,
+        initializer: Box<ExprInfo>,
     },
 
     For {
         initializer: Box<Stmt>,
-        condition: Box<Expr>,
+        condition: Box<ExprInfo>,
         advancement: Box<Stmt>,
         body: Vec<Box<Stmt>>,
     },
 
     While
     {
-        condition: Box<Expr>,
+        condition: Box<ExprInfo>,
         body: Vec<Box<Stmt>>,
     },
 
@@ -67,7 +84,7 @@ pub enum Stmt
 
     Expr
     {
-        expr: Box<Expr>,
+        expr: Box<ExprInfo>,
     }
 }
 

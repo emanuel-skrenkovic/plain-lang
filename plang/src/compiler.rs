@@ -413,8 +413,6 @@ impl Compiler
             }
         }
 
-        println!("{:#?}", nodes);
-
         if self.parser.panic {
             return Err(self.errors)
         }
@@ -483,7 +481,7 @@ impl Compiler
     fn expression_statement(&mut self) -> ast::Stmt
     {
         ast::Stmt::Expr {
-            expr: Box::new(self.expression()),
+            expr: Box::new(ast::ExprInfo::new(self.expression())),
         }
     }
 
@@ -579,6 +577,7 @@ impl Compiler
 
             if !self.match_token(scan::TokenKind::Equal) {
                 let error = self.error_at("Expected token '='.", &self.parser.current.clone());
+                let error = ast::ExprInfo::new(error);
                 return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
         } else if mutable || immutable {
@@ -612,6 +611,7 @@ impl Compiler
                 &format!("Cannot redeclare variable with name '{}'.", &variable_token.value),
                 &variable_token.clone()
             );
+            let error = ast::ExprInfo::new(error);
             return Some(ast::Stmt::Expr { expr: Box::new(error) })
         }
 
@@ -623,7 +623,7 @@ impl Compiler
 
         self.match_token(scan::TokenKind::Semicolon);
 
-        let initializer = Box::new(initializer);
+        let initializer = Box::new(ast::ExprInfo::new(initializer));
         let stmt = if mutable { ast::Stmt::Var { name: variable_token, initializer } }
                    else       { ast::Stmt::Const { name: variable_token, initializer } };
 
@@ -658,6 +658,7 @@ impl Compiler
 
             if !self.match_token(scan::TokenKind::Equal) {
                 let error = self.error_at("Expected token '='.", &self.parser.current.clone());
+                let error = ast::ExprInfo::new(error);
                 return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
         } else if mutable || immutable {
@@ -675,10 +676,12 @@ impl Compiler
                 &format!("Cannot redeclare variable with name '{}'.", &variable_token),
                 &variable_token.clone()
             );
+            let error = ast::ExprInfo::new(error);
             return Some(ast::Stmt::Expr { expr: Box::new(error) })
         }
 
         let initializer = self.expression();
+        let initializer = ast::ExprInfo::new(initializer);
 
         let index = self.declare_variable(variable_token.clone(), mutable, maybe_type_name);
         self.variable_declaration(index);
@@ -834,11 +837,13 @@ impl Compiler
         let expr = if has_value {
             let binding = statements.pop().unwrap();
             match binding.as_ref() {
-                ast::Stmt::Expr { expr } => expr.to_owned(),
-                _                   => panic!(),
+                ast::Stmt::Expr { expr } => Box::new(expr.to_owned().value),
+                _                        => panic!(),
             }
         } else {
-            Box::new(ast::Expr::Literal { value: scan::Token::default() }) // TODO: this is sucks.
+            Box::new(
+                ast::Expr::Literal { value: scan::Token::default() }
+            ) // TODO: this is sucks.
         };
 
         self.end_scope();
@@ -1001,6 +1006,8 @@ impl Compiler
 
         self.match_token(scan::TokenKind::RightBracket);
 
+        let condition = ast::ExprInfo::new(condition);
+
         ast::Stmt::While {
             condition: Box::new(condition),
             body,
@@ -1030,6 +1037,8 @@ impl Compiler
         self.consume(scan::TokenKind::RightBracket, "Expect '}' after the 'for' block.");
 
         // end body
+
+        let condition_expr = ast::ExprInfo::new(condition_expr);
 
         ast::Stmt::For {
             initializer: Box::new(variable),
