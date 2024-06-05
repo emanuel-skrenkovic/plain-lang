@@ -188,7 +188,7 @@ pub struct Context
     pub llvm_ctx: llvm::prelude::LLVMContextRef,
     pub modules: Vec<llvm::prelude::LLVMModuleRef>,
 
-    pub program: Vec<ast::Stmt>,
+    pub program: Vec<ast::Node>,
 
     pub module_scopes: scope::Module<(llvm::prelude::LLVMValueRef, llvm::prelude::LLVMTypeRef)>,
     pub declarations: HashMap<String, (usize, FunctionDefinition)>,
@@ -199,7 +199,7 @@ pub struct Context
 impl Context
 {
     #[must_use]
-    pub unsafe fn new(program: Vec<ast::Stmt>, symbol_table: semantic_analysis::SymbolTable) -> Self
+    pub unsafe fn new(program: Vec<ast::Node>, symbol_table: semantic_analysis::SymbolTable) -> Self
     {
         Self {
             llvm_ctx: llvm::core::LLVMContextCreate(),
@@ -278,7 +278,9 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     ctx.module_scopes.begin_scope();
 
     for stmt in &ctx.program.clone() {
-        match_statement(ctx, &mut current, stmt);
+        if let ast::Node::Stmt(stmt) = stmt {
+            match_statement(ctx, &mut current, stmt);
+        }
     }
 
     ctx.module_scopes.end_scope();

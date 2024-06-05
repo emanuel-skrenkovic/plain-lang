@@ -1,5 +1,6 @@
 use crate::{ast, scan, scope};
 
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeKind
 {
@@ -29,14 +30,16 @@ pub enum TypeKind
     },
 }
 
-pub fn infer_types(program: &[ast::Stmt]) -> scope::Module<TypeKind>
+pub fn infer_types(program: &[ast::Node]) -> scope::Module<TypeKind>
 {
     let mut type_info: scope::Module<TypeKind> = scope::Module::new();
 
     type_info.begin_scope();
 
     for stmt in &program.to_owned() {
-        match_statement(&mut type_info, stmt);
+        if let ast::Node::Stmt(stmt) = stmt {
+            match_statement(&mut type_info, stmt);
+        }
     }
 
     type_info.end_scope();

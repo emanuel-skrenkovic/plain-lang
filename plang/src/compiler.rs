@@ -394,29 +394,32 @@ impl Compiler
         }
     }
 
-    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<ast::Stmt>, Vec<CompilerError>>
+    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<ast::Node>, Vec<CompilerError>>
     {
         self.parser = Parser::new(self.source.clone(), tokens);
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
         // TODO: should probably enclose program itself.
 
-        let mut statements: Vec<ast::Stmt> = Vec::with_capacity(1024 * 8);
+        let mut nodes: Vec<ast::Node> = Vec::with_capacity(1024 * 8);
 
         loop {
             match self.parser.current.kind {
                 scan::TokenKind::End => break,
-                _                    => statements.push(self.declaration()),
+                _ => {
+                    let decl = self.declaration();
+                    nodes.push(ast::Node::Stmt(decl));
+                }
             }
         }
 
-        println!("{:#?}", statements);
+        println!("{:#?}", nodes);
 
         if self.parser.panic {
             return Err(self.errors)
         }
 
-        Ok(statements)
+        Ok(nodes)
     }
 
     // TOOD: Currently we are experienceing the "main" problem.

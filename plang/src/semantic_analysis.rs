@@ -18,6 +18,7 @@ pub struct Declaration
 pub enum DeclarationKind
 {
     Function {
+
         function: Function
     },
 
@@ -42,7 +43,7 @@ pub struct SymbolTable
 // Walking the AST later is problematic if we don't have this.
 pub fn analyse
 (
-    program: &[ast::Stmt],
+    program: &[ast::Node],
     type_info: &scope::Module<types::TypeKind>,
 ) -> Result<SymbolTable, String>
 {
@@ -64,12 +65,16 @@ pub fn analyse
 
 pub fn declare_main
 (
-    program: &[ast::Stmt],
+    program: &[ast::Node],
     symbol_table: &mut SymbolTable,
     type_info: &scope::Module<types::TypeKind>,
 ) -> Result<(), String>
 {
     for statement in program {
+        let ast::Node::Stmt(statement) = statement else {
+            continue
+        };
+
         if let ast::Stmt::Function { name, params, param_types: _, body } = statement {
             if name.value != "main" {
                 continue
@@ -106,13 +111,15 @@ pub fn declare_main
 }
 
 pub fn forward_declarations(
-    program: &[ast::Stmt],
+    program: &[ast::Node],
     symbol_table: &mut SymbolTable,
     type_info: &scope::Module<types::TypeKind>,
 )
 {
     for stmt in &program.to_owned() {
-        match_statement(symbol_table, type_info, stmt);
+        if let ast::Node::Stmt(stmt) = stmt {
+            match_statement(symbol_table, type_info, stmt);
+        }
     }
 }
 

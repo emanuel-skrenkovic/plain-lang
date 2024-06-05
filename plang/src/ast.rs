@@ -1,4 +1,17 @@
-use crate::scan;
+use crate::{scan, types};
+
+
+#[derive(Debug, Clone)]
+pub enum Node
+{
+    Stmt(Stmt),
+
+    Expr
+    {
+        value: Expr,
+        type_kind: types::TypeKind,
+    },
+}
 
 
 #[derive(Debug, Clone)]
@@ -20,7 +33,7 @@ pub enum Stmt
 
     Block
     {
-        statements: Vec<Box<Stmt>>
+        statements: Vec<Box<Stmt>>,
     },
 
     Var
@@ -117,5 +130,95 @@ pub enum Expr
         params: Vec<scan::Token>,
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
+    },
+}
+
+pub fn bad_expr(token: scan::Token) -> Node
+{
+    Node::Expr {
+        value: Expr::Bad { token },
+        type_kind: types::TypeKind::Unknown,
+    }
+}
+
+pub fn block_expr(statements: Vec<Box<Stmt>>, value: Box<Expr>) -> Node
+{
+    Node::Expr {
+        value: Expr::Block { statements, value },
+        type_kind: types::TypeKind::Unknown,
+    }
+}
+
+pub fn if_expr
+(
+    condition: Box<Expr>,
+    then_branch: Vec<Box<Stmt>>,
+    then_value: Box<Expr>,
+    else_branch: Vec<Box<Stmt>>,
+    else_value: Box<Expr>,
+) -> Node
+{
+     Node::Expr {
+        value: Expr::If { condition, then_branch, then_value, else_branch, else_value },
+        type_kind: types::TypeKind::Unknown,
+    }
+}
+
+pub fn binary_expr
+(
+    left: Box<Expr>,
+    right: Box<Expr>,
+    operator: scan::Token
+) -> Node
+{
+     Node::Expr {
+        value: Expr::Binary { left, right, operator },
+        type_kind: types::TypeKind::Unknown,
+    }
+}
+
+pub fn literal_expr(value: scan::Token) -> Node
+{
+    Node::Expr {
+        value: Expr::Literal { value },
+        type_kind: types::TypeKind::Unknown,
+    }
+}
+
+pub fn variable_expr(token: scan::Token) -> Node
+{
+    Node::Expr {
+        value: Expr::Variable { name: token },
+        type_kind: types::TypeKind::Unknown,
+    }
+}
+
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TypeKind
+{
+    Unknown,
+
+    Unit,
+
+    Bool,
+
+    I32,
+
+    String,
+
+    Function {
+        parameter_kinds: Vec<Box<TypeKind>>,
+        return_kind: Box<TypeKind>,
+    },
+
+    Closure {
+        captured_kinds: Vec<Box<TypeKind>>,
+        parameter_kinds: Vec<Box<TypeKind>>,
+        return_kind: Box<TypeKind>,
+    },
+
+    Reference {
+        underlying: Box<TypeKind>,
     },
 }
