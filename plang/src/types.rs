@@ -32,8 +32,7 @@ pub enum TypeKind
 
 pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<TypeKind>)
 {
-    let mut typed_program = Vec::with_capacity(program.len());
-
+    let mut typed_program                      = Vec::with_capacity(program.len());
     let mut type_info: scope::Module<TypeKind> = scope::Module::new();
 
     type_info.begin_scope();
@@ -64,8 +63,8 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
 
             let return_kind = if body.is_empty() {
                 TypeKind::Unit
-            } else if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                match_expression(type_info, &expr.value)
+            } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
+                match_expression(type_info, &mut expr.value)
             } else {
                 TypeKind::Unit
             };
@@ -87,17 +86,19 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
         },
 
         ast::Stmt::Declaration { name: _, initializer } => {
-            initializer.type_kind = match_expression(type_info, &initializer.value);
+            initializer.type_kind = match_expression(type_info, &mut initializer.value);
         },
 
         ast::Stmt::Block { statements: _ } => (),
 
-        ast::Stmt::Var { name: _, initializer } => {
-            initializer.type_kind = match_expression(type_info, &initializer.value);
+        ast::Stmt::Var { name, initializer } => {
+            let kind = match_expression(type_info, &mut initializer.value);
+            initializer.type_kind = kind.clone();
+            type_info.add_to_current(&name.value, kind);
         }
 
         ast::Stmt::Const { name, initializer } => {
-            let kind = match_expression(type_info, &initializer.value);
+            let kind = match_expression(type_info, &mut initializer.value);
             initializer.type_kind = kind.clone();
             type_info.add_to_current(&name.value, kind);
         }
@@ -111,40 +112,54 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
         ast::Stmt::Return { } => (),
 
         ast::Stmt::Expr { expr } => {
-            expr.type_kind = match_expression(type_info, &expr.value);
+            expr.type_kind = match_expression(type_info, &mut expr.value);
         },
     }
 
     stmt.to_owned()
 }
 
-pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &ast::Expr) -> TypeKind
+pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast::Expr) -> TypeKind
 {
     match expr {
         ast::Expr::Bad { token: _ } => TypeKind::Unknown,
 
-        ast::Expr::Block { statements: _, value } => match_expression(type_info, &value),
+        ast::Expr::Block { statements: _, value } => {
+            let kind = match_expression(type_info, &mut value.value);
+            value.type_kind = kind.clone();
+            kind
+        }
 
         ast::Expr::If { condition: _, then_branch: _, then_value, else_branch: _, else_value } => {
-            let then_branch_type = match_expression(type_info, &then_value);
-            let else_branch_type = match_expression(type_info, &else_value);
+            let then_branch_type = match_expression(type_info, &mut then_value.value);
+            let else_branch_type = match_expression(type_info, &mut else_value.value);
 
             if then_branch_type != else_branch_type {
                 panic!("Incompatible types between branches");
             }
 
-            then_branch_type
+            let kind = then_branch_type.clone();
+
+            then_value.type_kind = then_branch_type;
+            else_value.type_kind = else_branch_type;
+
+            kind
         },
 
         ast::Expr::Binary { left, right, operator: _ } => {
-            let left_type  = match_expression(type_info, &left);
-            let right_type = match_expression(type_info, &right);
+            let left_type  = match_expression(type_info, &mut left.value);
+            let right_type = match_expression(type_info, &mut right.value);
 
             if left_type != right_type {
                 panic!("Binary operation between incompatible types.");
             }
 
-            left_type
+            let kind = left_type.clone();
+
+            left.type_kind  = left_type;
+            right.type_kind = right_type;
+
+            kind
         },
 
         ast::Expr::Literal { value } => token_type(&value),
@@ -157,10 +172,17 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &ast::Exp
 
         ast::Expr::Logical => todo!(),
 
-        ast::Expr::Call { name: _, arguments: _ } => {
+        ast::Expr::Call { name: _, arguments } => {
             // TODO: get function by name
             // and then use its return type kind as the type kind here.
             // todo!()
+            // type_info.get(&name.value).unwrap().clone()
+
+            for arg in arguments.iter_mut() {
+                let kind = match_expression(type_info, &mut arg.value);
+                arg.type_kind = kind;
+            }
+
             // type_info.get(&name.value).unwrap().clone()
             TypeKind::Unit
         },
@@ -176,8 +198,8 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &ast::Exp
 
             let return_kind = if body.is_empty() {
                 TypeKind::Unit
-            } else if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                match_expression(type_info, &expr.value)
+            } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
+                match_expression(type_info, &mut expr.value)
             } else {
                 TypeKind::Unit
             };

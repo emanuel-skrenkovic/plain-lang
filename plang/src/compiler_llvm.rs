@@ -265,7 +265,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
         }
 
         let result = match main_function_call.code.last() {
-            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut current, &expr.value),
+            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut current, expr),
             _                                   => panic!() // TODO
         };
 
@@ -329,7 +329,7 @@ pub unsafe fn match_statement
             }
 
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
-                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, &expr.value),
+                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
                 _                             => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
@@ -354,7 +354,7 @@ pub unsafe fn match_statement
 
             current.name = Some(name.value.clone());
 
-            let value = match_expression(ctx, current, &initializer.value);
+            let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
             ctx
@@ -372,7 +372,7 @@ pub unsafe fn match_statement
 
             current.name = Some(name.value.clone());
 
-            let value = match_expression(ctx, current, &initializer.value);
+            let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
 
             ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
@@ -397,7 +397,7 @@ pub unsafe fn match_statement
             // condition
             {
                 current.set_position(condition_branch);
-                let condition_expr = match_expression(ctx, current, &condition.value);
+                let condition_expr = match_expression(ctx, current, condition);
                 current.build_condition(condition_expr, body_branch, end_branch);
             }
 
@@ -430,7 +430,7 @@ pub unsafe fn match_statement
             // condition
             {
                 current.set_position(start_branch);
-                let condition_expr = match_expression(ctx, current, &condition.value);
+                let condition_expr = match_expression(ctx, current, condition);
                 current.build_condition(condition_expr, body_branch, end_branch);
             }
 
@@ -451,23 +451,23 @@ pub unsafe fn match_statement
 
         ast::Stmt::Return { } => (),
 
-        ast::Stmt::Expr { expr } => { match_expression(ctx, current, &expr.value); },
+        ast::Stmt::Expr { expr } => { match_expression(ctx, current, expr); },
     }
 }
 
-pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &ast::Expr) -> llvm::prelude::LLVMValueRef
+pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &ast::ExprInfo) -> llvm::prelude::LLVMValueRef
 {
-    match expr {
+    match &expr.value {
         ast::Expr::Bad { token: _ } => todo!(),
 
         ast::Expr::Block { statements, value } => {
             ctx.module_scopes.begin_scope();
 
             for stmt in statements {
-                match_statement(ctx, current, stmt);
+                match_statement(ctx, current, &stmt);
             }
 
-            let expr = match_expression(ctx, current, value);
+            let expr = match_expression(ctx, current, &value);
 
             ctx.module_scopes.end_scope();
 
@@ -480,7 +480,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             current.build_break(branch_entry_block);
             current.set_position(branch_entry_block);
 
-            let condition_expr = match_expression(ctx, current, condition);
+            let condition_expr = match_expression(ctx, current, &condition);
 
             let mut incoming_values = Vec::with_capacity(2);
             let mut incoming_blocks = Vec::with_capacity(2);
@@ -490,10 +490,10 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let (then_result, then_exit_block) = {
                 for stmt in then_branch {
-                    match_statement(ctx, current, stmt);
+                    match_statement(ctx, current, &stmt);
                 }
 
-                let then_result = match_expression(ctx, current, then_value);
+                let then_result = match_expression(ctx, current, &then_value);
 
                 (then_result, current.basic_block)
             };
@@ -506,10 +506,10 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let (else_result, else_exit_block) = {
                 for stmt in else_branch {
-                    match_statement(ctx, current, stmt);
+                    match_statement(ctx, current, &stmt);
                 }
 
-                let else_result = match_expression(ctx, current, else_value);
+                let else_result = match_expression(ctx, current, &else_value);
 
                 (else_result, current.basic_block)
             };
@@ -543,17 +543,17 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         },
 
         ast::Expr::Binary { left, right, operator }
-            => binary_expr(ctx, current, left.as_ref(), right.as_ref(), operator),
+            => binary_expr(ctx, current, &left, &right, &operator),
 
         // TODO: maybe simply extend the AST with type information,
         // instead of keeping the type info in a separate place.
         // That would avoid the issue of finding type info for a freestanding
         // literal expression.
         ast::Expr::Literal { value } => {
-            let name        = &current.name.take().unwrap();
-            let declaration = ctx.symbol_table.module.get_in_scope(ctx.module_scopes.current_scope_index, name).unwrap(/*TODO: remove unwrap*/);
+            // let name        = &current.name.take().unwrap();
+            // let declaration = ctx.symbol_table.module.get_in_scope(ctx.module_scopes.current_scope_index, name).unwrap(/*TODO: remove unwrap*/);
 
-            match declaration.type_kind {
+            match expr.type_kind {
                 types::TypeKind::Unit =>
                     llvm
                         ::core
@@ -579,7 +579,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                         ::LLVMConstString(val.as_ptr() as *const _, val.len() as u32, 0)
                 }
 
-
                 _ => panic!(),
             }
         }
@@ -590,7 +589,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         }
 
         ast::Expr::Assignment { name, value } => {
-            let value_expr        = match_expression(ctx, current, value);
+            let value_expr        = match_expression(ctx, current, &value);
             let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
 
             llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
@@ -665,8 +664,8 @@ pub unsafe fn binary_expr
 (
     ctx: &mut Context,
     current: &mut Current,
-    left: &ast::Expr,
-    right: &ast::Expr,
+    left: &ast::ExprInfo,
+    right: &ast::ExprInfo,
     operator: &scan::Token,
 ) -> llvm::prelude::LLVMValueRef
 {
@@ -772,7 +771,7 @@ unsafe fn closure
     }
 
     let result = match body.last().map(|s| s.as_ref()) {
-        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, &expr.value),
+        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, expr),
         _ => llvm::core::LLVMConstNull(return_type),
     };
 

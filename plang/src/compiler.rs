@@ -495,6 +495,8 @@ impl Compiler
     fn block_expression(&mut self) -> ast::Expr
     {
         let (statements, value) = self.block();
+        let value = ast::ExprInfo::new(value);
+        let value = Box::new(value);
         ast::Expr::Block { statements, value }
     }
 
@@ -511,6 +513,9 @@ impl Compiler
         );
 
         let right = self.stack.pop().unwrap();
+
+        let left  = ast::ExprInfo::new(left);
+        let right = ast::ExprInfo::new(right);
 
         let expr = ast::Expr::Binary {
             left: Box::new(left),
@@ -719,6 +724,7 @@ impl Compiler
         // If the next token is equal, handle assignment expression.
         if self.parser.previous.kind.discriminant() == scan::TokenKind::Equal.discriminant() {
             let value_expr = self.expression();
+            let value_expr = ast::ExprInfo::new(value_expr);
             return ast::Expr::Assignment {
                 name,
                 value: Box::new(value_expr),
@@ -810,7 +816,7 @@ impl Compiler
         (params, argument_type_names, body)
     }
 
-    fn block(&mut self) -> (Vec<Box<ast::Stmt>>, Box<ast::Expr>)
+    fn block(&mut self) -> (Vec<Box<ast::Stmt>>, ast::Expr)
     {
         self.begin_scope();
 
@@ -837,13 +843,11 @@ impl Compiler
         let expr = if has_value {
             let binding = statements.pop().unwrap();
             match binding.as_ref() {
-                ast::Stmt::Expr { expr } => Box::new(expr.to_owned().value),
+                ast::Stmt::Expr { expr } => expr.to_owned().value,
                 _                        => panic!(),
             }
         } else {
-            Box::new(
-                ast::Expr::Literal { value: scan::Token::default() }
-            ) // TODO: this is sucks.
+            ast::Expr::Literal { value: scan::Token::default() }
         };
 
         self.end_scope();
@@ -978,8 +982,12 @@ impl Compiler
             let (branch, value) = self.block();
             (branch, value)
         } else {
-            (vec![], Box::new(ast::Expr::Literal { value: scan::Token::default() }))
+            (vec![], ast::Expr::Literal { value: scan::Token::default() })
         };
+
+        let condition = ast::ExprInfo::new(condition);
+        let then_value = Box::new(ast::ExprInfo::new(then_value));
+        let else_value = Box::new(ast::ExprInfo::new(else_value));
 
         ast::Expr::If {
             condition: Box::new(condition),
@@ -1058,11 +1066,14 @@ impl Compiler
         let function_name_token = token.clone();
         let function_name       = function_name_token.value.clone();
 
-        let mut arguments: Vec<Box<ast::Expr>> = vec![];
+        let mut arguments: Vec<Box<ast::ExprInfo>> = vec![];
 
         if !self.parser.check_token(scan::TokenKind::RightParen) {
             loop {
-                arguments.push(Box::new(self.expression()));
+                let expr = self.expression();
+                let expr = ast::ExprInfo::new(expr);
+                let expr = Box::new(expr);
+                arguments.push(expr);
 
                 if !self.match_token(scan::TokenKind::Comma) {
                     break

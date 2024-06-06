@@ -42,7 +42,7 @@ fn main()
     let after_type_analysis = now_type_analysis.elapsed();
 
     let now_semantic_analysis = std::time::Instant::now();
-    let symbol_table = semantic_analysis::analyse(&program, &type_info).unwrap();
+    let symbol_table = semantic_analysis::analyse(&typed_program, &type_info).unwrap();
     let after_semantic_analysis = now_semantic_analysis.elapsed();
 
     let after_llvm = unsafe {
