@@ -41,6 +41,8 @@ fn main()
     let (typed_program, type_info) = types::infer_types(&program);
     let after_type_analysis = now_type_analysis.elapsed();
 
+    println!("{:#?}", typed_program);
+
     let now_semantic_analysis = std::time::Instant::now();
     let symbol_table = semantic_analysis::analyse(&typed_program, &type_info).unwrap();
     let after_semantic_analysis = now_semantic_analysis.elapsed();

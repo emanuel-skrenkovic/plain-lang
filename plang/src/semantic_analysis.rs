@@ -58,7 +58,7 @@ pub fn analyse
 
     symbol_table.module.end_scope();
 
-    println!("{:#?}", symbol_table);
+    // println!("{:#?}", symbol_table);
 
     Ok(symbol_table)
 }
@@ -245,7 +245,7 @@ pub fn match_statement
                 _ => {
                     let declaration = Declaration {
                         kind: DeclarationKind::Const,
-                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+                        type_kind: initializer.type_kind.clone(),
                     };
                     symbol_table
                         .module
@@ -253,7 +253,6 @@ pub fn match_statement
                 }
             }
         }
-,
 
         ast::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
 

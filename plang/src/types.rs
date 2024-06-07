@@ -32,13 +32,23 @@ pub enum TypeKind
 
 pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<TypeKind>)
 {
-    let mut typed_program                      = Vec::with_capacity(program.len());
-    let mut type_info: scope::Module<TypeKind> = scope::Module::new();
+    let mut typed_program = Vec::with_capacity(program.len());
+    let mut type_info     = scope::Module::new();
 
     type_info.begin_scope();
 
+    let mut program = program.to_owned();
+
+    let typed_main = type_main(&mut program, &mut type_info).unwrap(/*TODO: remove unwrap*/);
+    typed_program.push(ast::Node::Stmt(typed_main));
+
     for stmt in &mut program.to_owned() {
         if let ast::Node::Stmt(stmt) = stmt {
+            if let ast::Stmt::Function { name, .. } = stmt {
+                if name.value == "main" {
+                    continue
+                }
+            }
             let stmt = match_statement(&mut type_info, stmt);
             typed_program.push(ast::Node::Stmt(stmt));
         }
@@ -46,16 +56,32 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
 
     type_info.end_scope();
 
-    println!("{:#?}", type_info);
+    // println!("{:#?}", type_info);
 
     (typed_program, type_info)
 }
 
-pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::Stmt) -> ast::Stmt
+pub fn type_main(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKind>) -> Result<ast::Stmt, String>
 {
-    match stmt {
-        ast::Stmt::Function { name, params: _, param_types, body } => {
+    for statement in program {
+        let ast::Node::Stmt(statement) = statement else {
+            continue
+        };
+
+        if let ast::Stmt::Function { name, params, param_types, body } = statement {
+            if name.value != "main" {
+                continue
+            }
+
             type_info.begin_scope();
+
+            for i in 0..params.len() {
+                let param      = &params[i];
+                let param_type = &param_types[i];
+                let kind       = type_name(param_type);
+
+                type_info.add_to_current(&param.value, kind);
+            }
 
             for mut statement in body.iter_mut() {
                 match_statement(type_info, &mut statement);
@@ -73,7 +99,55 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
-                .map(token_type)
+                .map(type_name)
+                .map(Box::new)
+                .collect();
+
+            let kind = TypeKind::Function {
+                parameter_kinds,
+                return_kind: Box::new(return_kind),
+            };
+
+            type_info.add_to_current(&name.value, kind);
+
+            return Ok(statement.to_owned())
+        }
+    }
+
+    Err("Expect 'main' function".to_string())
+}
+
+pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::Stmt) -> ast::Stmt
+{
+    match stmt {
+        ast::Stmt::Function { name, params, param_types, body } => {
+            type_info.begin_scope();
+
+            for i in 0..params.len() {
+                let param      = &params[i];
+                let param_type = &param_types[i];
+                let kind       = type_name(param_type);
+
+                type_info.add_to_current(&param.value, kind);
+            }
+
+            for mut statement in body.iter_mut() {
+                match_statement(type_info, &mut statement);
+            }
+
+            let return_kind = if body.is_empty() {
+                TypeKind::Unit
+            } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
+                match_expression(type_info, &mut expr.value)
+            } else {
+                TypeKind::Unit
+            };
+
+            type_info.end_scope();
+
+            let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                .iter()
+                .map(type_name)
                 .map(Box::new)
                 .collect();
 
@@ -163,28 +237,38 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
         },
 
         ast::Expr::Literal { value } => token_type(&value),
-        ast::Expr::Variable { name } => {
-            // TODO: fetch defined variable and return its type.
-            type_info.get(&name.value).unwrap().clone()
-        },
 
-        ast::Expr::Assignment { name: _, value: _ } => TypeKind::Unit,
+        ast::Expr::Variable { name } => type_info.get(&name.value).unwrap().clone(),
+
+        ast::Expr::Assignment { name: _, value } => {
+            let kind = match_expression(type_info, &mut value.value);
+            value.type_kind = kind.clone();
+
+            TypeKind::Unit
+        },
 
         ast::Expr::Logical => todo!(),
 
-        ast::Expr::Call { name: _, arguments } => {
+        ast::Expr::Call { name, arguments } => {
             // TODO: get function by name
             // and then use its return type kind as the type kind here.
             // todo!()
             // type_info.get(&name.value).unwrap().clone()
 
             for arg in arguments.iter_mut() {
-                let kind = match_expression(type_info, &mut arg.value);
-                arg.type_kind = kind;
+                arg.type_kind = match_expression(type_info, &mut arg.value);
+            }
+
+            // TODO: The problem here is that the function being called might
+            // not be 'typed' at this point, so we cannot rely on this to know the return
+            // type.
+            if let Some(return_type) = type_info.get(&name.value) {
+                return_type.clone()
+            } else {
+                TypeKind::Unknown
             }
 
             // type_info.get(&name.value).unwrap().clone()
-            TypeKind::Unit
         },
 
         ast::Expr::Function { params: _, param_types, body } => {
@@ -192,7 +276,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
-                .map(token_type)
+                .map(type_name)
                 .map(Box::new)
                 .collect();
 
@@ -206,6 +290,16 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
             TypeKind::Function { parameter_kinds, return_kind: Box::new(return_kind) }
         },
+    }
+}
+
+fn type_name(token: &scan::Token) -> TypeKind
+{
+    match token.value.as_str() {
+        "i32" => TypeKind::I32,
+        "string" => TypeKind::String,
+        "bool" => TypeKind::Bool,
+        _ => TypeKind::Unknown,
     }
 }
 

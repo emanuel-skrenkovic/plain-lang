@@ -232,8 +232,6 @@ impl Drop for Context
 // order of declaration.
 pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 {
-    println!("{:#?}", ctx.program);
-
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
@@ -791,6 +789,8 @@ unsafe fn forward_declare(ctx: &mut Context)
             let name        = &scope.names[i];
             let declaration = &scope.values[i];
 
+            // let type_information = type_info.get(name).unwrap(/*TODO: remove unwrap*/);
+
             match &declaration.kind {
                 semantic_analysis::DeclarationKind::Function {
                     function: semantic_analysis::Function { params, body }
@@ -798,6 +798,10 @@ unsafe fn forward_declare(ctx: &mut Context)
                     let types::TypeKind::Function { parameter_kinds, return_kind } = &declaration.type_kind else {
                         panic!("Expected function type kind.");
                     };
+
+                    // let types::TypeKind::Function { parameter_kinds, return_kind } = type_information  else {
+                    //     panic!("Expected function type kind.");
+                    // };
 
                     let function_call = FunctionDefinition::build
                     (
