@@ -1,14 +1,14 @@
-add :: (a: i32, b: i32)
+add :: (a: i32, b: i32): i32
 {
     a + b
 }
 
-sub :: (b: i32, c: i32)
+sub :: (b: i32, c: i32): i32
 {
     b - c
 }
 
-main :: ()
+main :: (): i32
 {
     result := 3;
     result = result + add(result, 4) - sub(2, 3);

@@ -39,6 +39,8 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
 
     let mut program = program.to_owned();
 
+    infer_global_types(&program, &mut type_info);
+
     let typed_main = type_main(&mut program, &mut type_info).unwrap(/*TODO: remove unwrap*/);
     typed_program.push(ast::Node::Stmt(typed_main));
 
@@ -61,6 +63,37 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
     (typed_program, type_info)
 }
 
+pub fn infer_global_types(program: &[ast::Node], type_info: &mut scope::Module<TypeKind>)
+{
+    for node in program {
+        let ast::Node::Stmt(stmt) = node else {
+            continue
+        };
+
+        match stmt {
+            ast::Stmt::Function { name, params: _, return_type, param_types, body: _ } => {
+                if name.value == "main" {
+                    continue
+                }
+
+                let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                    .iter()
+                    .map(type_name)
+                    .map(Box::new)
+                    .collect();
+
+                let kind = TypeKind::Function {
+                    parameter_kinds,
+                    return_kind: Box::new(type_name(return_type)),
+                };
+
+                type_info.add_to_current(&name.value, kind);
+            }
+            _ => ()
+        }
+    }
+}
+
 pub fn type_main(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKind>) -> Result<ast::Stmt, String>
 {
     for statement in program {
@@ -68,7 +101,7 @@ pub fn type_main(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKi
             continue
         };
 
-        if let ast::Stmt::Function { name, params, param_types, body } = statement {
+        if let ast::Stmt::Function { name, params, return_type, param_types, body } = statement {
             if name.value != "main" {
                 continue
             }
@@ -120,7 +153,7 @@ pub fn type_main(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKi
 pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::Stmt) -> ast::Stmt
 {
     match stmt {
-        ast::Stmt::Function { name, params, param_types, body } => {
+        ast::Stmt::Function { name, params, return_type, param_types, body } => {
             type_info.begin_scope();
 
             for i in 0..params.len() {
@@ -142,6 +175,10 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             } else {
                 TypeKind::Unit
             };
+
+            if return_kind != type_name(return_type) {
+                panic!("Returned value does not match function definition.\nFunction: {} Value type: {:?} Return type: {:?}", name.value, return_kind, return_type);
+            }
 
             type_info.end_scope();
 
@@ -225,7 +262,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             let right_type = match_expression(type_info, &mut right.value);
 
             if left_type != right_type {
-                panic!("Binary operation between incompatible types.");
+                panic!("Binary operation between incompatible types. Left: {:?} Right: {:?}", left_type, right_type);
             }
 
             let kind = left_type.clone();
@@ -262,16 +299,26 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             // TODO: The problem here is that the function being called might
             // not be 'typed' at this point, so we cannot rely on this to know the return
             // type.
-            if let Some(return_type) = type_info.get(&name.value) {
-                return_type.clone()
-            } else {
+            // if let Some(return_type) = type_info.get(&name.value) {
+                // return_type.clone()
+            // } else {
+                // TypeKind::Unknown
+            // }
+
+            if name.value == "printf" {
                 TypeKind::Unknown
+            } else {
+                let Some(TypeKind::Function { return_kind, .. }) = type_info.get(&name.value) else {
+                    panic!("PANIC PANIC");
+                };
+
+                return *return_kind.clone()
             }
 
             // type_info.get(&name.value).unwrap().clone()
         },
 
-        ast::Expr::Function { params: _, param_types, body } => {
+        ast::Expr::Function { params: _, return_type, param_types, body } => {
             // TODO: handle captured variables as well.
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types

@@ -38,6 +38,7 @@ pub enum Stmt
     {
         name: scan::Token,
         params: Vec<scan::Token>,
+        return_type: scan::Token,
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
@@ -145,6 +146,7 @@ pub enum Expr
     Function
     {
         params: Vec<scan::Token>,
+        return_type: scan::Token,
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },

@@ -300,7 +300,7 @@ pub unsafe fn match_statement
 )
 {
     match stmt {
-        ast::Stmt::Function { name, params, param_types: _, body } => {
+        ast::Stmt::Function { name, params, return_type, param_types: _, body } => {
             if name.value == "main" { return }
 
             ctx.module_scopes.begin_scope();
@@ -650,7 +650,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             deref_if_primitive(current.builder, result, function.function_type)
         },
 
-        ast::Expr::Function { params, param_types: _, body }
+        ast::Expr::Function { params, return_type, param_types: _, body }
             => {
                 let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())

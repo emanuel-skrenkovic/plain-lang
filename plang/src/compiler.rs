@@ -601,12 +601,21 @@ impl Compiler
             // Declare self first to allow recursion.
             let index = self.declare_variable(variable_token.clone(), false, maybe_type_name);
 
-            let (params, param_types, body) = self.function();
+            let (params, return_type, param_types, body) = self.function();
 
             self.variable_declaration(index);
             self.variable_definition(index);
 
-            return Some(ast::Stmt::Function { name: variable_token, params, param_types, body })
+            return Some
+            (
+                ast::Stmt::Function {
+                    name: variable_token,
+                    params,
+                    return_type,
+                    param_types,
+                    body,
+                }
+            )
         }
 
         if self.variable_exists(&variable_name) {
@@ -738,11 +747,11 @@ impl Compiler
 
     fn function_expression(&mut self) -> ast::Expr
     {
-        let (params, param_types, body) = self.function();
-        ast::Expr::Function { params, param_types, body }
+        let (params, return_type, param_types, body) = self.function();
+        ast::Expr::Function { params, return_type, param_types, body }
     }
 
-    fn function(&mut self) -> (Vec<scan::Token>, Vec<scan::Token>, Vec<Box<ast::Stmt>>)
+    fn function(&mut self) -> (Vec<scan::Token>, scan::Token, Vec<scan::Token>, Vec<Box<ast::Stmt>>)
     {
         self.begin_function();
 
@@ -777,20 +786,10 @@ impl Compiler
         }
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
+        self.consume(scan::TokenKind::Colon, "Expect ':' after function parameters.");
+        self.consume(scan::TokenKind::Identifier, "Expect return type identifier.");
 
-        // let return_type_name: Option<String> = {
-        //     // Like with variables, if the type is defined here, fill out the return type of
-        //     // the function at this point. Otherwise, infer the type during type checking.
-        //     // (Again, I see a lot of problems potentially popping up regarding type inference.)
-        //     if self.match_token(scan::TokenKind::Colon) {
-        //         if !self.match_token(scan::TokenKind::Identifier) {
-        //             return self.error_at("Expected type identifier.", &self.parser.current.clone());
-        //         }
-        //         Some(self.parser.previous.clone().value)
-        //     } else {
-        //         None
-        //     }
-        // };
+        let return_type = self.parser.previous.clone();
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
@@ -813,7 +812,7 @@ impl Compiler
 
         let _ = self.end_function();
 
-        (params, argument_type_names, body)
+        (params, return_type, argument_type_names, body)
     }
 
     fn block(&mut self) -> (Vec<Box<ast::Stmt>>, ast::Expr)
