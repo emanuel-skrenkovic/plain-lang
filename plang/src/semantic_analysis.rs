@@ -75,7 +75,7 @@ pub fn declare_main
             continue
         };
 
-        if let ast::Stmt::Function { name, params, return_type, param_types: _, body } = statement {
+        if let ast::Stmt::Function { name, params, return_type: _, param_types: _, body } = statement {
             if name.value != "main" {
                 continue
             }
@@ -131,7 +131,7 @@ pub fn match_statement
 )
 {
     match stmt {
-        ast::Stmt::Function { name, params, return_type, param_types: _, body } => {
+        ast::Stmt::Function { name, params, return_type: _, param_types: _, body } => {
             if name.value == "main" { return }
 
             let declaration = Declaration {
@@ -165,7 +165,7 @@ pub fn match_statement
 
         ast::Stmt::Var { name, initializer } => {
             match &initializer.value {
-                ast::Expr::Function { params, return_type, param_types: _, body } => {
+                ast::Expr::Function { params, return_type: _, param_types: _, body } => {
                     let kind = DeclarationKind::Function {
                         function: Function {
                             params: params.clone(),
@@ -208,7 +208,7 @@ pub fn match_statement
 
         ast::Stmt::Const { name, initializer } => {
             match &initializer.value {
-                ast::Expr::Function { params, return_type, param_types: _, body } => {
+                ast::Expr::Function { params, return_type: _, param_types: _, body } => {
                     let function = Function {
                         params: params.clone(),
                         body: body.clone(),
@@ -287,6 +287,6 @@ pub fn match_expression(expr: &ast::Expr)
 
         ast::Expr::Call { name: _, arguments: _ } => (),
 
-        ast::Expr::Function { params: _, return_type, param_types: _, body: _ } => (),
+        ast::Expr::Function { params: _, return_type: _, param_types: _, body: _ } => (),
     }
 }

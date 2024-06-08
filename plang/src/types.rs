@@ -101,7 +101,7 @@ pub fn type_main(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKi
             continue
         };
 
-        if let ast::Stmt::Function { name, params, return_type, param_types, body } = statement {
+        if let ast::Stmt::Function { name, params, return_type: _, param_types, body } = statement {
             if name.value != "main" {
                 continue
             }
@@ -318,7 +318,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             // type_info.get(&name.value).unwrap().clone()
         },
 
-        ast::Expr::Function { params: _, return_type, param_types, body } => {
+        ast::Expr::Function { params: _, return_type: _, param_types, body } => {
             // TODO: handle captured variables as well.
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
