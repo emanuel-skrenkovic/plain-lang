@@ -1,4 +1,5 @@
-use crate::{scan, types};
+use std::ops::Sub;
+use crate::{scan, scope, types};
 
 
 #[derive(Debug, Clone)]
@@ -179,4 +180,211 @@ pub enum TypeKind
     Reference {
         underlying: Box<TypeKind>,
     },
+}
+
+// TODO: AST transformations.
+pub trait Transformer
+{
+    fn transform(nodes: Vec<Node>) -> Vec<Node>;
+}
+
+pub struct MainTransformer { }
+
+impl Transformer for MainTransformer
+{
+    fn transform(nodes: Vec<Node>) -> Vec<Node>
+    {
+        use std::collections::VecDeque;
+        let mut q: VecDeque<Node> = VecDeque::new();
+
+        let main_name = "main";
+
+        for node in nodes.into_iter() {
+            match &node {
+                Node::Stmt(Stmt::Function { name, .. }) => {
+                    if name.value == main_name {
+                        q.push_front(node);
+                    } else {
+                        q.push_back(node);
+                    }
+                }
+                _ => q.push_back(node)
+            }
+        }
+
+        q.into()
+    }
+}
+
+pub struct GlobalsHoistingTransformer { }
+
+impl GlobalsHoistingTransformer
+{
+    fn match_statements(statements: &[Box<Stmt>], deps: &mut Vec<String>)
+    {
+        for stmt in statements.iter().map(|s| s.as_ref()) {
+            match stmt {
+                Stmt::Function { name: _, body, .. } => {
+                    let mut nested_deps = Vec::with_capacity(1024);
+                    Self::match_statements(&body, &mut nested_deps);
+                    deps.append(&mut nested_deps);
+                }
+
+                Stmt::Expr { expr } => {
+                    Self::match_expression(&expr.value, deps);
+                }
+
+                _ => ()
+            }
+        }
+    }
+
+    fn match_expression(expr: &Expr, deps: &mut Vec<String>)
+    {
+        match expr {
+            Expr::Bad { token: _ } => (),
+
+            Expr::Block { statements, value: _ } => {
+                Self::match_statements(statements, deps);
+            },
+
+            Expr::If { condition, then_branch, then_value: _, else_branch, else_value: _ } => {
+                Self::match_expression(&condition.value, deps);
+                Self::match_statements(then_branch, deps);
+                Self::match_statements(else_branch, deps);
+            },
+
+            Expr::Binary { left, right, operator: _ } => {
+                Self::match_expression(&left.value, deps);
+                Self::match_expression(&right.value, deps);
+            },
+
+            Expr::Literal { value: _ } => (),
+
+            Expr::Variable { name: _ } => {
+                // TODO: later
+                // deps.push(name.value.clone());
+            },
+
+            Expr::Assignment { name: _, value } => {
+                Self::match_expression(&value.value, deps);
+            },
+
+            Expr::Logical => (),
+
+            Expr::Call { name, arguments } => {
+                for arg in arguments {
+                    Self::match_expression(&arg.value, deps);
+                }
+                deps.push(name.value.clone());
+            },
+
+            Expr::Function { params: _, return_type: _, param_types: _, body } => {
+                Self::match_statements(body, deps);
+            },
+        }
+    }
+}
+
+impl Transformer for GlobalsHoistingTransformer
+{
+    fn transform(nodes: Vec<Node>) -> Vec<Node>
+    {
+        use std::collections::{HashMap, VecDeque};
+
+        let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
+
+        // Build the dependency graph.
+
+        for node in nodes.iter() {
+            match &node {
+                Node::Stmt(Stmt::Function { name, body, .. }) => {
+                    let mut deps = Vec::with_capacity(1024);
+                    Self::match_statements(body, &mut deps);
+
+                    dependencies.insert(name.value.clone(), deps);
+                }
+
+                _ => ()
+            }
+        }
+
+        // Topological sort over the dependency graph.
+
+        let dependencies_count                = dependencies.len();
+        let mut degrees: HashMap<String, i32> = HashMap::new();
+
+        for (function, deps) in &dependencies {
+            if !degrees.contains_key(function) {
+                degrees.insert(function.to_string(), 0);
+            }
+
+            for dep in deps {
+                let degree = degrees.get_mut(function).unwrap();
+                *degree += 1;
+
+                if !degrees.contains_key(dep.as_str()) {
+                    degrees.insert(dep.to_string(), 0);
+                }
+            }
+        }
+
+        let mut q: VecDeque<String> = degrees
+            .iter()
+            .filter(|d| d.1 == &0)
+            .map(|d| d.0.clone())
+            .collect();
+
+        println!("order: {:#?}", q);
+
+        let mut order: Vec<String> = Vec::with_capacity(dependencies_count);
+
+        while !q.is_empty() {
+            let function = q.pop_front().unwrap();
+            order.push(function.clone());
+
+
+            let Some(deps) = dependencies.get(&function) else {
+                continue
+            };
+
+            for dep in deps {
+                let _ = degrees.get_mut(dep).unwrap().sub(1);
+
+                if degrees.get(dep).unwrap() == &0 {
+                    order.push(dep.clone());
+                }
+            }
+        }
+
+        let mut rest = dependencies
+            .keys()
+            .filter(|name,| !order.contains(name))
+            .map(|name| name.clone())
+            .collect();
+
+        order.append(&mut rest);
+
+        // Sort the AST nodes in the proper order.
+
+        let mut nodes = nodes.to_owned();
+        nodes.sort_by(|a, b| {
+            let a_name = match a {
+                Node::Stmt(Stmt::Function { name, .. }) => &name.value,
+                _ => unreachable!(),
+            };
+
+            let b_name = match b {
+                Node::Stmt(Stmt::Function { name, .. }) => &name.value,
+                _ => unreachable!(),
+            };
+
+            let a_pos= order.iter().position(|n| n == a_name).expect("Expect defined order.");
+            let b_pos= order.iter().position(|n| n == b_name).expect("Expect defined order.");
+
+            a_pos.cmp(&b_pos)
+        });
+
+        nodes
+    }
 }

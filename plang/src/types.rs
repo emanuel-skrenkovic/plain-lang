@@ -37,28 +37,14 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
 
     type_info.begin_scope();
 
-    let mut program = program.to_owned();
-
-    infer_global_types(&program, &mut type_info);
-
-    let typed_main = type_main(&mut program, &mut type_info).unwrap(/*TODO: remove unwrap*/);
-    typed_program.push(ast::Node::Stmt(typed_main));
-
     for stmt in &mut program.to_owned() {
         if let ast::Node::Stmt(stmt) = stmt {
-            if let ast::Stmt::Function { name, .. } = stmt {
-                if name.value == "main" {
-                    continue
-                }
-            }
             let stmt = match_statement(&mut type_info, stmt);
             typed_program.push(ast::Node::Stmt(stmt));
         }
     }
 
     type_info.end_scope();
-
-    // println!("{:#?}", type_info);
 
     (typed_program, type_info)
 }
@@ -72,10 +58,6 @@ pub fn infer_global_types(program: &[ast::Node], type_info: &mut scope::Module<T
 
         match stmt {
             ast::Stmt::Function { name, params: _, return_type, param_types, body: _ } => {
-                if name.value == "main" {
-                    continue
-                }
-
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
                     .iter()
                     .map(type_name)
@@ -92,62 +74,6 @@ pub fn infer_global_types(program: &[ast::Node], type_info: &mut scope::Module<T
             _ => ()
         }
     }
-}
-
-pub fn type_main(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKind>) -> Result<ast::Stmt, String>
-{
-    for statement in program {
-        let ast::Node::Stmt(statement) = statement else {
-            continue
-        };
-
-        if let ast::Stmt::Function { name, params, return_type: _, param_types, body } = statement {
-            if name.value != "main" {
-                continue
-            }
-
-            type_info.begin_scope();
-
-            for i in 0..params.len() {
-                let param      = &params[i];
-                let param_type = &param_types[i];
-                let kind       = type_name(param_type);
-
-                type_info.add_to_current(&param.value, kind);
-            }
-
-            for mut statement in body.iter_mut() {
-                match_statement(type_info, &mut statement);
-            }
-
-            let return_kind = if body.is_empty() {
-                TypeKind::Unit
-            } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
-                match_expression(type_info, &mut expr.value)
-            } else {
-                TypeKind::Unit
-            };
-
-            type_info.end_scope();
-
-            let parameter_kinds: Vec<Box<TypeKind>> = param_types
-                .iter()
-                .map(type_name)
-                .map(Box::new)
-                .collect();
-
-            let kind = TypeKind::Function {
-                parameter_kinds,
-                return_kind: Box::new(return_kind),
-            };
-
-            type_info.add_to_current(&name.value, kind);
-
-            return Ok(statement.to_owned())
-        }
-    }
-
-    Err("Expect 'main' function".to_string())
 }
 
 pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::Stmt) -> ast::Stmt

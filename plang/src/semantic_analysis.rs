@@ -53,7 +53,6 @@ pub fn analyse
 
     symbol_table.module.begin_scope();
 
-    declare_main(program, &mut symbol_table, type_info)?;
     forward_declarations(program, &mut symbol_table, type_info);
 
     symbol_table.module.end_scope();
@@ -61,53 +60,6 @@ pub fn analyse
     // println!("{:#?}", symbol_table);
 
     Ok(symbol_table)
-}
-
-pub fn declare_main
-(
-    program: &[ast::Node],
-    symbol_table: &mut SymbolTable,
-    type_info: &scope::Module<types::TypeKind>,
-) -> Result<(), String>
-{
-    for statement in program {
-        let ast::Node::Stmt(statement) = statement else {
-            continue
-        };
-
-        if let ast::Stmt::Function { name, params, return_type: _, param_types: _, body } = statement {
-            if name.value != "main" {
-                continue
-            }
-
-            let declaration = Declaration {
-                kind: DeclarationKind::Function {
-                    function: Function {
-                        params: params.clone(),
-                        body: body.clone(),
-                    },
-                },
-                type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
-            };
-
-            symbol_table.module.add_to_current(&name.value, declaration);
-
-            symbol_table.module.begin_scope();
-
-            for stmt in &body[..body.len()-1] {
-                match_statement(symbol_table, type_info, stmt);
-            }
-
-            if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                match_expression(&expr.value);
-            };
-
-            symbol_table.module.end_scope();
-            return Ok(())
-        }
-    }
-
-    Err("Expect 'main' function".to_string())
 }
 
 pub fn forward_declarations(
@@ -132,8 +84,6 @@ pub fn match_statement
 {
     match stmt {
         ast::Stmt::Function { name, params, return_type: _, param_types: _, body } => {
-            if name.value == "main" { return }
-
             let declaration = Declaration {
                 kind: DeclarationKind::Function {
                     function: Function {
@@ -194,9 +144,14 @@ pub fn match_statement
                     symbol_table.module.end_scope();
                 }
                 _ => {
+                    let type_kind = type_info
+                        .get_in_scope(symbol_table.module.current_scope_index, &name.value)
+                        .unwrap()
+                        .clone();
+
                     let declaration = Declaration {
                         kind: DeclarationKind::Var,
-                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
+                        type_kind,
                     };
 
                     symbol_table
