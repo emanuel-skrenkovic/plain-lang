@@ -131,7 +131,7 @@ pub fn match_statement
 
                     symbol_table.module.begin_scope();
 
-                    if body.len() > 0 {
+                    if !body.is_empty() {
                         for stmt in &body[..body.len()-1] {
                             match_statement(symbol_table, type_info, stmt);
                         }
@@ -185,7 +185,7 @@ pub fn match_statement
 
                     symbol_table.module.begin_scope();
 
-                    if body.len() > 0 {
+                    if !body.is_empty() {
                         for stmt in &body[..body.len()-1] {
                             match_statement(symbol_table, type_info, stmt);
                         }

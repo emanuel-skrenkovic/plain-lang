@@ -56,22 +56,19 @@ pub fn infer_global_types(program: &[ast::Node], type_info: &mut scope::Module<T
             continue
         };
 
-        match stmt {
-            ast::Stmt::Function { name, params: _, return_type, param_types, body: _ } => {
-                let parameter_kinds: Vec<Box<TypeKind>> = param_types
-                    .iter()
-                    .map(type_name)
-                    .map(Box::new)
-                    .collect();
+        if let ast::Stmt::Function { name, params: _, return_type, param_types, body: _ } = stmt {
+            let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                .iter()
+                .map(type_name)
+                .map(Box::new)
+                .collect();
 
-                let kind = TypeKind::Function {
-                    parameter_kinds,
-                    return_kind: Box::new(type_name(return_type)),
-                };
+            let kind = TypeKind::Function {
+                parameter_kinds,
+                return_kind: Box::new(type_name(return_type)),
+            };
 
-                type_info.add_to_current(&name.value, kind);
-            }
-            _ => ()
+            type_info.add_to_current(&name.value, kind);
         }
     }
 }
@@ -90,8 +87,8 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
                 type_info.add_to_current(&param.value, kind);
             }
 
-            for mut statement in body.iter_mut() {
-                match_statement(type_info, &mut statement);
+            for statement in body.iter_mut() {
+                match_statement(type_info, statement);
             }
 
             let return_kind = if body.is_empty() {
@@ -199,7 +196,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             kind
         },
 
-        ast::Expr::Literal { value } => token_type(&value),
+        ast::Expr::Literal { value } => token_type(value),
 
         ast::Expr::Variable { name } => type_info.get(&name.value).unwrap().clone(),
 
@@ -238,7 +235,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
                     panic!("PANIC PANIC");
                 };
 
-                return *return_kind.clone()
+                *return_kind.clone()
             }
 
             // type_info.get(&name.value).unwrap().clone()
@@ -283,7 +280,7 @@ fn token_type(token: &scan::Token) -> TypeKind
         _ => {
             if token.value.starts_with('\"') {
                 TypeKind::String
-            } else if let Some(first) = token.value.chars().nth(0) {
+            } else if let Some(first) = token.value.chars().next() {
                 if !char::is_numeric(first) {
                     return TypeKind::Unknown
                 }

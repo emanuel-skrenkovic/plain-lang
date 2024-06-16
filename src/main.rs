@@ -40,7 +40,7 @@ fn main()
     };
 
     let now_transformation = std::time::Instant::now();
-    let program = ast::MainTransformer::transform(program);
+    // let program = ast::MainTransformer::transform(program);
     let program = ast::GlobalsHoistingTransformer::transform(program);
     let after_transformation = now_transformation.elapsed();
 

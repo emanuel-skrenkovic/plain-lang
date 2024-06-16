@@ -104,9 +104,7 @@ impl <T> Module<T>
 
     pub fn get_in_scope(&self, scope: usize, name: &str) -> Option<&T>
     {
-        let Some(scope) = self.scopes.get(scope) else {
-            return None
-        };
+        let scope = self.scopes.get(scope)?;
 
         let index = scope.names.iter().position(|n| n == name);
         if let Some(index) = index {

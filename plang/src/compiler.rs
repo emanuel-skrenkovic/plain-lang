@@ -811,7 +811,7 @@ impl Compiler
         // let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
         //                        else                                      { "unit".to_string() };
 
-        let _ = self.end_function();
+        self.end_function();
 
         (params, return_type, argument_type_names, body)
     }
@@ -876,53 +876,6 @@ impl Compiler
         // I guess unwrap is ok here. I literally just inserted the thing in the line above.
 
         variable_index as u8
-    }
-
-    fn find_variable_by_name(&self, name: &str) -> Option<(Option<usize>, usize, usize)>
-    {
-        let current_scope = self.current_scope();
-
-        let variable_index = current_scope
-            .variables
-            .iter()
-            .position(|v| v.name.value == name);
-
-        if let Some(position) = variable_index {
-            return Some((self.current_function, self.current_scope_index, position));
-        }
-
-        for scope_index in &current_scope.path {
-            let scope = &self.program.scopes[*scope_index];
-            let variable_index = scope
-                .variables
-                .iter()
-                .position(|v| v.name.value == name);
-
-            if let Some(position) = variable_index {
-                return Some((scope.parent_function, *scope_index, position))
-            }
-        }
-
-        None
-    }
-
-    fn parse_variable(&mut self) -> Option<u8>
-    {
-        let previous                       = self.parser.previous.value.clone();
-        let (function_index, scope, index) = self.find_variable_by_name(&previous)?;
-
-        let scope_distance = self.function_distance(self.current_function, function_index);
-
-        // If the following token is '=', then it's an assignment.
-        if self.match_token(scan::TokenKind::Equal) && scope_distance == 0  {
-            // If it is an assignment, and the variable is immutable -> compilation error.
-            if !self.program.scopes[scope].variables[index].mutable {
-                self.parser
-                    .error_at("Cannot reassign value of an immutable variable.", &self.parser.previous.clone());
-            }
-        }
-
-        Some(index as u8)
     }
 
     fn variable_exists(&self, name: &str) -> bool
@@ -1064,7 +1017,6 @@ impl Compiler
         };
 
         let function_name_token = token.clone();
-        let function_name       = function_name_token.value.clone();
 
         let mut arguments: Vec<Box<ast::ExprInfo>> = vec![];
 
@@ -1081,13 +1033,6 @@ impl Compiler
             }
         }
         self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
-
-        // if function_name != "printf" {
-        //     let Some(_) = self.find_variable_by_name(&function_name) else {
-        //         return self
-        //             .error_at(&format!("Failed to find function '{}'.", &function_name), &function_name_token.clone());
-        //     };
-        // }
 
         self.match_token(scan::TokenKind::Semicolon);
 
@@ -1165,34 +1110,6 @@ impl Compiler
         let parent_index = func.parent_function_index;
 
         self.current_function = parent_index;
-    }
-
-    // TODO: both of these are broken and do not take scopes (especially parameter scopes)
-    // into account in any way.
-    fn function_distance(&self, starting_index: Option<usize>, ending_index: Option<usize>) -> usize
-    {
-        let mut distance = 0;
-        let Some(starting_index) = starting_index else {
-            return 0
-        };
-
-        let mut current = &self.program.functions[starting_index];
-        loop {
-            let next = current.parent_function_index;
-            let Some(next_index) = next else {
-                break
-            };
-
-            distance += 1;
-
-            if ending_index.map_or(false, |i| i == next_index) {
-                return distance
-            }
-
-            current = &self.program.functions[next_index];
-        }
-
-        distance
     }
 
     fn semicolon(&mut self) -> ast::Expr

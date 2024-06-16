@@ -1,5 +1,4 @@
-use std::ops::Sub;
-use crate::{scan, scope, types};
+use crate::{scan, types};
 
 
 #[derive(Debug, Clone)]
@@ -226,8 +225,12 @@ impl GlobalsHoistingTransformer
             match stmt {
                 Stmt::Function { name: _, body, .. } => {
                     let mut nested_deps = Vec::with_capacity(1024);
-                    Self::match_statements(&body, &mut nested_deps);
+                    Self::match_statements(body, &mut nested_deps);
                     deps.append(&mut nested_deps);
+                }
+
+                Stmt::Const { initializer, .. } => {
+                    Self::match_expression(&initializer.value, deps);
                 }
 
                 Stmt::Expr { expr } => {
@@ -290,85 +293,76 @@ impl Transformer for GlobalsHoistingTransformer
 {
     fn transform(nodes: Vec<Node>) -> Vec<Node>
     {
-        use std::collections::{HashMap, VecDeque};
+        use std::collections::VecDeque;
 
-        let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
+        let nodes_count = nodes.len();
+
+        let mut declarations: Vec<String>      = Vec::with_capacity(nodes_count);
+        let mut dependencies: Vec<Vec<String>> = Vec::with_capacity(nodes_count);
+        let mut degrees: Vec<usize>              = Vec::with_capacity(nodes_count);
 
         // Build the dependency graph.
 
         for node in nodes.iter() {
-            match &node {
-                Node::Stmt(Stmt::Function { name, body, .. }) => {
-                    let mut deps = Vec::with_capacity(1024);
-                    Self::match_statements(body, &mut deps);
+            if let Node::Stmt(Stmt::Function { name, body, .. }) = &node {
+                let mut deps = Vec::with_capacity(1024);
+                Self::match_statements(body, &mut deps);
 
-                    dependencies.insert(name.value.clone(), deps);
-                }
-
-                _ => ()
+                declarations.push(name.value.clone());
+                dependencies.push(deps);
+                degrees.push(0);
             }
         }
 
         // Topological sort over the dependency graph.
 
-        let dependencies_count                = dependencies.len();
-        let mut degrees: HashMap<String, i32> = HashMap::new();
-
-        for (function, deps) in &dependencies {
-            if !degrees.contains_key(function) {
-                degrees.insert(function.to_string(), 0);
-            }
-
-            for dep in deps {
-                let degree = degrees.get_mut(function).unwrap();
-                *degree += 1;
-
-                if !degrees.contains_key(dep.as_str()) {
-                    degrees.insert(dep.to_string(), 0);
-                }
-            }
+        for i in 0..dependencies.len() {
+            degrees[i] += dependencies[i].len();
         }
 
-        let mut q: VecDeque<String> = degrees
-            .iter()
-            .filter(|d| d.1 == &0)
-            .map(|d| d.0.clone())
-            .collect();
+        let mut q: VecDeque<String> = VecDeque::with_capacity(nodes_count);
 
-        println!("order: {:#?}", q);
+        for i in 0..dependencies.len() {
+            if degrees[i] != 0 { continue }
 
-        let mut order: Vec<String> = Vec::with_capacity(dependencies_count);
+            let declaration = &declarations[i];
+            q.push_back(declaration.clone());
+        }
+
+        let mut order: Vec<String> = Vec::with_capacity(dependencies.len());
 
         while !q.is_empty() {
-            let function = q.pop_front().unwrap();
+            let function = q.pop_front().expect("Expect next in queue.");
             order.push(function.clone());
 
+            let index = declarations.iter().position(|d| d == &function).unwrap();
 
-            let Some(deps) = dependencies.get(&function) else {
-                continue
-            };
+            for (i, deps) in dependencies.iter().enumerate() {
+                if i == index                { continue }
+                if !deps.contains(&function) { continue }
 
-            for dep in deps {
-                let _ = degrees.get_mut(dep).unwrap().sub(1);
+                degrees[i] -= 1;
 
-                if degrees.get(dep).unwrap() == &0 {
+                let dep = &declarations[i];
+                if degrees[i] == 0 && !order.contains(dep) {
                     order.push(dep.clone());
                 }
             }
         }
 
-        let mut rest = dependencies
-            .keys()
-            .filter(|name,| !order.contains(name))
-            .map(|name| name.clone())
+        let mut rest = declarations
+            .iter()
+            .filter(|name| !order.contains(name))
+            .cloned()
             .collect();
 
         order.append(&mut rest);
 
-        // Sort the AST nodes in the proper order.
+        // After we get the order we can sort the root AST nodes in the proper order.
 
         let mut nodes = nodes.to_owned();
         nodes.sort_by(|a, b| {
+            // TODO: for now we assume all root level nodes are functions.
             let a_name = match a {
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
                 _ => unreachable!(),
