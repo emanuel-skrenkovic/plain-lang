@@ -235,29 +235,29 @@ impl GlobalsHoistingTransformer
             graph.connections[i] += graph.edges[i].len();
         }
 
-        let mut q: VecDeque<String> = VecDeque::with_capacity(count);
+        let mut q: VecDeque<usize> = VecDeque::with_capacity(count);
 
         for i in 0..count {
             if graph.connections[i] != 0 { continue }
-            q.push_back(graph.nodes[i].clone());
+            q.push_back(i);
         }
 
         let mut order: Vec<String> = Vec::with_capacity(count);
 
         while !q.is_empty() {
-            let function = q.pop_front().expect("Expect next in queue.");
-            order.push(function.clone());
+            let i = q.pop_front().expect("Expect next in queue.");
 
-            let index = graph.nodes.iter().position(|d| d == &function).unwrap();
+            let node = &graph.nodes[i];
+            order.push(node.clone());
 
-            for (i, deps) in graph.edges.iter().enumerate() {
-                if i == index                { continue }
-                if !deps.contains(&function) { continue }
+            for (j, deps) in graph.edges.iter().enumerate() {
+                if j == i               { continue }
+                if !deps.contains(node) { continue }
 
-                graph.connections[i] -= 1;
+                graph.connections[j] -= 1;
 
-                let dep = &graph.nodes[i];
-                if graph.connections[i] == 0 && !order.contains(dep) {
+                let dep = &graph.nodes[j];
+                if graph.connections[j] == 0 && !order.contains(dep) {
                     order.push(dep.clone());
                 }
             }
