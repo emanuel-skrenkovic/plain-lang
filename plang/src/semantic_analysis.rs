@@ -52,12 +52,8 @@ pub fn analyse
     };
 
     symbol_table.module.begin_scope();
-
     forward_declarations(program, &mut symbol_table, type_info);
-
     symbol_table.module.end_scope();
-
-    // println!("{:#?}", symbol_table);
 
     Ok(symbol_table)
 }
@@ -69,9 +65,10 @@ pub fn forward_declarations(
 )
 {
     for stmt in &program.to_owned() {
-        if let ast::Node::Stmt(stmt) = stmt {
-            match_statement(symbol_table, type_info, stmt);
-        }
+        let ast::Node::Stmt(stmt) = stmt else {
+            continue
+        };
+        match_statement(symbol_table, type_info, stmt);
     }
 }
 
@@ -101,10 +98,6 @@ pub fn match_statement
             for stmt in &body[..body.len()-1] {
                 match_statement(symbol_table, type_info, stmt);
             }
-
-            if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                match_expression(&expr.value);
-            };
 
             symbol_table.module.end_scope();
         },
@@ -136,10 +129,6 @@ pub fn match_statement
                             match_statement(symbol_table, type_info, stmt);
                         }
                     }
-
-                    if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                        match_expression(&expr.value);
-                    };
 
                     symbol_table.module.end_scope();
                 }
@@ -191,10 +180,6 @@ pub fn match_statement
                         }
                     }
 
-                    if let Some(ast::Stmt::Expr { expr }) = body.last().map(|s| s.as_ref()) {
-                        match_expression(&expr.value);
-                    };
-
                     symbol_table.module.end_scope();
                 }
                 _ => {
@@ -218,30 +203,5 @@ pub fn match_statement
         ast::Stmt::Return { } => (),
 
         ast::Stmt::Expr { expr: _ } => (),
-    }
-}
-
-pub fn match_expression(expr: &ast::Expr)
-{
-    match expr {
-        ast::Expr::Bad { token: _ } => (),
-
-        ast::Expr::Block { statements: _, value: _ } => (),
-
-        ast::Expr::If { condition: _, then_branch: _, then_value: _, else_branch: _, else_value: _ } => (),
-
-        ast::Expr::Binary { left: _, right: _, operator: _ } => (),
-
-        ast::Expr::Literal { value: _ } => (),
-
-        ast::Expr::Variable { name: _ } => (),
-
-        ast::Expr::Assignment { name: _, value: _ } => (),
-
-        ast::Expr::Logical => (),
-
-        ast::Expr::Call { name: _, arguments: _ } => (),
-
-        ast::Expr::Function { params: _, return_type: _, param_types: _, body: _ } => (),
     }
 }

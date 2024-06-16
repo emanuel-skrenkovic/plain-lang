@@ -56,7 +56,7 @@ pub fn infer_global_types(program: &[ast::Node], type_info: &mut scope::Module<T
             continue
         };
 
-        if let ast::Stmt::Function { name, params: _, return_type, param_types, body: _ } = stmt {
+        if let ast::Stmt::Function { name, return_type, param_types, .. } = stmt {
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
                 .map(type_name)
@@ -119,7 +119,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             type_info.add_to_current(&name.value, kind);
         },
 
-        ast::Stmt::Declaration { name: _, initializer } => {
+        ast::Stmt::Declaration { initializer, .. } => {
             initializer.type_kind = match_expression(type_info, &mut initializer.value);
         },
 
@@ -156,15 +156,15 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
 pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast::Expr) -> TypeKind
 {
     match expr {
-        ast::Expr::Bad { token: _ } => TypeKind::Unknown,
+        ast::Expr::Bad { .. } => TypeKind::Unknown,
 
-        ast::Expr::Block { statements: _, value } => {
+        ast::Expr::Block { value, .. } => {
             let kind = match_expression(type_info, &mut value.value);
             value.type_kind = kind.clone();
             kind
         }
 
-        ast::Expr::If { condition: _, then_branch: _, then_value, else_branch: _, else_value } => {
+        ast::Expr::If { then_value, else_value, .. } => {
             let then_branch_type = match_expression(type_info, &mut then_value.value);
             let else_branch_type = match_expression(type_info, &mut else_value.value);
 
@@ -180,7 +180,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             kind
         },
 
-        ast::Expr::Binary { left, right, operator: _ } => {
+        ast::Expr::Binary { left, right, .. } => {
             let left_type  = match_expression(type_info, &mut left.value);
             let right_type = match_expression(type_info, &mut right.value);
 
@@ -200,7 +200,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
         ast::Expr::Variable { name } => type_info.get(&name.value).unwrap().clone(),
 
-        ast::Expr::Assignment { name: _, value } => {
+        ast::Expr::Assignment { value, .. } => {
             let kind = match_expression(type_info, &mut value.value);
             value.type_kind = kind.clone();
 
@@ -241,7 +241,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             // type_info.get(&name.value).unwrap().clone()
         },
 
-        ast::Expr::Function { params: _, return_type: _, param_types, body } => {
+        ast::Expr::Function { param_types, body, .. } => {
             // TODO: handle captured variables as well.
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types

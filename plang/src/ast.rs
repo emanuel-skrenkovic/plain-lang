@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use crate::{scan, types};
 
 
@@ -186,15 +187,98 @@ pub trait Transformer
     fn transform(nodes: Vec<Node>) -> Vec<Node>;
 }
 
+#[derive(Debug)]
+struct DependencyGraph
+{
+    nodes: Vec<String>,
+    edges: Vec<Vec<String>>,
+    connections: Vec<usize>,
+}
+
 pub struct GlobalsHoistingTransformer { }
 
 impl GlobalsHoistingTransformer
 {
+    fn build_dependency_graph(nodes: &[Node]) -> DependencyGraph
+    {
+        let nodes_count = nodes.len();
+
+        let mut declarations: Vec<String>      = Vec::with_capacity(nodes_count);
+        let mut dependencies: Vec<Vec<String>> = Vec::with_capacity(nodes_count);
+        let mut degrees: Vec<usize>            = Vec::with_capacity(nodes_count);
+
+        for node in nodes.iter() {
+            if let Node::Stmt(Stmt::Function { name, body, .. }) = &node {
+                let mut deps = Vec::with_capacity(1024);
+                Self::match_statements(body, &mut deps);
+
+                declarations.push(name.value.clone());
+                dependencies.push(deps);
+                degrees.push(0);
+            }
+        }
+
+        DependencyGraph {
+            nodes: declarations,
+            edges: dependencies,
+            connections: degrees,
+        }
+    }
+
+    // TODO: detect cycles
+    // Topological sort over the dependency graph.
+    fn topological_sort(graph: &mut DependencyGraph) -> Vec<String>
+    {
+        let count = graph.nodes.len();
+
+        for i in 0..count {
+            graph.connections[i] += graph.edges[i].len();
+        }
+
+        let mut q: VecDeque<String> = VecDeque::with_capacity(count);
+
+        for i in 0..count {
+            if graph.connections[i] != 0 { continue }
+            q.push_back(graph.nodes[i].clone());
+        }
+
+        let mut order: Vec<String> = Vec::with_capacity(count);
+
+        while !q.is_empty() {
+            let function = q.pop_front().expect("Expect next in queue.");
+            order.push(function.clone());
+
+            let index = graph.nodes.iter().position(|d| d == &function).unwrap();
+
+            for (i, deps) in graph.edges.iter().enumerate() {
+                if i == index                { continue }
+                if !deps.contains(&function) { continue }
+
+                graph.connections[i] -= 1;
+
+                let dep = &graph.nodes[i];
+                if graph.connections[i] == 0 && !order.contains(dep) {
+                    order.push(dep.clone());
+                }
+            }
+        }
+
+        let mut rest = graph.nodes
+            .iter()
+            .filter(|name| !order.contains(name))
+            .cloned()
+            .collect();
+
+        order.append(&mut rest);
+
+        order
+    }
+
     fn match_statements(statements: &[Box<Stmt>], deps: &mut Vec<String>)
     {
         for stmt in statements.iter().map(|s| s.as_ref()) {
             match stmt {
-                Stmt::Function { name: _, body, .. } => {
+                Stmt::Function { body, .. } => {
                     let mut nested_deps = Vec::with_capacity(1024);
                     Self::match_statements(body, &mut nested_deps);
                     deps.append(&mut nested_deps);
@@ -216,35 +300,30 @@ impl GlobalsHoistingTransformer
     fn match_expression(expr: &Expr, deps: &mut Vec<String>)
     {
         match expr {
-            Expr::Bad { token: _ } => (),
-
-            Expr::Block { statements, value: _ } => {
+            Expr::Block { statements, value } => {
                 Self::match_statements(statements, deps);
+                Self::match_expression(&value.value, deps);
             },
 
-            Expr::If { condition, then_branch, then_value: _, else_branch, else_value: _ } => {
+            Expr::If { condition, then_branch, else_branch, .. } => {
                 Self::match_expression(&condition.value, deps);
                 Self::match_statements(then_branch, deps);
                 Self::match_statements(else_branch, deps);
             },
 
-            Expr::Binary { left, right, operator: _ } => {
+            Expr::Binary { left, right, .. } => {
                 Self::match_expression(&left.value, deps);
                 Self::match_expression(&right.value, deps);
             },
-
-            Expr::Literal { value: _ } => (),
 
             Expr::Variable { name: _ } => {
                 // TODO: later
                 // deps.push(name.value.clone());
             },
 
-            Expr::Assignment { name: _, value } => {
+            Expr::Assignment { value, .. } => {
                 Self::match_expression(&value.value, deps);
             },
-
-            Expr::Logical => (),
 
             Expr::Call { name, arguments } => {
                 for arg in arguments {
@@ -253,9 +332,11 @@ impl GlobalsHoistingTransformer
                 deps.push(name.value.clone());
             },
 
-            Expr::Function { params: _, return_type: _, param_types: _, body } => {
+            Expr::Function { body, .. } => {
                 Self::match_statements(body, deps);
             },
+
+            _ => ()
         }
     }
 }
@@ -264,73 +345,13 @@ impl Transformer for GlobalsHoistingTransformer
 {
     fn transform(nodes: Vec<Node>) -> Vec<Node>
     {
-        use std::collections::VecDeque;
+        // First we build the dependency graph.
+        let mut graph = Self::build_dependency_graph(&nodes);
 
-        let nodes_count = nodes.len();
+        // Then we use topological sort to find the correct declaration order.
+        let order = Self::topological_sort(&mut graph);
 
-        let mut declarations: Vec<String>      = Vec::with_capacity(nodes_count);
-        let mut dependencies: Vec<Vec<String>> = Vec::with_capacity(nodes_count);
-        let mut degrees: Vec<usize>              = Vec::with_capacity(nodes_count);
-
-        // Build the dependency graph.
-
-        for node in nodes.iter() {
-            if let Node::Stmt(Stmt::Function { name, body, .. }) = &node {
-                let mut deps = Vec::with_capacity(1024);
-                Self::match_statements(body, &mut deps);
-
-                declarations.push(name.value.clone());
-                dependencies.push(deps);
-                degrees.push(0);
-            }
-        }
-
-        // Topological sort over the dependency graph.
-
-        for i in 0..dependencies.len() {
-            degrees[i] += dependencies[i].len();
-        }
-
-        let mut q: VecDeque<String> = VecDeque::with_capacity(nodes_count);
-
-        for i in 0..dependencies.len() {
-            if degrees[i] != 0 { continue }
-
-            let declaration = &declarations[i];
-            q.push_back(declaration.clone());
-        }
-
-        let mut order: Vec<String> = Vec::with_capacity(dependencies.len());
-
-        while !q.is_empty() {
-            let function = q.pop_front().expect("Expect next in queue.");
-            order.push(function.clone());
-
-            let index = declarations.iter().position(|d| d == &function).unwrap();
-
-            for (i, deps) in dependencies.iter().enumerate() {
-                if i == index                { continue }
-                if !deps.contains(&function) { continue }
-
-                degrees[i] -= 1;
-
-                let dep = &declarations[i];
-                if degrees[i] == 0 && !order.contains(dep) {
-                    order.push(dep.clone());
-                }
-            }
-        }
-
-        let mut rest = declarations
-            .iter()
-            .filter(|name| !order.contains(name))
-            .cloned()
-            .collect();
-
-        order.append(&mut rest);
-
-        // After we get the order we can sort the root AST nodes in the proper order.
-
+        // After we get the order we can sort the root AST nodes accordingly.
         let mut nodes = nodes.to_owned();
         nodes.sort_by(|a, b| {
             // TODO: for now we assume all root level nodes are functions.

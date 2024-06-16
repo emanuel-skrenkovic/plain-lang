@@ -39,21 +39,9 @@ impl FunctionDefinition
     {
         let return_type = to_llvm_type(context_ref, return_type_kind);
 
-        // let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_names
-        //     .iter()
-        //     .filter_map(Option::as_ref)
-        //     .map(|arg| match arg.as_str() {
-        //         "unit" => llvm::core::LLVMVoidTypeInContext(context_ref),
-        //         "i32"  => llvm::core::LLVMInt32TypeInContext(context_ref),
-        //         "bool" => llvm::core::LLVMInt8TypeInContext(context_ref),
-        //         _      => panic!()
-        //     }).collect();
-
         let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_kinds
             .iter()
-            .map(|arg| {
-                to_llvm_type(context_ref, arg)
-            })
+            .map(|arg| to_llvm_type(context_ref, arg))
             .collect();
 
         let function_type = llvm
@@ -756,7 +744,7 @@ unsafe fn closure
         let param_ref = llvm::core::LLVMGetParam(function_ref, i as u32);
         llvm::core::LLVMSetValueName2(param_ref, param.as_ptr() as * const _, param.len());
 
-        ctx.module_scopes.add_to_current(&param, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
+        ctx.module_scopes.add_to_current(param, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
     }
 
     if !body.is_empty() {
