@@ -2234,7 +2234,7 @@ mod type_definition
         ".to_owned();
 
         let tokens = Scanner::new(source.clone()).scan_tokens();
-        println!("{:?}", tokens);
+
         // Act
         let program = Compiler::new(source.clone())
             .compile(tokens);

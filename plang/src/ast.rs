@@ -208,14 +208,16 @@ impl GlobalsHoistingTransformer
         let mut degrees: Vec<usize>            = Vec::with_capacity(nodes_count);
 
         for node in nodes.iter() {
-            if let Node::Stmt(Stmt::Function { name, body, .. }) = &node {
-                let mut deps = Vec::with_capacity(1024);
-                Self::match_statements(body, &mut deps);
+            let Node::Stmt(Stmt::Function { name, body, .. }) = &node else {
+                continue
+            };
 
-                declarations.push(name.value.clone());
-                dependencies.push(deps);
-                degrees.push(0);
-            }
+            let mut deps = Vec::with_capacity(1024);
+            Self::match_statements(body, &mut deps);
+
+            declarations.push(name.value.clone());
+            dependencies.push(deps);
+            degrees.push(0);
         }
 
         DependencyGraph {
@@ -284,13 +286,9 @@ impl GlobalsHoistingTransformer
                     deps.append(&mut nested_deps);
                 }
 
-                Stmt::Const { initializer, .. } => {
-                    Self::match_expression(&initializer.value, deps);
-                }
+                Stmt::Const { initializer, .. } => Self::match_expression(&initializer.value, deps),
 
-                Stmt::Expr { expr } => {
-                    Self::match_expression(&expr.value, deps);
-                }
+                Stmt::Expr { expr } => Self::match_expression(&expr.value, deps),
 
                 _ => ()
             }
@@ -316,14 +314,11 @@ impl GlobalsHoistingTransformer
                 Self::match_expression(&right.value, deps);
             },
 
-            Expr::Variable { name: _ } => {
-                // TODO: later
-                // deps.push(name.value.clone());
-            },
+            // TODO: later
+            Expr::Variable { .. } => (),
 
-            Expr::Assignment { value, .. } => {
-                Self::match_expression(&value.value, deps);
-            },
+
+            Expr::Assignment { value, .. } => Self::match_expression(&value.value, deps),
 
             Expr::Call { name, arguments } => {
                 for arg in arguments {
@@ -332,9 +327,7 @@ impl GlobalsHoistingTransformer
                 deps.push(name.value.clone());
             },
 
-            Expr::Function { body, .. } => {
-                Self::match_statements(body, deps);
-            },
+            Expr::Function { body, .. } => Self::match_statements(body, deps),
 
             _ => ()
         }

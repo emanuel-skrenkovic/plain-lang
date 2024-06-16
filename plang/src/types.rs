@@ -37,6 +37,8 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
 
     type_info.begin_scope();
 
+    infer_global_types(program, &mut type_info);
+
     for stmt in &mut program.to_owned() {
         if let ast::Node::Stmt(stmt) = stmt {
             let stmt = match_statement(&mut type_info, stmt);
@@ -123,8 +125,6 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             initializer.type_kind = match_expression(type_info, &mut initializer.value);
         },
 
-        ast::Stmt::Block { statements: _ } => (),
-
         ast::Stmt::Var { name, initializer } => {
             let kind = match_expression(type_info, &mut initializer.value);
             initializer.type_kind = kind.clone();
@@ -137,17 +137,11 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             type_info.add_to_current(&name.value, kind);
         }
 
-        ast::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
-
-        ast::Stmt::While { condition: _, body: _ } => (),
-
-        ast::Stmt::Unary { } => (),
-
-        ast::Stmt::Return { } => (),
-
         ast::Stmt::Expr { expr } => {
             expr.type_kind = match_expression(type_info, &mut expr.value);
         },
+
+        _ => ()
     }
 
     stmt.to_owned()
@@ -210,23 +204,9 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
         ast::Expr::Logical => todo!(),
 
         ast::Expr::Call { name, arguments } => {
-            // TODO: get function by name
-            // and then use its return type kind as the type kind here.
-            // todo!()
-            // type_info.get(&name.value).unwrap().clone()
-
             for arg in arguments.iter_mut() {
                 arg.type_kind = match_expression(type_info, &mut arg.value);
             }
-
-            // TODO: The problem here is that the function being called might
-            // not be 'typed' at this point, so we cannot rely on this to know the return
-            // type.
-            // if let Some(return_type) = type_info.get(&name.value) {
-                // return_type.clone()
-            // } else {
-                // TypeKind::Unknown
-            // }
 
             if name.value == "printf" {
                 TypeKind::Unknown
@@ -237,8 +217,6 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
                 *return_kind.clone()
             }
-
-            // type_info.get(&name.value).unwrap().clone()
         },
 
         ast::Expr::Function { param_types, body, .. } => {

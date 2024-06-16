@@ -182,12 +182,18 @@ pub struct Context
     pub declarations: HashMap<String, (usize, FunctionDefinition)>,
 
     pub symbol_table: semantic_analysis::SymbolTable,
+    pub type_info: scope::Module<types::TypeKind>,
 }
 
 impl Context
 {
     #[must_use]
-    pub unsafe fn new(program: Vec<ast::Node>, symbol_table: semantic_analysis::SymbolTable) -> Self
+    pub unsafe fn new
+    (
+        program: Vec<ast::Node>,
+        symbol_table: semantic_analysis::SymbolTable,
+        type_info: scope::Module<types::TypeKind>,
+    ) -> Self
     {
         Self {
             llvm_ctx: llvm::core::LLVMContextCreate(),
@@ -196,6 +202,7 @@ impl Context
             module_scopes: scope::Module::new(),
             declarations: HashMap::new(),
             symbol_table,
+            type_info,
         }
     }
 }
@@ -250,9 +257,13 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
             match_statement(ctx, &mut current, stmt);
         }
 
-        let result = match main_function_call.code.last() {
-            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut current, expr),
-            _                                   => panic!() // TODO
+        let Some(result) = main_function_call.code.last() else {
+            panic!("Expect main return value.");
+        };
+
+        let result = match result {
+            ast::Stmt::Expr { expr } => match_expression(ctx, &mut current, expr),
+            _                        => panic!("Expect main return value.")
         };
 
         let return_type = main_function_call.return_type;
@@ -288,7 +299,7 @@ pub unsafe fn match_statement
 )
 {
     match stmt {
-        ast::Stmt::Function { name, params, return_type: _, param_types: _, body } => {
+        ast::Stmt::Function { name, params, body, .. } => {
             if name.value == "main" { return }
 
             ctx.module_scopes.begin_scope();
@@ -316,19 +327,14 @@ pub unsafe fn match_statement
 
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
                 ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
-                _                             => llvm::core::LLVMConstNull(return_type) // TODO
+                _                        => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
             let result = deref_if_primitive(function_current.builder, result, return_type);
-
             llvm::core::LLVMBuildRet(function_current.builder, result);
 
             ctx.module_scopes.end_scope();
         },
-
-        ast::Stmt::Declaration { name: _, initializer: _ } => (),
-
-        ast::Stmt::Block { statements: _ } => (),
 
         ast::Stmt::Var { name, initializer } => {
             let type_ref      = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
@@ -433,18 +439,16 @@ pub unsafe fn match_statement
 
         },
 
-        ast::Stmt::Unary { } => (),
-
-        ast::Stmt::Return { } => (),
-
         ast::Stmt::Expr { expr } => { match_expression(ctx, current, expr); },
+
+        _ => ()
     }
 }
 
 pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &ast::ExprInfo) -> llvm::prelude::LLVMValueRef
 {
     match &expr.value {
-        ast::Expr::Bad { token: _ } => todo!(),
+        ast::Expr::Bad { .. } => todo!(),
 
         ast::Expr::Block { statements, value } => {
             ctx.module_scopes.begin_scope();
@@ -635,7 +639,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             deref_if_primitive(current.builder, result, function.function_type)
         },
 
-        ast::Expr::Function { params, return_type: _, param_types: _, body }
+        ast::Expr::Function { params, body, .. }
             => {
                 let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())
@@ -774,19 +778,17 @@ unsafe fn forward_declare(ctx: &mut Context)
             let name        = &scope.names[i];
             let declaration = &scope.values[i];
 
-            // let type_information = type_info.get(name).unwrap(/*TODO: remove unwrap*/);
-
             match &declaration.kind {
                 semantic_analysis::DeclarationKind::Function {
                     function: semantic_analysis::Function { params, body }
                 } => {
-                    let types::TypeKind::Function { parameter_kinds, return_kind } = &declaration.type_kind else {
-                        panic!("Expected function type kind.");
+                    let Some(kind) = &ctx.type_info.get_in_scope(scope.index, name) else {
+                        panic!("Expected type kind.");
                     };
 
-                    // let types::TypeKind::Function { parameter_kinds, return_kind } = type_information  else {
-                    //     panic!("Expected function type kind.");
-                    // };
+                    let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
+                        panic!("Expected function type kind.");
+                    };
 
                     let function_call = FunctionDefinition::build
                     (
@@ -795,9 +797,6 @@ unsafe fn forward_declare(ctx: &mut Context)
                         name.to_string(),
                         params.len(),
 
-                        // TODO: actual types should be available after semantic analysis.
-                        // TODO: closures here act differently.
-                        // vec![Some("number".to_string()); params.len()],
                         parameter_kinds,
 
                         return_kind,
@@ -812,7 +811,11 @@ unsafe fn forward_declare(ctx: &mut Context)
                     captures,
                     function: semantic_analysis::Function { params, body }
                 } => {
-                    let types::TypeKind::Function { parameter_kinds, return_kind } = &declaration.type_kind else {
+                    let Some(kind) = &ctx.type_info.get_in_scope(scope.index, name) else {
+                        panic!("Expected type kind.");
+                    };
+
+                    let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
                         panic!("Expected function type kind.");
                     };
 
@@ -823,9 +826,6 @@ unsafe fn forward_declare(ctx: &mut Context)
                         name.to_string(),
                         captures.len() + params.len(),
 
-                        // TODO: actual types should be available after semantic analysis.
-                        // TODO: closures here act differently.
-                        // vec![Some("number".to_string()); captures.len() + params.len()],
                         parameter_kinds,
 
                         return_kind,

@@ -606,16 +606,14 @@ impl Compiler
             self.variable_declaration(index);
             self.variable_definition(index);
 
-            return Some
-            (
-                ast::Stmt::Function {
-                    name: variable_token,
-                    params,
-                    return_type,
-                    param_types,
-                    body,
-                }
-            )
+            let stmt = ast::Stmt::Function {
+                name: variable_token,
+                params,
+                return_type,
+                param_types,
+                body,
+            };
+            return Some(stmt)
         }
 
         if self.variable_exists(&variable_name) {
@@ -725,14 +723,8 @@ impl Compiler
     {
         let name = self.parser.previous.clone();
 
-        self.match_token(scan::TokenKind::Equal);
-        // if name.value != "printf" && self.parse_variable().is_none() {
-        //     return self
-        //         .error_at(&format!("Variable '{}' is not declared.", &self.parser.previous.value), &self.parser.previous.clone());
-        // }
-
         // If the next token is equal, handle assignment expression.
-        if self.parser.previous.kind.discriminant() == scan::TokenKind::Equal.discriminant() {
+        if self.match_token(scan::TokenKind::Equal) {
             let value_expr = self.expression();
             let value_expr = ast::ExprInfo::new(value_expr);
             return ast::Expr::Assignment {

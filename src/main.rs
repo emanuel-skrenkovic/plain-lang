@@ -50,12 +50,12 @@ fn main()
     println!("{:#?}", program);
 
     let now_semantic_analysis = std::time::Instant::now();
-    let symbol_table = semantic_analysis::analyse(&program, &type_info).unwrap();
+    let symbol_table = semantic_analysis::analyse(&program).unwrap();
     let after_semantic_analysis = now_semantic_analysis.elapsed();
 
     let after_llvm = unsafe {
         let now_llvm = std::time::Instant::now();
-        let mut ctx = compiler_llvm::Context::new(program, symbol_table);
+        let mut ctx = compiler_llvm::Context::new(program, symbol_table, type_info);
         let module = compiler_llvm::compile(&mut ctx);
         let llvm_elapsed = now_llvm.elapsed();
 

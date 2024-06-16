@@ -1,4 +1,4 @@
-use crate::{ast, scan, scope, types};
+use crate::{ast, scan, scope};
 
 #[derive(Clone, Debug)]
 pub struct Function
@@ -11,7 +11,6 @@ pub struct Function
 pub struct Declaration
 {
     pub kind: DeclarationKind,
-    pub type_kind: types::TypeKind,
 }
 
 #[derive(Clone, Debug)]
@@ -41,46 +40,33 @@ pub struct SymbolTable
 // TODO: build symbol table to forward-declare
 // all declarations.
 // Walking the AST later is problematic if we don't have this.
-pub fn analyse
-(
-    program: &[ast::Node],
-    type_info: &scope::Module<types::TypeKind>,
-) -> Result<SymbolTable, String>
+pub fn analyse(program: &[ast::Node]) -> Result<SymbolTable, String>
 {
     let mut symbol_table = SymbolTable {
         module: scope::Module::new(),
     };
 
     symbol_table.module.begin_scope();
-    forward_declarations(program, &mut symbol_table, type_info);
+    forward_declarations(program, &mut symbol_table);
     symbol_table.module.end_scope();
 
     Ok(symbol_table)
 }
 
-pub fn forward_declarations(
-    program: &[ast::Node],
-    symbol_table: &mut SymbolTable,
-    type_info: &scope::Module<types::TypeKind>,
-)
+pub fn forward_declarations(program: &[ast::Node], symbol_table: &mut SymbolTable)
 {
     for stmt in &program.to_owned() {
         let ast::Node::Stmt(stmt) = stmt else {
             continue
         };
-        match_statement(symbol_table, type_info, stmt);
+        match_statement(symbol_table, stmt);
     }
 }
 
-pub fn match_statement
-(
-    symbol_table: &mut SymbolTable,
-    type_info: &scope::Module<types::TypeKind>,
-    stmt: &ast::Stmt,
-)
+pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
 {
     match stmt {
-        ast::Stmt::Function { name, params, return_type: _, param_types: _, body } => {
+        ast::Stmt::Function { name, params, body, .. } => {
             let declaration = Declaration {
                 kind: DeclarationKind::Function {
                     function: Function {
@@ -88,7 +74,6 @@ pub fn match_statement
                         body: body.clone(),
                     }
                 },
-                type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
             };
 
             symbol_table.module.add_to_current(&name.value.clone(), declaration);
@@ -96,19 +81,15 @@ pub fn match_statement
             symbol_table.module.begin_scope();
 
             for stmt in &body[..body.len()-1] {
-                match_statement(symbol_table, type_info, stmt);
+                match_statement(symbol_table, stmt);
             }
 
             symbol_table.module.end_scope();
         },
 
-        ast::Stmt::Declaration { name: _, initializer: _ } => (),
-
-        ast::Stmt::Block { statements: _ } => (),
-
         ast::Stmt::Var { name, initializer } => {
             match &initializer.value {
-                ast::Expr::Function { params, return_type: _, param_types: _, body } => {
+                ast::Expr::Function { params, body, .. } => {
                     let kind = DeclarationKind::Function {
                         function: Function {
                             params: params.clone(),
@@ -117,7 +98,6 @@ pub fn match_statement
                     };
                     let declaration = Declaration {
                         kind,
-                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
                     };
 
                     symbol_table.module.add_to_current(&name.value, declaration);
@@ -126,21 +106,15 @@ pub fn match_statement
 
                     if !body.is_empty() {
                         for stmt in &body[..body.len()-1] {
-                            match_statement(symbol_table, type_info, stmt);
+                            match_statement(symbol_table, stmt);
                         }
                     }
 
                     symbol_table.module.end_scope();
                 }
                 _ => {
-                    let type_kind = type_info
-                        .get_in_scope(symbol_table.module.current_scope_index, &name.value)
-                        .unwrap()
-                        .clone();
-
                     let declaration = Declaration {
                         kind: DeclarationKind::Var,
-                        type_kind,
                     };
 
                     symbol_table
@@ -152,7 +126,7 @@ pub fn match_statement
 
         ast::Stmt::Const { name, initializer } => {
             match &initializer.value {
-                ast::Expr::Function { params, return_type: _, param_types: _, body } => {
+                ast::Expr::Function { params, body, .. } => {
                     let function = Function {
                         params: params.clone(),
                         body: body.clone(),
@@ -167,7 +141,6 @@ pub fn match_statement
                             captures,
                             function,
                         },
-                        type_kind: type_info.get_in_scope(symbol_table.module.current_scope_index, &name.value).unwrap().clone(),
                     };
 
                     symbol_table.module.add_to_current(&name.value, declaration);
@@ -176,7 +149,7 @@ pub fn match_statement
 
                     if !body.is_empty() {
                         for stmt in &body[..body.len()-1] {
-                            match_statement(symbol_table, type_info, stmt);
+                            match_statement(symbol_table, stmt);
                         }
                     }
 
@@ -185,7 +158,6 @@ pub fn match_statement
                 _ => {
                     let declaration = Declaration {
                         kind: DeclarationKind::Const,
-                        type_kind: initializer.type_kind.clone(),
                     };
                     symbol_table
                         .module
@@ -194,14 +166,6 @@ pub fn match_statement
             }
         }
 
-        ast::Stmt::For { initializer: _, condition: _, advancement: _, body: _ } => (),
-
-        ast::Stmt::While { condition: _, body: _ } => (),
-
-        ast::Stmt::Unary { } => (),
-
-        ast::Stmt::Return { } => (),
-
-        ast::Stmt::Expr { expr: _ } => (),
+        _ => ()
     }
 }
