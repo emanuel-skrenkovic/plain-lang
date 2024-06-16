@@ -548,9 +548,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         // That would avoid the issue of finding type info for a freestanding
         // literal expression.
         ast::Expr::Literal { value } => {
-            // let name        = &current.name.take().unwrap();
-            // let declaration = ctx.symbol_table.module.get_in_scope(ctx.module_scopes.current_scope_index, name).unwrap(/*TODO: remove unwrap*/);
-
             match expr.type_kind {
                 types::TypeKind::Unit =>
                     llvm

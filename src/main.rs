@@ -40,7 +40,6 @@ fn main()
     };
 
     let now_transformation = std::time::Instant::now();
-    // let program = ast::MainTransformer::transform(program);
     let program = ast::GlobalsHoistingTransformer::transform(program);
     let after_transformation = now_transformation.elapsed();
 
@@ -48,7 +47,7 @@ fn main()
     let (program, type_info) = types::infer_types(&program);
     let after_type_analysis = now_type_analysis.elapsed();
 
-    // println!("{:#?}", program);
+    println!("{:#?}", program);
 
     let now_semantic_analysis = std::time::Instant::now();
     let symbol_table = semantic_analysis::analyse(&program, &type_info).unwrap();

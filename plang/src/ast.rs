@@ -181,38 +181,9 @@ pub enum TypeKind
     },
 }
 
-// TODO: AST transformations.
 pub trait Transformer
 {
     fn transform(nodes: Vec<Node>) -> Vec<Node>;
-}
-
-pub struct MainTransformer { }
-
-impl Transformer for MainTransformer
-{
-    fn transform(nodes: Vec<Node>) -> Vec<Node>
-    {
-        use std::collections::VecDeque;
-        let mut q: VecDeque<Node> = VecDeque::new();
-
-        let main_name = "main";
-
-        for node in nodes.into_iter() {
-            match &node {
-                Node::Stmt(Stmt::Function { name, .. }) => {
-                    if name.value == main_name {
-                        q.push_front(node);
-                    } else {
-                        q.push_back(node);
-                    }
-                }
-                _ => q.push_back(node)
-            }
-        }
-
-        q.into()
-    }
 }
 
 pub struct GlobalsHoistingTransformer { }
