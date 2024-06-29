@@ -12,7 +12,7 @@ pub enum TypeKind
 
     I32,
 
-    String,
+    String { len: usize },
 
     Function {
         parameter_kinds: Vec<Box<TypeKind>>,
@@ -37,13 +37,17 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
 
     type_info.begin_scope();
 
-    infer_global_types(program, &mut type_info);
+    let mut program = program.to_owned();
 
-    for stmt in &mut program.to_owned() {
-        if let ast::Node::Stmt(stmt) = stmt {
-            let stmt = match_statement(&mut type_info, stmt);
-            typed_program.push(ast::Node::Stmt(stmt));
-        }
+    infer_global_types(&mut program, &mut type_info);
+
+    for stmt in &mut program {
+        let ast::Node::Stmt(stmt) = stmt else {
+            continue
+        };
+
+        let stmt = match_statement(&mut type_info, stmt);
+        typed_program.push(ast::Node::Stmt(stmt));
     }
 
     type_info.end_scope();
@@ -51,26 +55,35 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
     (typed_program, type_info)
 }
 
-pub fn infer_global_types(program: &[ast::Node], type_info: &mut scope::Module<TypeKind>)
+pub fn infer_global_types(program: &mut Vec<ast::Node>, type_info: &mut scope::Module<TypeKind>)
 {
-    for node in program {
+    for node in program.iter_mut() {
         let ast::Node::Stmt(stmt) = node else {
             continue
         };
 
-        if let ast::Stmt::Function { name, return_type, param_types, .. } = stmt {
-            let parameter_kinds: Vec<Box<TypeKind>> = param_types
-                .iter()
-                .map(type_name)
-                .map(Box::new)
-                .collect();
+        match stmt {
+            ast::Stmt::Function { name, return_type, param_types, .. } => {
+                let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                    .iter()
+                    .map(type_name)
+                    .map(Box::new)
+                    .collect();
 
-            let kind = TypeKind::Function {
-                parameter_kinds,
-                return_kind: Box::new(type_name(return_type)),
-            };
+                let kind = TypeKind::Function {
+                    parameter_kinds,
+                    return_kind: Box::new(type_name(return_type)),
+                };
 
-            type_info.add_to_current(&name.value, kind);
+                type_info.add_to_current(&name.value, kind);
+            }
+
+            ast::Stmt::Const { name, initializer } => {
+                let kind = match_expression(type_info, &mut initializer.value);
+                type_info.add_to_current(&name.value, kind);
+            }
+
+            _ => ()
         }
     }
 }
@@ -158,7 +171,8 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             kind
         }
 
-        ast::Expr::If { then_value, else_value, .. } => {
+        ast::Expr::If { condition, then_value, else_value, .. } => {
+            let condition_type   = match_expression(type_info, &mut condition.value);
             let then_branch_type = match_expression(type_info, &mut then_value.value);
             let else_branch_type = match_expression(type_info, &mut else_value.value);
 
@@ -166,15 +180,20 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
                 panic!("Incompatible types between branches");
             }
 
+            if condition_type != TypeKind::Bool {
+                panic!("If condition type must be a boolean. Found type: {:?}", condition_type);
+            }
+
             let kind = then_branch_type.clone();
 
+            condition.type_kind  = condition_type;
             then_value.type_kind = then_branch_type;
             else_value.type_kind = else_branch_type;
 
             kind
         },
 
-        ast::Expr::Binary { left, right, .. } => {
+        ast::Expr::Binary { left, right, operator } => {
             let left_type  = match_expression(type_info, &mut left.value);
             let right_type = match_expression(type_info, &mut right.value);
 
@@ -182,7 +201,23 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
                 panic!("Binary operation between incompatible types. Left: {:?} Right: {:?}", left_type, right_type);
             }
 
-            let kind = left_type.clone();
+            let kind = match operator.kind {
+                scan::TokenKind::Plus
+                | scan::TokenKind::Minus
+                | scan::TokenKind::Star
+                | scan::TokenKind::Slash
+                    => left_type.clone(),
+
+                scan::TokenKind::EqualEqual
+                | scan::TokenKind::BangEqual
+                | scan::TokenKind::GreaterEqual
+                | scan::TokenKind::LessEqual
+                | scan::TokenKind::LeftAngle
+                | scan::TokenKind::RightAngle
+                    => TypeKind::Bool,
+
+                _ => panic!("Unrecognized binary expression token. {:?}", operator.kind)
+            };
 
             left.type_kind  = left_type;
             right.type_kind = right_type;
@@ -245,7 +280,7 @@ fn type_name(token: &scan::Token) -> TypeKind
 {
     match token.value.as_str() {
         "i32" => TypeKind::I32,
-        "string" => TypeKind::String,
+        "string" => TypeKind::String { len: token.value.len() },
         "bool" => TypeKind::Bool,
         _ => TypeKind::Unknown,
     }
@@ -257,7 +292,7 @@ fn token_type(token: &scan::Token) -> TypeKind
         scan::TokenKind::True | scan::TokenKind::False  => TypeKind::Bool,
         _ => {
             if token.value.starts_with('\"') {
-                TypeKind::String
+                TypeKind::String { len: token.value.len() }
             } else if let Some(first) = token.value.chars().next() {
                 if !char::is_numeric(first) {
                     return TypeKind::Unknown

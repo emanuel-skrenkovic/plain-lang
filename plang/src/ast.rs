@@ -208,16 +208,27 @@ impl GlobalsHoistingTransformer
         let mut degrees: Vec<usize>            = Vec::with_capacity(nodes_count);
 
         for node in nodes.iter() {
-            let Node::Stmt(Stmt::Function { name, body, .. }) = &node else {
-                continue
-            };
+            match node {
+                Node::Stmt(Stmt::Function { name, body, .. }) => {
+                    let mut deps = Vec::with_capacity(1024);
+                    Self::match_statements(body, &mut deps);
 
-            let mut deps = Vec::with_capacity(1024);
-            Self::match_statements(body, &mut deps);
+                    declarations.push(name.value.clone());
+                    dependencies.push(deps);
+                    degrees.push(0);
+                }
 
-            declarations.push(name.value.clone());
-            dependencies.push(deps);
-            degrees.push(0);
+                Node::Stmt(Stmt::Const { name, initializer, .. }) => {
+                    let mut deps = Vec::with_capacity(1024);
+                    Self::match_expression(&initializer.value, &mut deps);
+
+                    declarations.push(name.value.clone());
+                    dependencies.push(deps);
+                    degrees.push(0);
+                }
+
+                _ => ()
+            }
         }
 
         DependencyGraph {
@@ -315,7 +326,7 @@ impl GlobalsHoistingTransformer
             },
 
             // TODO: later
-            Expr::Variable { .. } => (),
+            Expr::Variable { name, .. } => deps.push(name.value.clone()),
 
 
             Expr::Assignment { value, .. } => Self::match_expression(&value.value, deps),
@@ -350,11 +361,13 @@ impl Transformer for GlobalsHoistingTransformer
             // TODO: for now we assume all root level nodes are functions.
             let a_name = match a {
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
+                Node::Stmt(Stmt::Const { name, .. })    => &name.value,
                 _ => unreachable!(),
             };
 
             let b_name = match b {
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
+                Node::Stmt(Stmt::Const { name, .. })    => &name.value,
                 _ => unreachable!(),
             };
 

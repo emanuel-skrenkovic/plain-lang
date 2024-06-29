@@ -8,4 +8,3 @@ edition = "2021"
 [dependencies]
 macros = { path = "../macros" }
 llvm-sys = "170.0.1"
-

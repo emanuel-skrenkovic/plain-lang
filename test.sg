@@ -5,10 +5,20 @@ main :: (): i32
 
     c :: result + 14;
 
-    printf("%d", c);
+    d :: if c > 15 {
+        1
+    } else {
+        10
+    };
+
+    printf("c: %d ", c);
+    printf("d: %d ", d);
+    printf("message: %s", message);
 
     0
 }
+
+message :: "HI THERE";
 
 sub :: (b: i32, c: i32): i32
 {
