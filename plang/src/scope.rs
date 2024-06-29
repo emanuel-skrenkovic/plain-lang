@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Scope<T>
     where T : Debug
 {
@@ -15,7 +15,7 @@ pub struct Scope<T>
     pub values: Vec<T>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Module<T>
     where T : Debug
 {
@@ -109,6 +109,27 @@ impl <T> Module<T>
         let index = scope.names.iter().position(|n| n == name);
         if let Some(index) = index {
             return Some(&scope.values[index])
+        }
+
+        None
+    }
+
+    pub fn get_from_scope(&self, scope: usize, name: &str) -> Option<&T>
+    {
+        let scope = self.scopes.get(scope)?;
+
+        let index = scope.names.iter().position(|n| n == name);
+        if let Some(index) = index {
+            return Some(&scope.values[index])
+        }
+
+        for i in scope.path.iter().rev() {
+            let scope = &self.scopes[*i];
+
+            let index = scope.names.iter().position(|n| n == name);
+            if let Some(index) = index {
+                return Some(&scope.values[index])
+            }
         }
 
         None

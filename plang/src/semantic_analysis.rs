@@ -26,7 +26,7 @@ pub enum DeclarationKind
         function: Function,
     },
 
-    Const,
+    Const { initializer: Box<ast::ExprInfo> },
 
     Var,
 }
@@ -155,9 +155,10 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
 
                     symbol_table.module.end_scope();
                 }
+
                 _ => {
                     let declaration = Declaration {
-                        kind: DeclarationKind::Const,
+                        kind: DeclarationKind::Const { initializer: initializer.clone() },
                     };
                     symbol_table
                         .module
