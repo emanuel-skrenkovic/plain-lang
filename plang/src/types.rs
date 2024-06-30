@@ -150,6 +150,35 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             type_info.add_to_current(&name.value, kind);
         }
 
+        ast::Stmt::For { initializer, condition, advancement, body } => {
+            match_statement(type_info, initializer);
+
+            let condition_type = match_expression(type_info, &mut condition.value);
+            if condition_type != TypeKind::Bool {
+                panic!("'while' condition type must be a boolean. Found type: {:?}", condition_type);
+            }
+            condition.type_kind = condition_type;
+
+            match_statement(type_info, advancement);
+
+            for stmt in body {
+                match_statement(type_info, stmt);
+            }
+        }
+
+        ast::Stmt::While { condition, body } => {
+            let condition_type = match_expression(type_info, &mut condition.value);
+            if condition_type != TypeKind::Bool {
+                panic!("'while' condition type must be a boolean. Found type: {:?}", condition_type);
+            }
+
+            condition.type_kind = condition_type;
+
+            for stmt in body {
+                match_statement(type_info, stmt);
+            }
+        }
+
         ast::Stmt::Expr { expr } => {
             expr.type_kind = match_expression(type_info, &mut expr.value);
         },
@@ -181,7 +210,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             }
 
             if condition_type != TypeKind::Bool {
-                panic!("If condition type must be a boolean. Found type: {:?}", condition_type);
+                panic!("'if' condition type must be a boolean. Found type: {:?}", condition_type);
             }
 
             let kind = then_branch_type.clone();
