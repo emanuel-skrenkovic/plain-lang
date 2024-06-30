@@ -68,7 +68,7 @@ impl FunctionDefinition
 pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
 {
     match type_kind {
-        types::TypeKind::Unknown => todo!(),
+        types::TypeKind::Unknown          => todo!(),
         types::TypeKind::Unit             => llvm::core::LLVMVoidTypeInContext(context_ref),
         types::TypeKind::Bool             => llvm::core::LLVMInt8TypeInContext(context_ref),
         types::TypeKind::I32              => llvm::core::LLVMInt32TypeInContext(context_ref),
@@ -582,7 +582,8 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let value_expr        = match_expression(ctx, current, value);
             let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
 
-            llvm::core::LLVMBuildStore(current.builder, value_expr, *variable_ref)
+            let value = deref_if_primitive(current.builder, value_expr, to_llvm_type(ctx.llvm_ctx, &value.type_kind));
+            llvm::core::LLVMBuildStore(current.builder, value, *variable_ref)
         },
 
         ast::Expr::Logical => todo!(),
