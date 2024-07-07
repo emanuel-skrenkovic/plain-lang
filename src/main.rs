@@ -16,7 +16,7 @@ fn main()
 
     let source = include_str!("../test.sg").to_string();
     let mut scanner = scan::Scanner::new(source.clone());
-    let compiler = parse::Parser::new(source.clone());
+    
 
     let now = std::time::Instant::now();
 
@@ -25,7 +25,7 @@ fn main()
     let after_scanning = now_scan.elapsed();
 
     let now_compile = std::time::Instant::now();
-    let program = compiler.compile(tokens);
+    let program = parse::Parser::new(source, tokens).compile();
     let after_compiling = now_compile.elapsed();
 
     let program = match program {

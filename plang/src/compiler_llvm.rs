@@ -550,20 +550,13 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             let branch_value_type = to_llvm_type(ctx.llvm_ctx, &expr.type_kind);
             let phi_node          = llvm::core::LLVMBuildPhi(current.builder, branch_value_type, binary_cstr!("_branchphi"));
 
-
-
             llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
 
             phi_node
         },
 
-        ast::Expr::Binary { left, right, operator }
-            => binary_expr(ctx, current, left, right, operator),
+        ast::Expr::Binary { left, right, operator } => binary_expr(ctx, current, left, right, operator),
 
-        // TODO: maybe simply extend the AST with type information,
-        // instead of keeping the type info in a separate place.
-        // That would avoid the issue of finding type info for a freestanding
-        // literal expression.
         ast::Expr::Literal { value } => {
             match expr.type_kind {
                 types::TypeKind::Unit =>
@@ -680,31 +673,6 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         ast::Expr::Function { params, body, .. }
             => {
                 let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
-
-                // let Some(kind) = &ctx.type_info.get_in_scope(ctx.current_scope(), &name) else {
-                //     panic!("Expected type kind.");
-                // };
-
-                // let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
-                //     panic!("Expected function type kind.");
-                // };
-
-                // let function_call = FunctionDefinition::build
-                // (
-                //     ctx.llvm_ctx,
-                //     ctx.modules[0],
-                //     name.to_string(),
-                //     params.len(),
-
-                //     parameter_kinds,
-
-                //     return_kind,
-                //     body.iter().map(|s| *s.clone()).collect(),
-                //     false,
-                // );
-
-                // ctx.declarations.insert(name.clone(), (ctx.current_scope(), function_call));
-
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())
             }
     }
@@ -939,7 +907,7 @@ unsafe fn forward_declare(ctx: &mut Context)
                         let value_type = ctx
                             .type_info
                             .get_from_scope(scope.index, c)
-                            .expect(&format!("Expect closed variable '{}'", c));
+                            .unwrap_or_else(|| panic!("Expect closed variable '{}'", c));
 
                         value_type
                     }).collect();

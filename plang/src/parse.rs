@@ -277,12 +277,9 @@ impl TokenReader
 
 pub struct Parser
 {
-    // Keep the source for error reporting to be better.
-    source: String,
     reader: TokenReader,
 
     scope_depth: usize,
-
     stack: Vec<ast::Expr>,
 
     pub errors: Vec<CompilerError>,
@@ -291,21 +288,18 @@ pub struct Parser
 impl Parser
 {
     #[must_use]
-    pub fn new(source: String) -> Self
+    pub fn new(source: String, tokens: Vec<scan::Token>) -> Self
     {
-        let source_clone = source.clone();
         Self {
-            source,
-            reader: TokenReader::new(source_clone, vec![]),
+            reader: TokenReader::new(source, tokens),
             scope_depth: 0,
             stack: Vec::with_capacity(1024),
             errors: vec![],
         }
     }
 
-    pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<ast::Node>, Vec<CompilerError>>
+    pub fn compile(mut self) -> Result<Vec<ast::Node>, Vec<CompilerError>>
     {
-        self.reader = TokenReader::new(self.source.clone(), tokens);
         let _ = self.reader.advance().map_err(|e| self.error(e));
 
         // TODO: should probably enclose program itself.
