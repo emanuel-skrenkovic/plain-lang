@@ -3,7 +3,7 @@ use std::io::{stderr, Write};
 use plang::ast;
 use plang::ast::Transformer;
 use plang::compiler_llvm;
-use plang::compiler;
+use plang::parse;
 use plang::scan;
 use plang::types;
 use plang::semantic_analysis;
@@ -16,7 +16,7 @@ fn main()
 
     let source = include_str!("../test.sg").to_string();
     let mut scanner = scan::Scanner::new(source.clone());
-    let compiler = compiler::Compiler::new(source.clone());
+    let compiler = parse::Parser::new(source.clone());
 
     let now = std::time::Instant::now();
 

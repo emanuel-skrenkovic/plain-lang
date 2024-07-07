@@ -90,7 +90,7 @@ impl TryFrom<u8> for Precedence
     }
 }
 
-type ParseFn = fn(&mut Compiler) -> ast::Expr;
+type ParseFn = fn(&mut Parser) -> ast::Expr;
 
 #[derive(Copy, Clone)]
 struct ParseRule
@@ -102,47 +102,47 @@ struct ParseRule
 
 static RULES: [ParseRule; 41] =
 [
-    ParseRule { prefix: Some(Compiler::function_expression), infix: Some(Compiler::function_invocation), precedence: Precedence::Call }, // LeftParen
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // RightParen
-    ParseRule { prefix: Some(Compiler::block_expression),    infix: None,                                precedence: Precedence::None }, // LeftBracket
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // RightBracket
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // LeftAngle
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // RightAngle
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: Some(Compiler::semicolon),           infix: None,                                precedence: Precedence::None }, // Semicolon
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Colon
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // ColonColon
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // ColonEquals
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Plus
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Term }, // Minus
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Star
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Factor }, // Slash
-    ParseRule { prefix: None,                                infix: Some(Compiler::pipe),                precedence: Precedence::Call }, // Pipe
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Comma
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Bang
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // BandEqual
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Equality }, // EqualEqual
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // GreaterEqual
-    ParseRule { prefix: None,                                infix: Some(Compiler::binary),              precedence: Precedence::Comparison }, // LessEqual
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Equal
-    ParseRule { prefix: Some(Compiler::literal),             infix: None,                                precedence: Precedence::None }, // True
-    ParseRule { prefix: Some(Compiler::literal),             infix: None,                                precedence: Precedence::None }, // False
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // This
-    ParseRule { prefix: Some(Compiler::_if),                 infix: None,                                precedence: Precedence::None }, // If
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Else
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Break
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Continue
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Switch
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Case
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // For
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // While
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Func
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Struct
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Interface
-    ParseRule { prefix: Some(Compiler::literal),             infix: None,                                precedence: Precedence::None }, // Literal
-    ParseRule { prefix: Some(Compiler::variable),            infix: None,                                precedence: Precedence::None }, // Identifier
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }, // Error
-    ParseRule { prefix: None,                                infix: None,                                precedence: Precedence::None }  // End
+    ParseRule { prefix: Some(Parser::function_expression), infix: Some(Parser::function_invocation), precedence: Precedence::Call }, // LeftParen
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // RightParen
+    ParseRule { prefix: Some(Parser::block_expression),    infix: None,                               precedence: Precedence::None }, // LeftBracket
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // RightBracket
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LeftAngle
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // RightAngle
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Questionmark
+    ParseRule { prefix: Some(Parser::semicolon),           infix: None,                               precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Colon
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // ColonColon
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // ColonEquals
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Term }, // Plus
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Term }, // Minus
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Star
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Slash
+    ParseRule { prefix: None,                               infix: Some(Parser::pipe),                precedence: Precedence::Call }, // Pipe
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Comma
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Bang
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Equality }, // BandEqual
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Equality }, // EqualEqual
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // GreaterEqual
+    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LessEqual
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Equal
+    ParseRule { prefix: Some(Parser::literal),             infix: None,                               precedence: Precedence::None }, // True
+    ParseRule { prefix: Some(Parser::literal),             infix: None,                               precedence: Precedence::None }, // False
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // This
+    ParseRule { prefix: Some(Parser::_if),                 infix: None,                               precedence: Precedence::None }, // If
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Else
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Break
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Continue
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Switch
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Case
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // For
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // While
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Func
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Struct
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Interface
+    ParseRule { prefix: Some(Parser::literal),             infix: None,                               precedence: Precedence::None }, // Literal
+    ParseRule { prefix: Some(Parser::variable),            infix: None,                               precedence: Precedence::None }, // Identifier
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Error
+    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }  // End
 ];
 
 fn get_rule(token_kind: scan::TokenKind) -> ParseRule
@@ -150,7 +150,7 @@ fn get_rule(token_kind: scan::TokenKind) -> ParseRule
     RULES[token_kind as usize]
 }
 
-pub struct Parser
+pub struct TokenReader
 {
     // Also keep the source in the parser for better error reporting.
     // Feel like this solution is bad, and that I should avoid cloning the source so much.
@@ -168,12 +168,12 @@ pub struct Parser
     error: bool
 }
 
-impl Parser
+impl TokenReader
 {
     #[must_use]
-    pub fn new(source: String, tokens: Vec<scan::Token>) -> Parser
+    pub fn new(source: String, tokens: Vec<scan::Token>) -> Self
     {
-        Parser {
+        Self {
             source,
             tokens,
             scanned_tokens: Vec::with_capacity(1024 * 8),
@@ -275,11 +275,11 @@ impl Parser
     }
 }
 
-pub struct Compiler
+pub struct Parser
 {
     // Keep the source for error reporting to be better.
     source: String,
-    parser: Parser,
+    reader: TokenReader,
 
     scope_depth: usize,
 
@@ -288,15 +288,15 @@ pub struct Compiler
     pub errors: Vec<CompilerError>,
 }
 
-impl Compiler
+impl Parser
 {
     #[must_use]
-    pub fn new(source: String) -> Compiler
+    pub fn new(source: String) -> Self
     {
         let source_clone = source.clone();
-        Compiler {
+        Self {
             source,
-            parser: Parser::new(source_clone, vec![]),
+            reader: TokenReader::new(source_clone, vec![]),
             scope_depth: 0,
             stack: Vec::with_capacity(1024),
             errors: vec![],
@@ -305,15 +305,15 @@ impl Compiler
 
     pub fn compile(mut self, tokens: Vec<scan::Token>) -> Result<Vec<ast::Node>, Vec<CompilerError>>
     {
-        self.parser = Parser::new(self.source.clone(), tokens);
-        let _ = self.parser.advance().map_err(|e| self.error(e));
+        self.reader = TokenReader::new(self.source.clone(), tokens);
+        let _ = self.reader.advance().map_err(|e| self.error(e));
 
         // TODO: should probably enclose program itself.
 
         let mut nodes: Vec<ast::Node> = Vec::with_capacity(1024 * 8);
 
         loop {
-            match self.parser.current.kind {
+            match self.reader.current.kind {
                 scan::TokenKind::End => break,
                 _ => {
                     let decl = self.declaration();
@@ -327,7 +327,7 @@ impl Compiler
             }
         }
 
-        if self.parser.panic {
+        if self.reader.panic {
             return Err(self.errors)
         }
 
@@ -336,14 +336,14 @@ impl Compiler
 
     fn is_at_end(&self) -> bool
     {
-        self.parser.current.kind.discriminant() == scan::TokenKind::End.discriminant()
+        self.reader.current.kind.discriminant() == scan::TokenKind::End.discriminant()
     }
 
     fn parse_precedence(&mut self, prec: Precedence)
     {
-        let _ = self.parser.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance().map_err(|e| self.error(e));
 
-        match get_rule(self.parser.previous.kind).prefix {
+        match get_rule(self.reader.previous.kind).prefix {
             Some(prefix) => {
                 let prefix_expr = prefix(self);
                 self.stack.push(prefix_expr);
@@ -351,15 +351,15 @@ impl Compiler
             _ => {
                 if self.is_at_end() { return }
 
-                panic!("{}", self.parser.error_at("Expect expression.", &self.parser.current.clone()))
+                panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
             }
         }
 
-        while prec.discriminator() <= get_rule(self.parser.current.kind).precedence.discriminator() {
-            let _ = self.parser.advance().map_err(|e| self.error(e));
+        while prec.discriminator() <= get_rule(self.reader.current.kind).precedence.discriminator() {
+            let _ = self.reader.advance().map_err(|e| self.error(e));
 
-            let Some(infix_rule) = get_rule(self.parser.previous.kind).infix else {
-                self.error_at("Failed to get infix rule.", &self.parser.previous.clone());
+            let Some(infix_rule) = get_rule(self.reader.previous.kind).infix else {
+                self.error_at("Failed to get infix rule.", &self.reader.previous.clone());
                 return
             };
 
@@ -392,7 +392,7 @@ impl Compiler
 
     fn binary(&mut self) -> ast::Expr
     {
-        let operator   = self.parser.previous.clone();
+        let operator   = self.reader.previous.clone();
         let parse_rule = get_rule(operator.kind);
 
         let left = self.stack.pop().unwrap();
@@ -419,7 +419,7 @@ impl Compiler
 
     fn literal(&mut self) -> ast::Expr
     {
-        let expr = ast::Expr::Literal { value: self.parser.previous.clone() };
+        let expr = ast::Expr::Literal { value: self.reader.previous.clone() };
 
         // Eat the semicolon only if present;
         self.match_token(scan::TokenKind::Semicolon);
@@ -428,13 +428,13 @@ impl Compiler
 
     fn declaration(&mut self) -> ast::Stmt
     {
-        match self.parser.current.kind {
+        match self.reader.current.kind {
             scan::TokenKind::While => {
-                let _ = self.parser.advance().map_err(|e| self.error(e));
+                let _ = self.reader.advance().map_err(|e| self.error(e));
                 self._while()
             },
             scan::TokenKind::For => {
-                let _ = self.parser.advance().map_err(|e| self.error(e));
+                let _ = self.reader.advance().map_err(|e| self.error(e));
                 self._for()
             }
             scan::TokenKind::Identifier => {
@@ -446,7 +446,7 @@ impl Compiler
 
     fn declaration_statement(&mut self) -> Option<ast::Stmt>
     {
-        let next = self.parser.peek(1)?;
+        let next = self.reader.peek(1)?;
 
         let next_kind = next.kind.discriminant();
 
@@ -458,22 +458,22 @@ impl Compiler
             return None
         }
 
-        let variable_token = self.parser.current.clone();
+        let variable_token = self.reader.current.clone();
 
-        let _ = self.parser.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance().map_err(|e| self.error(e));
 
         let mut maybe_type_name: Option<scan::Token> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
-            maybe_type_name = Some(self.parser.previous.clone());
+            maybe_type_name = Some(self.reader.previous.clone());
 
             if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
                 let error = self.error_at
                 (
                     "Expected token '=' or token ':' after type definition.",
-                    &self.parser.current.clone()
+                    &self.reader.current.clone()
                 );
                 let error = ast::ExprInfo::new(error);
                 return Some(ast::Stmt::Expr { expr: Box::new(error) })
@@ -488,10 +488,10 @@ impl Compiler
         // Function declaration.
         // TODO: this needs to happen only in global scope, in other scopes, the function
         // value is the result of an expression instead of it being a statement.
-        if self.parser.current.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() && self.scope_depth == 0 {
+        if self.reader.current.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() && self.scope_depth == 0 {
             // Cannot use match here because this is only for global scope - we could
             // unintentionally advance.
-            let _ = self.parser.advance().map_err(|e| self.error(e));
+            let _ = self.reader.advance().map_err(|e| self.error(e));
 
             // Declare self first to allow recursion.
             let (params, return_type, param_types, body) = self.function();
@@ -530,7 +530,7 @@ impl Compiler
 
     fn variable_statement(&mut self) -> Option<ast::Stmt>
     {
-        let next = self.parser.peek(1)?;
+        let next = self.reader.peek(1)?;
 
         let next_kind = next.kind.discriminant();
 
@@ -542,19 +542,19 @@ impl Compiler
             return None
         }
 
-        let variable_token = self.parser.current.clone();
+        let variable_token = self.reader.current.clone();
 
-        let _ = self.parser.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance().map_err(|e| self.error(e));
 
         let mut maybe_type_name: Option<scan::Token> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
-            maybe_type_name = Some(self.parser.previous.clone());
+            maybe_type_name = Some(self.reader.previous.clone());
 
             if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
-                let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.parser.current.clone());
+                let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.reader.current.clone());
                 let error = ast::ExprInfo::new(error);
                 return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
@@ -593,7 +593,7 @@ impl Compiler
     // I can already see problems forming with this inference system. sadface
     fn variable(&mut self) -> ast::Expr
     {
-        let name = self.parser.previous.clone();
+        let name = self.reader.previous.clone();
 
         // If the next token is equal, handle assignment expression.
         if self.match_token(scan::TokenKind::Equal) {
@@ -623,23 +623,23 @@ impl Compiler
         // a :: ()
         // ^ __
         // 3 21
-        // let function_token = self.parser.peek(-3).unwrap().clone();
+        // let function_token = self.reader.peek(-3).unwrap().clone();
         // let function_name = function_token.value.clone();
 
         let mut argument_type_names = Vec::with_capacity(512);
         let mut params              = Vec::with_capacity(512);
 
-        if !self.parser.check_token(scan::TokenKind::RightParen) {
+        if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
-                let parameter_name_token = self.parser.previous.clone();
+                let parameter_name_token = self.reader.previous.clone();
                 params.push(parameter_name_token.clone());
 
                 self.consume(scan::TokenKind::Colon, "Expect type definition");
                 self.consume(scan::TokenKind::Identifier, "Expected type identifier");
 
-                let type_name = &self.parser.previous;
+                let type_name = &self.reader.previous;
                 argument_type_names.push(type_name.clone());
 
                 if !self.match_token(scan::TokenKind::Comma) { break }
@@ -650,13 +650,13 @@ impl Compiler
         self.consume(scan::TokenKind::Colon, "Expect ':' after function parameters.");
         self.consume(scan::TokenKind::Identifier, "Expect return type identifier.");
 
-        let return_type = self.parser.previous.clone();
+        let return_type = self.reader.previous.clone();
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
         let mut body = Vec::with_capacity(512);
 
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let stmt = self.declaration();
             body.push(Box::new(stmt));
         }
@@ -674,7 +674,7 @@ impl Compiler
         let mut statements = vec![];
 
         // Compile code until the end of the block or the end of the program is reached.
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let statement = self.declaration();
             statements.push(Box::new(statement));
         }
@@ -683,7 +683,7 @@ impl Compiler
         // or returns 'Unit'.
         // If the final statement in the block is a semicolon, then treat it
         // like a value-less block, else, return the last value in the block.
-        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon)
+        let has_value = !matches!(self.reader.previous.kind, scan::TokenKind::Semicolon)
                         && !statements.is_empty();
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
@@ -746,7 +746,7 @@ impl Compiler
 
         let mut body = vec![];
 
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let stmt = self.declaration();
             body.push(Box::new(stmt));
         }
@@ -777,7 +777,7 @@ impl Compiler
         let mut body: Vec<Box<ast::Stmt>> = vec![];
 
         // Compile code until the end of the block or the end of the program is reached.
-        while !self.parser.check_token(scan::TokenKind::RightBracket) && !self.parser.check_token(scan::TokenKind::End) {
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             body.push(Box::new(self.declaration()));
         }
 
@@ -797,16 +797,16 @@ impl Compiler
 
     fn function_invocation(&mut self) -> ast::Expr
     {
-        let Some(token) = self.parser.peek(-2) else {
+        let Some(token) = self.reader.peek(-2) else {
             return self
-                .error_at("Failed to parse function - no function name found.", &self.parser.previous.clone());
+                .error_at("Failed to parse function - no function name found.", &self.reader.previous.clone());
         };
 
         let function_name_token = token.clone();
 
         let mut arguments: Vec<Box<ast::ExprInfo>> = vec![];
 
-        if !self.parser.check_token(scan::TokenKind::RightParen) {
+        if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
                 let expr = self.expression();
                 let expr = ast::ExprInfo::new(expr);
@@ -863,18 +863,18 @@ impl Compiler
     // manually bother with this stuff all the time.
     fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
     {
-        if self.parser.current.kind.discriminant() != token_kind.discriminant() {
+        if self.reader.current.kind.discriminant() != token_kind.discriminant() {
             return false
         }
 
-        let _ = self.parser.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance().map_err(|e| self.error(e));
         true
     }
 
     fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str)
     {
         let _ = self
-            .parser
+            .reader
             .consume(token_kind, error_message)
             .map_err(|e| self.error(e));
     }
@@ -883,7 +883,7 @@ impl Compiler
 
     fn error_at(&mut self, msg: &str, token: &scan::Token) -> ast::Expr
     {
-        let err = self.parser.error_at(msg, token);
+        let err = self.reader.error_at(msg, token);
         self.errors.push(err);
         ast::Expr::Bad { token: token.clone() }
     }
