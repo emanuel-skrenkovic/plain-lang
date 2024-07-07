@@ -1,3 +1,13 @@
+Test :: struct 
+{
+	value: Values;
+}
+
+Values :: struct
+{
+    index: i32;
+}
+
 main :: (): i32
 {
     i :: 15;

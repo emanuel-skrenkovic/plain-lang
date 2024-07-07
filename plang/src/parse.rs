@@ -443,6 +443,11 @@ impl Parser
         let next = self.reader.peek(1)?;
 
         let next_kind = next.kind.discriminant();
+        let second_next_kind = self.reader.peek(2)?.kind.discriminant();
+
+        if second_next_kind == scan::TokenKind::Struct.discriminant() {
+            return Some(self._struct());
+        }
 
         let type_definition = next_kind == scan::TokenKind::Colon.discriminant();
         let immutable       = next_kind == scan::TokenKind::ColonColon.discriminant();
@@ -834,6 +839,47 @@ impl Parser
     fn pipe(&mut self) -> ast::Expr
     {
         todo!()
+    }
+
+    fn _struct(&mut self) -> ast::Stmt
+    {
+        self.consume(scan::TokenKind::Identifier, "Expect struct name identifier.");
+        let struct_name = self.reader.previous.clone();
+
+        self.consume(scan::TokenKind::ColonColon, "Expect '::' after struct identifier.");
+        self.consume(scan::TokenKind::Struct, "Expect 'struct' token.");
+
+        self.consume(scan::TokenKind::LeftBracket, "Expect '{' on struct definition.");
+
+        let mut fields = Vec::with_capacity(1024);
+        let mut field_types = Vec::with_capacity(1024);
+
+        // TODO: parse fields
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
+            self.consume(scan::TokenKind::Identifier, "Expect identifier.");
+            let name_token = self.reader.previous.clone();
+
+            if self.match_token(scan::TokenKind::Colon) {
+                self.consume(scan::TokenKind::Identifier, "Expect type identifier after field name.");
+                let type_name = self.reader.previous.clone();
+
+                fields.push(name_token);
+                field_types.push(type_name);
+
+                self.match_token(scan::TokenKind::Semicolon);
+            } else if self.match_token(scan::TokenKind::ColonColon) {
+                // TODO: method
+            } else {
+                panic!("Invalid token.");
+            }
+        }
+
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' after struct definition.");
+        ast::Stmt::Struct {
+            name: struct_name,
+            members: fields,
+            member_types: field_types,
+        }
     }
 
     fn semicolon(&mut self) -> ast::Expr

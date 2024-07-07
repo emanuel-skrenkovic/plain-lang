@@ -35,6 +35,13 @@ impl ExprInfo
 #[derive(Debug, Clone)]
 pub enum Stmt
 {
+    Struct 
+    {
+        name: scan::Token,
+        members: Vec<scan::Token>,
+        member_types: Vec<scan::Token>,
+    },
+
     Function
     {
         name: scan::Token,
@@ -211,6 +218,19 @@ impl GlobalsHoistingTransformer
 
         for node in nodes.iter() {
             match node {
+                Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
+                    declarations.push(name.value.clone());
+
+                    let mut deps: Vec<String> = member_types
+                        .iter()
+                        .map(|t| t.value.clone())
+                        .collect();
+                    deps.dedup();
+
+                    dependencies.push(deps);
+                    degrees.push(0);
+                }
+
                 Node::Stmt(Stmt::Function { name, body, .. }) => {
                     let mut deps = Vec::with_capacity(1024);
                     Self::match_statements(body, &mut deps);
@@ -293,6 +313,14 @@ impl GlobalsHoistingTransformer
     {
         for stmt in statements.iter().map(|s| s.as_ref()) {
             match stmt {
+                Stmt::Struct { member_types, .. } => {
+                    let mut type_names = member_types
+                        .iter()
+                        .map(|t| t.value.clone())
+                        .collect();
+                    deps.append(&mut type_names);
+                }
+
                 Stmt::Function { body, .. } => {
                     let mut nested_deps = Vec::with_capacity(1024);
                     Self::match_statements(body, &mut nested_deps);
@@ -362,12 +390,14 @@ impl Transformer for GlobalsHoistingTransformer
         nodes.sort_by(|a, b| {
             // TODO: for now we assume all root level nodes are functions.
             let a_name = match a {
+                Node::Stmt(Stmt::Struct { name, .. })   => &name.value,
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
                 Node::Stmt(Stmt::Const { name, .. })    => &name.value,
                 _ => unreachable!(),
             };
 
             let b_name = match b {
+                Node::Stmt(Stmt::Struct { name, .. })   => &name.value,
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
                 Node::Stmt(Stmt::Const { name, .. })    => &name.value,
                 _ => unreachable!(),
