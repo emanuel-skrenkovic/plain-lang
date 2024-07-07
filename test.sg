@@ -1,31 +1,14 @@
 main :: (): i32
 {
-    result := 3;
-    result = result + add(result, 4) - sub(2, 3);
+    i : i32 = 15;
+    i = i - i;
 
-    c :: result + 14;
-
-    d :: if c > 15 {
-        1
-    } else {
-        10
+    t :: (): i32 {
+        i + 33
     };
 
-    printf("c: %d ", c);
-    printf("d: %d ", d);
-    printf("message: %s", message);
+    c := t();
 
+    printf("%d", c);
     0
-}
-
-message :: "HI THERE";
-
-sub :: (b: i32, c: i32): i32
-{
-    b - c
-}
-
-add :: (a: i32, b: i32): i32
-{
-    a + b - sub(1, 2)
 }

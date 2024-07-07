@@ -58,12 +58,14 @@ pub enum Stmt
     Var
     {
         name: scan::Token,
+        type_name: Option<scan::Token>,
         initializer: Box<ExprInfo>,
     },
 
     Const
     {
         name: scan::Token,
+        type_name: Option<scan::Token>,
         initializer: Box<ExprInfo>,
     },
 

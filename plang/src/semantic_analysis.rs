@@ -87,7 +87,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
             symbol_table.module.end_scope();
         },
 
-        ast::Stmt::Var { name, initializer } => {
+        ast::Stmt::Var { name, initializer, .. } => {
             match &initializer.value {
                 ast::Expr::Function { params, body, .. } => {
                     let kind = DeclarationKind::Function {
@@ -124,7 +124,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
             }
         }
 
-        ast::Stmt::Const { name, initializer } => {
+        ast::Stmt::Const { name, initializer, .. } => {
             match &initializer.value {
                 ast::Expr::Function { params, body, .. } => {
                     let function = Function {

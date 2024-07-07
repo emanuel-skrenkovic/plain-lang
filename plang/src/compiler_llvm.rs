@@ -32,7 +32,7 @@ impl FunctionDefinition
         module: llvm::prelude::LLVMModuleRef,
         name: String,
         arity: usize,
-        argument_type_kinds: &[Box<types::TypeKind>],
+        argument_type_kinds: &[&types::TypeKind],
         return_type_kind: &types::TypeKind,
         code: Vec<ast::Stmt>,
         closure: bool,
@@ -72,8 +72,26 @@ pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind
         types::TypeKind::Unit             => llvm::core::LLVMVoidTypeInContext(context_ref),
         types::TypeKind::Bool             => llvm::core::LLVMInt8TypeInContext(context_ref),
         types::TypeKind::I32              => llvm::core::LLVMInt32TypeInContext(context_ref),
-        types::TypeKind::String { len }   => llvm::core::LLVMArrayType2(llvm::core::LLVMInt8TypeInContext(context_ref), *len as u64 + 1),
-        types::TypeKind::Function { .. }  => todo!(),
+        types::TypeKind::String { len }   => {
+            let char_type = llvm::core::LLVMInt8TypeInContext(context_ref);
+            llvm::core::LLVMArrayType2(char_type, *len as u64 + 1)
+        }
+        types::TypeKind::Function { parameter_kinds, return_kind }  => {
+            let return_type = to_llvm_type(context_ref, return_kind);
+
+            let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
+                .iter()
+                .map(|arg| to_llvm_type(context_ref, arg))
+                .collect();
+
+            let arity = param_types.len();
+
+            let function_type = llvm
+                ::core
+                ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
+
+            llvm::core::LLVMPointerType(function_type, 0)
+        }
         types::TypeKind::Closure { .. }   => todo!(),
         types::TypeKind::Reference { .. } => todo!(),
     }
@@ -320,9 +338,14 @@ pub unsafe fn match_statement
             ctx.module_scopes.end_scope();
         },
 
-        ast::Stmt::Var { name, initializer } => {
-            let type_ref      = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+        ast::Stmt::Var { name, initializer, .. } => {
+            let type_info = ctx
+                .type_info
+                .get_from_scope(ctx.current_scope(), &name.value)
+                .expect("Expect var type information.");
+
             let variable_name = name.value.as_ptr();
+            let type_ref      = to_llvm_type(ctx.llvm_ctx, type_info);
 
             let variable = llvm
                 ::core
@@ -337,7 +360,7 @@ pub unsafe fn match_statement
                .add_to_current(&name.value, (variable, llvm::core::LLVMTypeOf(variable)));
         },
 
-        ast::Stmt::Const { name, initializer } => {
+        ast::Stmt::Const { name, initializer, .. } => {
             let type_info = ctx
                 .type_info
                 .get_from_scope(ctx.current_scope(), &name.value)
@@ -657,6 +680,31 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         ast::Expr::Function { params, body, .. }
             => {
                 let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
+
+                // let Some(kind) = &ctx.type_info.get_in_scope(ctx.current_scope(), &name) else {
+                //     panic!("Expected type kind.");
+                // };
+
+                // let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
+                //     panic!("Expected function type kind.");
+                // };
+
+                // let function_call = FunctionDefinition::build
+                // (
+                //     ctx.llvm_ctx,
+                //     ctx.modules[0],
+                //     name.to_string(),
+                //     params.len(),
+
+                //     parameter_kinds,
+
+                //     return_kind,
+                //     body.iter().map(|s| *s.clone()).collect(),
+                //     false,
+                // );
+
+                // ctx.declarations.insert(name.clone(), (ctx.current_scope(), function_call));
+
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())
             }
     }
@@ -840,8 +888,7 @@ unsafe fn closure
 
 unsafe fn forward_declare(ctx: &mut Context)
 {
-    // for scope in &ctx.symbol_table.module.scopes {
-    let scope = &ctx.symbol_table.module.scopes[0];
+    for scope in &ctx.symbol_table.module.scopes {
         for i in 0..scope.values.len() {
             let name        = &scope.names[i];
             let declaration = &scope.values[i];
@@ -858,6 +905,11 @@ unsafe fn forward_declare(ctx: &mut Context)
                         panic!("Expected function type kind.");
                     };
 
+                    let parameter_types: Vec<&types::TypeKind> = parameter_kinds
+                        .iter()
+                        .map(|p| p.as_ref())
+                        .collect();
+
                     let function_call = FunctionDefinition::build
                     (
                         ctx.llvm_ctx,
@@ -865,7 +917,7 @@ unsafe fn forward_declare(ctx: &mut Context)
                         name.to_string(),
                         params.len(),
 
-                        parameter_kinds,
+                        &parameter_types,
 
                         return_kind,
                         body.iter().map(|s| *s.clone()).collect(),
@@ -877,24 +929,44 @@ unsafe fn forward_declare(ctx: &mut Context)
 
                 semantic_analysis::DeclarationKind::Closure {
                     captures,
-                    function: semantic_analysis::Function { params, body }
+                    function: semantic_analysis::Function { body, .. }
                 } => {
                     let Some(kind) = &ctx.type_info.get_in_scope(scope.index, name) else {
                         panic!("Expected type kind.");
                     };
 
+                    let mut capture_kinds: Vec<&types::TypeKind> = captures.iter().map(|c| {
+                        let value_type = ctx
+                            .type_info
+                            .get_from_scope(scope.index, c)
+                            .expect(&format!("Expect closed variable '{}'", c));
+
+                        value_type
+                    }).collect();
+
                     let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
                         panic!("Expected function type kind.");
                     };
+
+                    let mut parameter_types: Vec<&types::TypeKind> = parameter_kinds
+                        .iter()
+                        .map(|p| p.as_ref())
+                        .collect();
+
+                    let arity = capture_kinds.len() + parameter_types.len();
+                    let mut arg_types = Vec::with_capacity(arity);
+
+                    arg_types.append(&mut capture_kinds);
+                    arg_types.append(&mut parameter_types);
 
                     let function_call = FunctionDefinition::build
                     (
                         ctx.llvm_ctx,
                         ctx.modules[0],
                         name.to_string(),
-                        captures.len() + params.len(),
+                        arity,
 
-                        parameter_kinds,
+                        &arg_types,
 
                         return_kind,
                         body.iter().map(|s| *s.clone()).collect(),
@@ -907,7 +979,7 @@ unsafe fn forward_declare(ctx: &mut Context)
                 _ => (),
             }
         }
-    // }
+    }
 }
 
 unsafe fn is_pointer(var: llvm::prelude::LLVMValueRef) -> bool

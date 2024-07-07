@@ -55,7 +55,7 @@ pub fn infer_types(program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<Type
     (typed_program, type_info)
 }
 
-pub fn infer_global_types(program: &mut Vec<ast::Node>, type_info: &mut scope::Module<TypeKind>)
+pub fn infer_global_types(program: &mut [ast::Node], type_info: &mut scope::Module<TypeKind>)
 {
     for node in program.iter_mut() {
         let ast::Node::Stmt(stmt) = node else {
@@ -66,20 +66,29 @@ pub fn infer_global_types(program: &mut Vec<ast::Node>, type_info: &mut scope::M
             ast::Stmt::Function { name, return_type, param_types, .. } => {
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
                     .iter()
-                    .map(type_name)
+                    .map(type_from_identifier)
                     .map(Box::new)
                     .collect();
 
                 let kind = TypeKind::Function {
                     parameter_kinds,
-                    return_kind: Box::new(type_name(return_type)),
+                    return_kind: Box::new(type_from_identifier(return_type)),
                 };
 
                 type_info.add_to_current(&name.value, kind);
             }
 
-            ast::Stmt::Const { name, initializer } => {
+            ast::Stmt::Const { name, initializer, type_name } => {
                 let kind = match_expression(type_info, &mut initializer.value);
+
+                if let Some(type_name) = type_name {
+                    let defined_type = type_from_identifier(type_name);
+
+                    if defined_type != kind {
+                        panic!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
+                    }
+                }
+
                 type_info.add_to_current(&name.value, kind);
             }
 
@@ -97,7 +106,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             for i in 0..params.len() {
                 let param      = &params[i];
                 let param_type = &param_types[i];
-                let kind       = type_name(param_type);
+                let kind       = type_from_identifier(param_type);
 
                 type_info.add_to_current(&param.value, kind);
             }
@@ -114,7 +123,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
                 TypeKind::Unit
             };
 
-            if return_kind != type_name(return_type) {
+            if return_kind != type_from_identifier(return_type) {
                 panic!("Returned value does not match function definition.\nFunction: {} Value type: {:?} Return type: {:?}", name.value, return_kind, return_type);
             }
 
@@ -122,7 +131,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
-                .map(type_name)
+                .map(type_from_identifier)
                 .map(Box::new)
                 .collect();
 
@@ -138,14 +147,32 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             initializer.type_kind = match_expression(type_info, &mut initializer.value);
         },
 
-        ast::Stmt::Var { name, initializer } => {
+        ast::Stmt::Var { name, initializer, type_name } => {
             let kind = match_expression(type_info, &mut initializer.value);
+
+            if let Some(type_name) = type_name {
+                let defined_type = type_from_identifier(type_name);
+
+                if defined_type != kind {
+                    panic!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
+                }
+            }
+
             initializer.type_kind = kind.clone();
             type_info.add_to_current(&name.value, kind);
         }
 
-        ast::Stmt::Const { name, initializer } => {
+        ast::Stmt::Const { name, initializer, type_name } => {
             let kind = match_expression(type_info, &mut initializer.value);
+
+            if let Some(type_name) = type_name {
+                let defined_type = type_from_identifier(type_name);
+
+                if defined_type != kind {
+                    panic!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
+                }
+            }
+
             initializer.type_kind = kind.clone();
             type_info.add_to_current(&name.value, kind);
         }
@@ -288,7 +315,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
-                .map(type_name)
+                .map(type_from_identifier)
                 .map(Box::new)
                 .collect();
 
@@ -305,7 +332,7 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
     }
 }
 
-fn type_name(token: &scan::Token) -> TypeKind
+fn type_from_identifier(token: &scan::Token) -> TypeKind
 {
     match token.value.as_str() {
         "i32" => TypeKind::I32,

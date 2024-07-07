@@ -275,99 +275,13 @@ impl Parser
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Variable
-{
-    pub name: scan::Token,
-    pub mutable: bool,
-    pub defined: bool,
-    pub type_name: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Scope
-{
-    pub index: usize,
-    pub path: Vec<usize>,
-    pub variables: Vec<Variable>,
-    pub scope_depth: usize,
-    pub parent_function: Option<usize>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Closure
-{
-    pub function: Function,
-    pub upvalues: Vec<usize>, // TOOD: maybe
-    pub scopes: Vec<Scope>,
-    pub scope_depth: usize,
-}
-
-// TODO: I think I should start focusing on the LLVM implementation rather than the
-// custom interpreter. This was always going to be a compiled language, and it is likely
-// that the semantics of the LLVM implementation will stay more relevant.
-#[derive(Clone, Debug)]
-pub struct Function
-{
-    // pub parent_scope: usize,
-    pub parent_function_index: Option<usize>,
-
-    pub scopes: Vec<usize>,
-    pub scope_depth: usize,
-}
-
-impl Function
-{
-    pub fn new(entry_scope_index: usize, parent_function_index: Option<usize>) -> Self
-    {
-        Self {
-            parent_function_index,
-            scope_depth: 0,
-            scopes: vec![entry_scope_index],
-        }
-    }
-}
-
-// I feel like I have to simulate relational data with functions and scopes.
-
-#[derive(Clone, Debug)]
-pub struct Program
-{
-    pub scopes: Vec<Scope>,
-    pub functions: Vec<Function>,
-}
-
-impl Default for Program
-{
-    fn default() -> Self
-    {
-        Self {
-            scopes: vec!
-            [
-                Scope {
-                    index: 0,
-                    path: Vec::with_capacity(1024),
-                    variables: Vec::with_capacity(1024),
-                    scope_depth: 0,
-                    parent_function: None,
-                }
-            ],
-
-            functions: Vec::with_capacity(1024),
-        }
-    }
-}
-
 pub struct Compiler
 {
     // Keep the source for error reporting to be better.
     source: String,
     parser: Parser,
 
-    program: Program,
-
-    current_scope_index: usize,
-    current_function: Option<usize>,
+    scope_depth: usize,
 
     stack: Vec<ast::Expr>,
 
@@ -383,13 +297,8 @@ impl Compiler
         Compiler {
             source,
             parser: Parser::new(source_clone, vec![]),
-            program: Program::default(),
-
-            current_scope_index: 0,
-            current_function: None,
-
+            scope_depth: 0,
             stack: Vec::with_capacity(1024),
-
             errors: vec![],
         }
     }
@@ -408,6 +317,11 @@ impl Compiler
                 scan::TokenKind::End => break,
                 _ => {
                     let decl = self.declaration();
+                    if let ast::Stmt::Expr { ref expr } = decl {
+                        if let ast::ExprInfo { value: ast::Expr::Bad { token }, .. } = expr.as_ref() {
+                            panic!("{:?}", token);
+                        }
+                    }
                     nodes.push(ast::Node::Stmt(decl));
                 }
             }
@@ -418,30 +332,6 @@ impl Compiler
         }
 
         Ok(nodes)
-    }
-
-    // TOOD: Currently we are experienceing the "main" problem.
-    // Getting the current executing function does not work because I don't expect a function to
-    // be there already, since globals and type definitions do/will exist.
-    // But that means that the implicit assumption that we can get "current()" does not hold
-    // and stuff breaks.
-    // I have to find a way to deal with these two separate lexical scopes - global and within a function.
-    fn current(&self) -> &Function
-    {
-        // TODO: Remove unwrap, I think this break stuff!
-        &self.program.functions[self.current_function.unwrap()]
-    }
-
-    fn current_scope(&self) -> &Scope
-    {
-        let index = self.current_scope_index;
-        &self.program.scopes[index]
-    }
-
-    fn current_scope_mut(&mut self) -> &mut Scope
-    {
-        let scope = self.current_scope_index;
-        &mut self.program.scopes[scope]
     }
 
     fn is_at_end(&self) -> bool
@@ -569,19 +459,22 @@ impl Compiler
         }
 
         let variable_token = self.parser.current.clone();
-        let variable_name  = variable_token.value.clone();
 
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
-        let mut maybe_type_name: Option<String> = None;
+        let mut maybe_type_name: Option<scan::Token> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
-            maybe_type_name = Some(self.parser.previous.clone().value);
+            maybe_type_name = Some(self.parser.previous.clone());
 
-            if !self.match_token(scan::TokenKind::Equal) {
-                let error = self.error_at("Expected token '='.", &self.parser.current.clone());
+            if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
+                let error = self.error_at
+                (
+                    "Expected token '=' or token ':' after type definition.",
+                    &self.parser.current.clone()
+                );
                 let error = ast::ExprInfo::new(error);
                 return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
@@ -593,18 +486,15 @@ impl Compiler
         }
 
         // Function declaration.
-        if self.parser.current.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() && self.current_scope_index == 0 {
+        // TODO: this needs to happen only in global scope, in other scopes, the function
+        // value is the result of an expression instead of it being a statement.
+        if self.parser.current.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() && self.scope_depth == 0 {
             // Cannot use match here because this is only for global scope - we could
             // unintentionally advance.
             let _ = self.parser.advance().map_err(|e| self.error(e));
 
             // Declare self first to allow recursion.
-            let index = self.declare_variable(variable_token.clone(), false, maybe_type_name);
-
             let (params, return_type, param_types, body) = self.function();
-
-            self.variable_declaration(index);
-            self.variable_definition(index);
 
             let stmt = ast::Stmt::Function {
                 name: variable_token,
@@ -616,28 +506,24 @@ impl Compiler
             return Some(stmt)
         }
 
-        if self.variable_exists(&variable_name) {
-            // even more #horribleways
-            let error = self.error_at
-            (
-                &format!("Cannot redeclare variable with name '{}'.", &variable_token.value),
-                &variable_token.clone()
-            );
-            let error = ast::ExprInfo::new(error);
-            return Some(ast::Stmt::Expr { expr: Box::new(error) })
-        }
-
         let initializer = self.expression();
-
-        let index = self.declare_variable(variable_token.clone(), mutable, maybe_type_name);
-        self.variable_declaration(index);
-        self.variable_definition(index);
 
         self.match_token(scan::TokenKind::Semicolon);
 
         let initializer = Box::new(ast::ExprInfo::new(initializer));
-        let stmt = if mutable { ast::Stmt::Var { name: variable_token, initializer } }
-                   else       { ast::Stmt::Const { name: variable_token, initializer } };
+        let stmt = if mutable {
+            ast::Stmt::Var {
+                name: variable_token,
+                type_name: maybe_type_name,
+                initializer
+            }
+        } else {
+            ast::Stmt::Const {
+                name: variable_token,
+                type_name: maybe_type_name,
+                initializer
+            }
+        };
 
         Some(stmt)
     }
@@ -657,19 +543,18 @@ impl Compiler
         }
 
         let variable_token = self.parser.current.clone();
-        let variable_name  = variable_token.value.clone();
 
         let _ = self.parser.advance().map_err(|e| self.error(e));
 
-        let mut maybe_type_name: Option<String> = None;
+        let mut maybe_type_name: Option<scan::Token> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
-            maybe_type_name = Some(self.parser.previous.clone().value);
+            maybe_type_name = Some(self.parser.previous.clone());
 
-            if !self.match_token(scan::TokenKind::Equal) {
-                let error = self.error_at("Expected token '='.", &self.parser.current.clone());
+            if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
+                let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.parser.current.clone());
                 let error = ast::ExprInfo::new(error);
                 return Some(ast::Stmt::Expr { expr: Box::new(error) })
             }
@@ -681,33 +566,20 @@ impl Compiler
             return None
         }
 
-        if self.variable_exists(&variable_name) {
-            // even more #horribleways
-            let error = self.error_at
-            (
-                &format!("Cannot redeclare variable with name '{}'.", &variable_token),
-                &variable_token.clone()
-            );
-            let error = ast::ExprInfo::new(error);
-            return Some(ast::Stmt::Expr { expr: Box::new(error) })
-        }
-
         let initializer = self.expression();
         let initializer = ast::ExprInfo::new(initializer);
-
-        let index = self.declare_variable(variable_token.clone(), mutable, maybe_type_name);
-        self.variable_declaration(index);
-        self.variable_definition(index);
 
         self.match_token(scan::TokenKind::Semicolon);
         let stmt = if mutable {
             ast::Stmt::Var {
                 name: variable_token,
+                type_name: maybe_type_name,
                 initializer: Box::new(initializer),
             }
         } else {
             ast::Stmt::Const {
                 name: variable_token,
+                type_name: maybe_type_name,
                 initializer: Box::new(initializer),
             }
         };
@@ -746,7 +618,7 @@ impl Compiler
 
     fn function(&mut self) -> (Vec<scan::Token>, scan::Token, Vec<scan::Token>, Vec<Box<ast::Stmt>>)
     {
-        self.begin_function();
+        self.begin_scope();
 
         // a :: ()
         // ^ __
@@ -770,10 +642,6 @@ impl Compiler
                 let type_name = &self.parser.previous;
                 argument_type_names.push(type_name.clone());
 
-                // Ooopsy whoopsy dooopsy hooopsy we just made it mutable.
-                self.declare_variable(parameter_name_token, true, Some(type_name.value.clone()));
-                // self.variable_declaration(variable_key);
-
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
@@ -793,18 +661,9 @@ impl Compiler
             body.push(Box::new(stmt));
         }
 
-        // This does not denote if we return a value or not. Fix it!
-        // let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
-
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
-        // TODO: I think I should just pass on the token here instead of having
-        // the name in a string like a dummy.
-        // let return_type_name = if let Some(type_name) = return_type_name { type_name.clone() }
-        //                        else                                      { "unit".to_string() };
-
-        self.end_function();
-
+        self.end_scope();
         (params, return_type, argument_type_names, body)
     }
 
@@ -824,7 +683,8 @@ impl Compiler
         // or returns 'Unit'.
         // If the final statement in the block is a semicolon, then treat it
         // like a value-less block, else, return the last value in the block.
-        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon);
+        let has_value = !matches!(self.parser.previous.kind, scan::TokenKind::Semicolon)
+                        && !statements.is_empty();
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
         self.match_token(scan::TokenKind::Semicolon);
@@ -844,72 +704,6 @@ impl Compiler
 
         self.end_scope();
         (statements, expr)
-    }
-
-    fn declare_variable(&mut self, token: scan::Token, mutable: bool, type_name: Option<String>) -> u8
-    {
-        let variable_name = token.value.clone();
-
-        let variable = Variable {
-            name: token,
-            mutable,
-            defined: true,
-            type_name,
-        };
-
-        // TODO: maybe have the insert return the index.
-        self.current_scope_mut().variables.push(variable);
-        let variable_index = self
-            .current_scope()
-            .variables
-            .iter()
-            .position(|v| v.name.value == variable_name)
-            .unwrap();
-        // I guess unwrap is ok here. I literally just inserted the thing in the line above.
-
-        variable_index as u8
-    }
-
-    fn variable_exists(&self, name: &str) -> bool
-    {
-        let current_scope = self.current_scope();
-
-        let variable_index = current_scope
-            .variables
-            .iter()
-            .position(|v| v.name.value == name);
-
-        if variable_index.is_some() { return true }
-
-        for scope_index in &current_scope.path {
-            let scope = &self.program.scopes[*scope_index];
-            let variable_index = scope
-                .variables
-                .iter()
-                .position(|v| v.name.value == name);
-
-            if variable_index.is_some() { return true }
-        }
-
-        false
-    }
-
-    fn variable_declaration(&mut self, variable_key: u8)
-    {
-        self.current_scope_mut()
-            .variables
-            .get_mut(variable_key as usize)
-            .unwrap()
-            .defined = false;
-    }
-
-    fn variable_definition(&mut self, variable_key: u8)
-    {
-        self.current_scope_mut()
-            .variables
-            .get_mut(variable_key as usize)
-            .unwrap()
-            .defined = true;
     }
 
     fn _if(&mut self) -> ast::Expr
@@ -1048,66 +842,20 @@ impl Compiler
         todo!()
     }
 
-    fn begin_scope(&mut self) -> usize
-    {
-        let parent_scope = self.current_scope();
-
-        // New scope path will contain the parent as well, so extending with the
-        // index of the parent.
-        let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
-        new_scope_path.extend_from_slice(&parent_scope.path);
-        new_scope_path.push(parent_scope.index);
-
-        let new_scope = Scope {
-            index: 0,
-            path: new_scope_path,
-            variables: vec![],
-            scope_depth: parent_scope.scope_depth + 1,
-            parent_function: self.current_function,
-        };
-
-        // Push the new scope and get its index. Use it as the ID of the Scope struct.
-        self.program.scopes.push(new_scope);
-
-        let new_scope_index = self.program.scopes.len() - 1;
-        self.program.scopes[new_scope_index].index = new_scope_index;
-
-        self.current_scope_index = new_scope_index;
-
-        new_scope_index
-    }
-
-    fn end_scope(&mut self)
-    {
-        let scope                = self.current_scope();
-        let parent_scope         = scope.path.last().unwrap();
-        self.current_scope_index = *parent_scope;
-    }
-
-    fn begin_function(&mut self)
-    {
-        let scope_index = self.begin_scope();
-
-        self.program.functions.push(Function::new(scope_index, self.current_function));
-        self.current_function = Some(self.program.functions.len() - 1);
-    }
-
-    fn end_function(&mut self)
-    {
-        assert!(self.current_function.is_some());
-
-        self.end_scope();
-
-        let func         = self.current();
-        let parent_index = func.parent_function_index;
-
-        self.current_function = parent_index;
-    }
-
     fn semicolon(&mut self) -> ast::Expr
     {
         self.match_token(scan::TokenKind::Semicolon);
         ast::Expr::Literal { value: scan::Token::default() }
+    }
+
+    fn begin_scope(&mut self)
+    {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self)
+    {
+        self.scope_depth -= 1;
     }
 
     // This section basically implements the parser methods, the difference is that the
