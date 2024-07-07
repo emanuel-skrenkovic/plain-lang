@@ -24,47 +24,6 @@ pub struct FunctionDefinition
     pub closure: bool,
 }
 
-impl FunctionDefinition
-{
-    unsafe fn build
-    (
-        context_ref: llvm::prelude::LLVMContextRef,
-        module: llvm::prelude::LLVMModuleRef,
-        name: String,
-        arity: usize,
-        argument_type_kinds: &[&types::TypeKind],
-        return_type_kind: &types::TypeKind,
-        code: Vec<ast::Stmt>,
-        closure: bool,
-    ) -> Self
-    {
-        let return_type = to_llvm_type(context_ref, return_type_kind);
-
-        let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_kinds
-            .iter()
-            .map(|arg| to_llvm_type(context_ref, arg))
-            .collect();
-
-        let function_type = llvm
-            ::core
-            ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
-        let function = llvm
-            ::core
-            ::LLVMAddFunction(module, name.as_ptr() as *const _, function_type);
-
-        FunctionDefinition {
-            name,
-            function,
-            function_type,
-            arity,
-            param_types,
-            return_type,
-            code,
-            closure,
-        }
-    }
-}
-
 pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
 {
     match type_kind {
@@ -173,6 +132,44 @@ impl Builder
             ::core
             ::LLVMBuildCondBr(self.builder, condition, then_block, else_block);
     }
+
+    pub unsafe fn build_function
+    (
+        &self,
+        name: String,
+        argument_type_kinds: &[&types::TypeKind],
+        return_type_kind: &types::TypeKind,
+        code: Vec<ast::Stmt>,
+        closure: bool,
+    ) -> FunctionDefinition
+    {
+        let return_type = to_llvm_type(self.ctx, return_type_kind);
+
+        let arity = argument_type_kinds.len();
+
+        let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_kinds
+            .iter()
+            .map(|arg| to_llvm_type(self.ctx, arg))
+            .collect();
+
+        let function_type = llvm
+            ::core
+            ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
+        let function = llvm
+            ::core
+            ::LLVMAddFunction(self.module, name.as_ptr() as *const _, function_type);
+
+        FunctionDefinition {
+            name,
+            function,
+            function_type,
+            arity,
+            param_types,
+            return_type,
+            code,
+            closure,
+        }
+    }
 }
 
 pub struct Context
@@ -262,10 +259,10 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     let printf = printf_function(ctx, module);
     ctx.declarations.insert("printf".to_owned(), (0, printf));
 
-    forward_declare(ctx);
-
     let builder     = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
     let mut builder = Builder::new(ctx.llvm_ctx, module, builder);
+
+    forward_declare(ctx, &mut builder);
 
     // Compile the rest of the program
     ctx.module_scopes.begin_scope();
@@ -854,7 +851,7 @@ unsafe fn closure
     function_ref
 }
 
-unsafe fn forward_declare(ctx: &mut Context)
+unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 {
     for scope in &ctx.symbol_table.module.scopes {
         for i in 0..scope.values.len() {
@@ -863,7 +860,7 @@ unsafe fn forward_declare(ctx: &mut Context)
 
             match &declaration.kind {
                 semantic_analysis::DeclarationKind::Function {
-                    function: semantic_analysis::Function { params, body }
+                    function: semantic_analysis::Function { body, .. }
                 } => {
                     let Some(kind) = &ctx.type_info.get_in_scope(scope.index, name) else {
                         panic!("Expected type kind.");
@@ -878,12 +875,9 @@ unsafe fn forward_declare(ctx: &mut Context)
                         .map(|p| p.as_ref())
                         .collect();
 
-                    let function_call = FunctionDefinition::build
+                    let function_call = builder.build_function
                     (
-                        ctx.llvm_ctx,
-                        ctx.modules[0],
                         name.to_string(),
-                        params.len(),
 
                         &parameter_types,
 
@@ -927,12 +921,9 @@ unsafe fn forward_declare(ctx: &mut Context)
                     arg_types.append(&mut capture_kinds);
                     arg_types.append(&mut parameter_types);
 
-                    let function_call = FunctionDefinition::build
+                    let function_call = builder.build_function
                     (
-                        ctx.llvm_ctx,
-                        ctx.modules[0],
                         name.to_string(),
-                        arity,
 
                         &arg_types,
 
