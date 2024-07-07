@@ -107,7 +107,7 @@ pub struct Scope
 }
 
 #[derive(Debug)]
-pub struct Current
+pub struct Builder
 {
     pub ctx: llvm::prelude::LLVMContextRef,
     pub module: llvm::prelude::LLVMModuleRef,
@@ -117,7 +117,7 @@ pub struct Current
     pub basic_block: Option<llvm::prelude::LLVMBasicBlockRef>,
 }
 
-impl Current
+impl Builder
 {
     pub unsafe fn new
     (
@@ -126,7 +126,7 @@ impl Current
         builder: llvm::prelude::LLVMBuilderRef,
     ) -> Self
     {
-        Current {
+        Self {
             ctx: llvm_ctx,
             builder,
             module,
@@ -265,7 +265,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     forward_declare(ctx);
 
     let builder     = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
-    let mut current = Current::new(ctx.llvm_ctx, module, builder);
+    let mut builder = Builder::new(ctx.llvm_ctx, module, builder);
 
     // Compile the rest of the program
     ctx.module_scopes.begin_scope();
@@ -275,7 +275,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
             continue
         };
 
-        match_statement(ctx, &mut current, stmt);
+        match_statement(ctx, &mut builder, stmt);
     }
 
     ctx.module_scopes.end_scope();
@@ -287,7 +287,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 pub unsafe fn match_statement
 (
     ctx: &mut Context,
-    current: &mut Current,
+    builder: &mut Builder,
     stmt: &ast::Stmt
 )
 {
@@ -309,11 +309,11 @@ pub unsafe fn match_statement
                 "_entry\0".as_ptr() as * const _
             );
 
-            let builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
-            llvm::core::LLVMPositionBuilderAtEnd(builder, entry_block);
+            let new_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
+            llvm::core::LLVMPositionBuilderAtEnd(new_builder, entry_block);
 
             ctx.function = Some(function_call);
-            let mut function_current = Current::new(ctx.llvm_ctx, current.module, builder);
+            let mut function_builder = Builder::new(ctx.llvm_ctx, builder.module, new_builder);
 
             for (i, param) in params.iter().enumerate() {
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
@@ -324,16 +324,16 @@ pub unsafe fn match_statement
             }
 
             for stmt in &body[..body.len()-1] {
-                match_statement(ctx, &mut function_current, stmt);
+                match_statement(ctx, &mut function_builder, stmt);
             }
 
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
-                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_current, expr),
+                ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_builder, expr),
                 _                        => llvm::core::LLVMConstNull(return_type) // TODO
             };
 
-            let result = deref_if_primitive(function_current.builder, result, return_type);
-            llvm::core::LLVMBuildRet(function_current.builder, result);
+            let result = deref_if_primitive(function_builder.builder, result, return_type);
+            llvm::core::LLVMBuildRet(function_builder.builder, result);
 
             ctx.module_scopes.end_scope();
         },
@@ -349,12 +349,12 @@ pub unsafe fn match_statement
 
             let variable = llvm
                 ::core
-                ::LLVMBuildAlloca(current.builder, type_ref, variable_name as *const _);
+                ::LLVMBuildAlloca(builder.builder, type_ref, variable_name as *const _);
 
             ctx.name = Some(name.value.clone());
 
-            let value = match_expression(ctx, current, initializer);
-            llvm::core::LLVMBuildStore(current.builder, value, variable);
+            let value = match_expression(ctx, builder, initializer);
+            llvm::core::LLVMBuildStore(builder.builder, value, variable);
 
             ctx.module_scopes
                .add_to_current(&name.value, (variable, llvm::core::LLVMTypeOf(variable)));
@@ -373,8 +373,8 @@ pub unsafe fn match_statement
 
             // Global scoped variables work differently.
             let variable = if ctx.is_global() {
-                let global = llvm::core::LLVMAddGlobal(current.module, type_ref, variable_name.as_ptr());
-                let value  = match_expression(ctx, current, initializer);
+                let global = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.as_ptr());
+                let value  = match_expression(ctx, builder, initializer);
 
                 llvm::core::LLVMSetInitializer(global, value);
 
@@ -382,10 +382,10 @@ pub unsafe fn match_statement
             } else {
                 let variable = llvm
                     ::core
-                    ::LLVMBuildAlloca(current.builder, type_ref, variable_name.as_ptr());
+                    ::LLVMBuildAlloca(builder.builder, type_ref, variable_name.as_ptr());
 
-                let value = match_expression(ctx, current, initializer);
-                llvm::core::LLVMBuildStore(current.builder, value, variable);
+                let value = match_expression(ctx, builder, initializer);
+                llvm::core::LLVMBuildStore(builder.builder, value, variable);
 
                 variable
             };
@@ -394,81 +394,81 @@ pub unsafe fn match_statement
         },
 
         ast::Stmt::For { initializer, condition, advancement, body } => {
-            let start_branch       = current.append_block(ctx.function_ref(), "_for_start");
-            let condition_branch   = current.append_block(ctx.function_ref(), "_for_condition");
-            let body_branch        = current.append_block(ctx.function_ref(), "_for_body");
-            let advancement_branch = current.append_block(ctx.function_ref(), "_for_advancement");
-            let end_branch         = current.append_block(ctx.function_ref(), "_for_end");
+            let start_branch       = builder.append_block(ctx.function_ref(), "_for_start");
+            let condition_branch   = builder.append_block(ctx.function_ref(), "_for_condition");
+            let body_branch        = builder.append_block(ctx.function_ref(), "_for_body");
+            let advancement_branch = builder.append_block(ctx.function_ref(), "_for_advancement");
+            let end_branch         = builder.append_block(ctx.function_ref(), "_for_end");
 
-            current.build_break(start_branch);
+            builder.build_break(start_branch);
 
             // initializer
             {
-                current.set_position(start_branch);
-                match_statement(ctx, current, initializer);
-                current.build_break(body_branch);
+                builder.set_position(start_branch);
+                match_statement(ctx, builder, initializer);
+                builder.build_break(body_branch);
             }
 
             // condition
             {
-                current.set_position(condition_branch);
-                let condition_expr = match_expression(ctx, current, condition);
-                current.build_condition(condition_expr, body_branch, end_branch);
+                builder.set_position(condition_branch);
+                let condition_expr = match_expression(ctx, builder, condition);
+                builder.build_condition(condition_expr, body_branch, end_branch);
             }
 
             // body
             {
-                current.set_position(body_branch);
+                builder.set_position(body_branch);
                 for stmt in body {
-                    match_statement(ctx, current, stmt);
+                    match_statement(ctx, builder, stmt);
                 }
-                current.build_break(advancement_branch);
+                builder.build_break(advancement_branch);
             }
 
             // advancement
             {
-                current.set_position(advancement_branch);
-                match_statement(ctx, current, advancement);
-                current.build_break(condition_branch);
+                builder.set_position(advancement_branch);
+                match_statement(ctx, builder, advancement);
+                builder.build_break(condition_branch);
             }
 
-            current.set_position(end_branch);
+            builder.set_position(end_branch);
         },
 
         ast::Stmt::While { condition, body } => {
-            let start_branch = current.append_block(ctx.function_ref(), "_while_start");
-            let body_branch  = current.append_block(ctx.function_ref(), "_while_body");
-            let end_branch   = current.append_block(ctx.function_ref(), "_while_end");
+            let start_branch = builder.append_block(ctx.function_ref(), "_while_start");
+            let body_branch  = builder.append_block(ctx.function_ref(), "_while_body");
+            let end_branch   = builder.append_block(ctx.function_ref(), "_while_end");
 
-            current.build_break(start_branch);
+            builder.build_break(start_branch);
 
             // condition
             {
-                current.set_position(start_branch);
-                let condition_expr = match_expression(ctx, current, condition);
-                current.build_condition(condition_expr, body_branch, end_branch);
+                builder.set_position(start_branch);
+                let condition_expr = match_expression(ctx, builder, condition);
+                builder.build_condition(condition_expr, body_branch, end_branch);
             }
 
             // body
             {
-                current.set_position(body_branch);
+                builder.set_position(body_branch);
                 for stmt in body {
-                    match_statement(ctx, current, stmt);
+                    match_statement(ctx, builder, stmt);
                 }
-                current.build_break(start_branch);
+                builder.build_break(start_branch);
             }
 
-            current.set_position(end_branch);
+            builder.set_position(end_branch);
 
         },
 
-        ast::Stmt::Expr { expr } => { match_expression(ctx, current, expr); },
+        ast::Stmt::Expr { expr } => { match_expression(ctx, builder, expr); },
 
         _ => ()
     }
 }
 
-pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &ast::ExprInfo) -> llvm::prelude::LLVMValueRef
+pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &ast::ExprInfo) -> llvm::prelude::LLVMValueRef
 {
     match &expr.value {
         ast::Expr::Bad { .. } => todo!(),
@@ -477,85 +477,85 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
             ctx.module_scopes.begin_scope();
 
             for stmt in statements {
-                match_statement(ctx, current, stmt);
+                match_statement(ctx, builder, stmt);
             }
 
-            let expr = match_expression(ctx, current, value);
+            let expr = match_expression(ctx, builder, value);
 
             ctx.module_scopes.end_scope();
 
             let return_type = llvm::core::LLVMTypeOf(expr);
-            deref_if_ptr(current.builder, expr, return_type)
+            deref_if_ptr(builder.builder, expr, return_type)
         },
 
         ast::Expr::If { condition, then_branch, then_value, else_branch, else_value } => {
-            let branch_entry_block = current.append_block(ctx.function_ref(), "_entry_branch");
-            current.build_break(branch_entry_block);
-            current.set_position(branch_entry_block);
+            let branch_entry_block = builder.append_block(ctx.function_ref(), "_entry_branch");
+            builder.build_break(branch_entry_block);
+            builder.set_position(branch_entry_block);
 
-            let condition_expr = match_expression(ctx, current, condition);
+            let condition_expr = match_expression(ctx, builder, condition);
 
             let mut incoming_values = Vec::with_capacity(2);
             let mut incoming_blocks = Vec::with_capacity(2);
 
-            let then_block = current.append_block(ctx.function_ref(), "_then_branch");
-            current.set_position(then_block);
+            let then_block = builder.append_block(ctx.function_ref(), "_then_branch");
+            builder.set_position(then_block);
 
             let (then_result, then_exit_block) = {
                 for stmt in then_branch {
-                    match_statement(ctx, current, stmt);
+                    match_statement(ctx, builder, stmt);
                 }
 
-                let then_result = match_expression(ctx, current, then_value);
+                let then_result = match_expression(ctx, builder, then_value);
 
-                (then_result, current.basic_block.unwrap())
+                (then_result, builder.basic_block.unwrap())
             };
 
             incoming_values.push(then_result);
             incoming_blocks.push(then_exit_block);
 
-            let else_block = current.append_block(ctx.function_ref(), "_else_branch");
-            current.set_position(else_block);
+            let else_block = builder.append_block(ctx.function_ref(), "_else_branch");
+            builder.set_position(else_block);
 
             let (else_result, else_exit_block) = {
                 for stmt in else_branch {
-                    match_statement(ctx, current, stmt);
+                    match_statement(ctx, builder, stmt);
                 }
 
-                let else_result = match_expression(ctx, current, else_value);
+                let else_result = match_expression(ctx, builder, else_value);
 
-                (else_result, current.basic_block.unwrap())
+                (else_result, builder.basic_block.unwrap())
             };
 
             incoming_values.push(else_result);
             incoming_blocks.push(else_exit_block);
 
-            let end_block = current.append_block(ctx.function_ref(), "_end_branch");
+            let end_block = builder.append_block(ctx.function_ref(), "_end_branch");
 
             for block in &incoming_blocks {
-                current.set_position(*block);
-                current.build_break(end_block);
+                builder.set_position(*block);
+                builder.build_break(end_block);
             }
 
-            current.set_position(branch_entry_block);
+            builder.set_position(branch_entry_block);
 
-            current.build_condition(condition_expr, then_block, else_block);
+            builder.build_condition(condition_expr, then_block, else_block);
 
             let count           = incoming_values.len() as u32;
             let incoming_values = incoming_values.as_mut_ptr();
             let incoming_blocks = incoming_blocks.as_mut_ptr();
 
-            current.set_position(end_block);
+            builder.set_position(end_block);
 
             let branch_value_type = to_llvm_type(ctx.llvm_ctx, &expr.type_kind);
-            let phi_node          = llvm::core::LLVMBuildPhi(current.builder, branch_value_type, binary_cstr!("_branchphi"));
+            let phi_node          = llvm::core::LLVMBuildPhi(builder.builder, branch_value_type, binary_cstr!("_branchphi"));
 
             llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
 
             phi_node
         },
 
-        ast::Expr::Binary { left, right, operator } => binary_expr(ctx, current, left, right, operator),
+        ast::Expr::Binary { left, right, operator } => binary_expr(ctx, builder, left, right, operator),
 
         ast::Expr::Literal { value } => {
             match expr.type_kind {
@@ -595,11 +595,11 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
         }
 
         ast::Expr::Assignment { name, value } => {
-            let value_expr        = match_expression(ctx, current, value);
+            let value_expr        = match_expression(ctx, builder, value);
             let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
 
-            let value = deref_if_primitive(current.builder, value_expr, to_llvm_type(ctx.llvm_ctx, &value.type_kind));
-            llvm::core::LLVMBuildStore(current.builder, value, *variable_ref)
+            let value = deref_if_primitive(builder.builder, value_expr, to_llvm_type(ctx.llvm_ctx, &value.type_kind));
+            llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
         },
 
         ast::Expr::Logical => todo!(),
@@ -630,7 +630,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                         let source_type      = to_llvm_type(ctx.llvm_ctx, type_kind);
                         let destination_type = function.param_types[i];
 
-                        prime_argument(current.builder, *var, source_type, destination_type)
+                        prime_argument(builder.builder, *var, source_type, destination_type)
                     })
                     .collect()
             } else {
@@ -643,11 +643,11 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 .iter()
                 .enumerate()
                 .map(|(i, a)| {
-                    let arg              = match_expression(ctx, current, a);
+                    let arg              = match_expression(ctx, builder, a);
                     let source_type      = to_llvm_type(ctx.llvm_ctx, &a.type_kind);
                     let destination_type = function.param_types[i];
 
-                    prime_argument(current.builder, arg, source_type, destination_type)
+                    prime_argument(builder.builder, arg, source_type, destination_type)
                 })
                 .collect();
 
@@ -659,7 +659,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
             let result = llvm::core::LLVMBuildCall2
             (
-                current.builder,
+                builder.builder,
                 function.function_type,
                 function.function,
                 args.as_mut_ptr(),
@@ -667,13 +667,13 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
                 format!("{}_call", function.name).as_ptr() as *const _,
             );
 
-            deref_if_primitive(current.builder, result, function.function_type)
+            deref_if_primitive(builder.builder, result, function.function_type)
         },
 
         ast::Expr::Function { params, body, .. }
             => {
                 let name = ctx.name.take().unwrap(/*TODO: remove unwrap*/);
-                closure(ctx, current, &name, params.to_vec(), body.to_vec())
+                closure(ctx, builder, &name, params.to_vec(), body.to_vec())
             }
     }
 }
@@ -681,14 +681,14 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 pub unsafe fn binary_expr
 (
     ctx: &mut Context,
-    current: &mut Current,
+    builder: &mut Builder,
     left: &ast::ExprInfo,
     right: &ast::ExprInfo,
     operator: &scan::Token,
 ) -> llvm::prelude::LLVMValueRef
 {
-    let lhs = match_expression(ctx, current, left);
-    let rhs = match_expression(ctx, current, right);
+    let lhs = match_expression(ctx, builder, left);
+    let rhs = match_expression(ctx, builder, right);
 
     let expected_operand_type = to_llvm_type(ctx.llvm_ctx, &left.type_kind);
 
@@ -732,49 +732,49 @@ pub unsafe fn binary_expr
             _ => panic!()
         }
     } else {
-        let lhs = deref_if_ptr(current.builder, lhs, expected_operand_type);
-        let rhs = deref_if_ptr(current.builder, rhs, expected_operand_type);
+        let lhs = deref_if_ptr(builder.builder, lhs, expected_operand_type);
+        let rhs = deref_if_ptr(builder.builder, rhs, expected_operand_type);
 
         match operator.kind {
             scan::TokenKind::Plus => llvm
                 ::core
-                ::LLVMBuildAdd(current.builder, lhs, rhs, binary_cstr!("_add_result")),
+                ::LLVMBuildAdd(builder.builder, lhs, rhs, binary_cstr!("_add_result")),
 
             scan::TokenKind::Minus => llvm
                 ::core
-                ::LLVMBuildSub(current.builder, lhs, rhs, binary_cstr!("_sub_result")),
+                ::LLVMBuildSub(builder.builder, lhs, rhs, binary_cstr!("_sub_result")),
 
             scan::TokenKind::Star => llvm
                 ::core
-                ::LLVMBuildMul(current.builder, lhs, rhs, binary_cstr!("_mul_result")),
+                ::LLVMBuildMul(builder.builder, lhs, rhs, binary_cstr!("_mul_result")),
 
             scan::TokenKind::Slash => llvm
                 ::core
-                ::LLVMBuildSDiv(current.builder, lhs, rhs, binary_cstr!("_sub_result")),
+                ::LLVMBuildSDiv(builder.builder, lhs, rhs, binary_cstr!("_sub_result")),
 
             scan::TokenKind::LeftAngle => llvm
                 ::core
-                ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
 
             scan::TokenKind::RightAngle => llvm
                 ::core
-                ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp")),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp")),
 
             scan::TokenKind::EqualEqual => llvm
                 ::core
-                ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp")),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp")),
 
             scan::TokenKind::BangEqual => llvm
                 ::core
-                ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_neqcomp")),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_neqcomp")),
 
             scan::TokenKind::GreaterEqual => llvm
                 ::core
-                ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs, binary_cstr!("_gecomp")),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs, binary_cstr!("_gecomp")),
 
             scan::TokenKind::LessEqual => llvm
                 ::core
-                ::LLVMBuildICmp(current.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp")),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp")),
 
             _ => panic!()
         }
@@ -784,7 +784,7 @@ pub unsafe fn binary_expr
 unsafe fn closure
 (
     ctx: &mut Context,
-    current: &mut Current,
+    builder: &mut Builder,
     name: &str,
     params: Vec<scan::Token>,
     body: Vec<Box<ast::Stmt>>,
@@ -821,11 +821,11 @@ unsafe fn closure
         "_entry\0".as_ptr() as * const _
     );
 
-    let builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
-    llvm::core::LLVMPositionBuilderAtEnd(builder, entry_block);
+    let new_builder = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
+    llvm::core::LLVMPositionBuilderAtEnd(new_builder, entry_block);
 
     ctx.function = Some(function_call.clone());
-    let mut function_current = Current::new(ctx.llvm_ctx, current.module, builder);
+    let mut function_builder = Builder::new(ctx.llvm_ctx, builder.module, new_builder);
 
     for (i, param) in closed_params.iter().enumerate() {
         let param_ref = llvm::core::LLVMGetParam(function_ref, i as u32);
@@ -836,18 +836,18 @@ unsafe fn closure
 
     if !body.is_empty() {
         for stmt in &body[..body.len()-1] {
-            match_statement(ctx, &mut function_current, stmt);
+            match_statement(ctx, &mut function_builder, stmt);
         }
     }
 
     let result = match body.last().map(|s| s.as_ref()) {
-        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_current, expr),
+        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_builder, expr),
         _                              => llvm::core::LLVMConstNull(return_type),
     };
 
 
-    let result = deref_if_primitive(function_current.builder, result, return_type);
-    llvm::core::LLVMBuildRet(function_current.builder, result);
+    let result = deref_if_primitive(function_builder.builder, result, return_type);
+    llvm::core::LLVMBuildRet(function_builder.builder, result);
 
     ctx.module_scopes.end_scope();
 
