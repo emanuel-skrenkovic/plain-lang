@@ -336,13 +336,8 @@ pub unsafe fn match_statement
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
-            let type_info = ctx
-                .type_info
-                .get_from_scope(ctx.current_scope(), &name.value)
-                .expect("Expect var type information.");
-
             let variable_name = name.value.as_ptr();
-            let type_ref      = to_llvm_type(ctx.llvm_ctx, type_info);
+            let type_ref      = to_llvm_type(ctx.llvm_ctx, &initializer.type_kind);
 
             let variable = llvm
                 ::core
@@ -358,12 +353,7 @@ pub unsafe fn match_statement
         },
 
         ast::Stmt::Const { name, initializer, .. } => {
-            let type_info = ctx
-                .type_info
-                .get_from_scope(ctx.current_scope(), &name.value)
-                .expect("Expect const type information.");
-
-            let type_ref      = to_llvm_type(ctx.llvm_ctx, type_info);
+            let type_ref      = to_llvm_type(ctx.llvm_ctx, &initializer.type_kind);
             let variable_name = ffi::CString::new(name.value.clone()).unwrap();
 
             ctx.name = Some(name.value.clone());
