@@ -114,7 +114,6 @@ pub struct Current
 
     pub builder: llvm::prelude::LLVMBuilderRef,
 
-    pub name: Option<String>,
     pub basic_block: Option<llvm::prelude::LLVMBasicBlockRef>,
 }
 
@@ -131,7 +130,6 @@ impl Current
             ctx: llvm_ctx,
             builder,
             module,
-            name: None,
             basic_block: None,
         }
     }
@@ -191,6 +189,7 @@ pub struct Context
     pub type_info: scope::Module<types::TypeKind>,
 
     pub function: Option<FunctionDefinition>,
+    pub name: Option<String>,
 }
 
 impl Context
@@ -212,6 +211,7 @@ impl Context
             symbol_table,
             type_info,
             function: None,
+            name: None,
         }
     }
 
@@ -351,7 +351,7 @@ pub unsafe fn match_statement
                 ::core
                 ::LLVMBuildAlloca(current.builder, type_ref, variable_name as *const _);
 
-            current.name = Some(name.value.clone());
+            ctx.name = Some(name.value.clone());
 
             let value = match_expression(ctx, current, initializer);
             llvm::core::LLVMBuildStore(current.builder, value, variable);
@@ -369,7 +369,7 @@ pub unsafe fn match_statement
             let type_ref      = to_llvm_type(ctx.llvm_ctx, type_info);
             let variable_name = ffi::CString::new(name.value.clone()).unwrap();
 
-            current.name = Some(name.value.clone());
+            ctx.name = Some(name.value.clone());
 
             // Global scoped variables work differently.
             let variable = if ctx.is_global() {
@@ -672,7 +672,7 @@ pub unsafe fn match_expression(ctx: &mut Context, current: &mut Current, expr: &
 
         ast::Expr::Function { params, body, .. }
             => {
-                let name = current.name.take().unwrap(/*TODO: remove unwrap*/);
+                let name = ctx.name.take().unwrap(/*TODO: remove unwrap*/);
                 closure(ctx, current, &name, params.to_vec(), body.to_vec())
             }
     }
