@@ -1,40 +1,15 @@
-Test :: struct 
-{
-	value: Values;
-}
-
 Values :: struct
 {
-    index: i32;
+    a: i32;
 }
 
 main :: (): i32
 {
-    i :: 15;
+	s := Values {
+		a: 69,
+	};
 
-    t :: (): i32 {
-        i + 33
-    };
+	printf("%d", s.a);
 
-    printf("%d", t());
-
-    message :: " HELLO WORDL ";
-    printf("%s", message);
-    printf("%d", add());
     0
-}
-
-sub :: (i: i32): i32
-{
-    result := 0;
-    for j := 0; j < i; j = j + 1 {
-        result = result + j;
-    }
-
-    result
-}
-
-add :: (): i32
-{
-    1 + 2 - sub(13)
 }

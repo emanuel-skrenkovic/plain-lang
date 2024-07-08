@@ -145,6 +145,12 @@ pub enum Expr
         value: Box<ExprInfo>,
     },
 
+    MemberAccess
+    {
+        instance_name: scan::Token,
+        member_name: scan::Token,
+    },
+
     Logical,
 
     Call
@@ -160,6 +166,13 @@ pub enum Expr
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
+
+    Struct 
+    {
+        name: scan::Token,
+        members: Vec<scan::Token>,
+        values: Vec<Box<ExprInfo>>,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -327,6 +340,8 @@ impl GlobalsHoistingTransformer
                     deps.append(&mut nested_deps);
                 }
 
+                Stmt::Var { initializer, .. } => Self::match_expression(&initializer.value, deps),
+
                 Stmt::Const { initializer, .. } => Self::match_expression(&initializer.value, deps),
 
                 Stmt::Expr { expr } => Self::match_expression(&expr.value, deps),
@@ -358,7 +373,6 @@ impl GlobalsHoistingTransformer
             // TODO: later
             Expr::Variable { name, .. } => deps.push(name.value.clone()),
 
-
             Expr::Assignment { value, .. } => Self::match_expression(&value.value, deps),
 
             Expr::Call { name, arguments } => {
@@ -369,6 +383,13 @@ impl GlobalsHoistingTransformer
             },
 
             Expr::Function { body, .. } => Self::match_statements(body, deps),
+
+            Expr::Struct { name, values, .. } => {
+                deps.push(name.value.clone());
+                for value in values {
+                    Self::match_expression(&value.value, deps)
+                }
+            }
 
             _ => ()
         }

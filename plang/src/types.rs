@@ -25,6 +25,12 @@ pub enum TypeKind
         return_kind: Box<TypeKind>,
     },
 
+    Struct {
+        name: String,
+        field_names: Vec<String>,
+        field_types: Vec<Box<TypeKind>>,
+    },
+
     Reference {
         underlying: Box<TypeKind>,
     },
@@ -92,6 +98,24 @@ pub fn infer_global_types(program: &mut [ast::Node], type_info: &mut scope::Modu
                 type_info.add_to_current(&name.value, kind);
             }
 
+            ast::Stmt::Struct { name, members, member_types } => {
+                let field_types: Vec<Box<TypeKind>> = member_types
+                    .iter()
+                    .map(|t| type_from_identifier(t))
+                    .map(Box::new)
+                    .collect();
+
+                let field_names = members.iter().map(|m| m.value.clone()).collect();
+
+                let kind = TypeKind::Struct {
+                    name: name.value.clone(),
+                    field_names,
+                    field_types,
+                };
+
+                type_info.add_to_current(&name.value, kind);
+            }
+
             _ => ()
         }
     }
@@ -142,6 +166,24 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
 
             type_info.add_to_current(&name.value, kind);
         },
+
+        ast::Stmt::Struct { name, members, member_types } => {
+            let field_types: Vec<Box<TypeKind>> = member_types
+                .iter()
+                .map(|t| type_from_identifier(t))
+                .map(Box::new)
+                .collect();
+
+            let field_names = members.iter().map(|m| m.value.clone()).collect();
+
+            let kind = TypeKind::Struct {
+                name: name.value.clone(),
+                field_names,
+                field_types,
+            };
+
+            type_info.add_to_current(&name.value, kind);
+        }
 
         ast::Stmt::Declaration { initializer, .. } => {
             initializer.type_kind = match_expression(type_info, &mut initializer.value);
@@ -292,6 +334,20 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             TypeKind::Unit
         },
 
+        ast::Expr::MemberAccess { instance_name, member_name } => {
+            let instance_type = type_info.get(&instance_name.value).unwrap();
+
+            let TypeKind::Struct { field_names, field_types, .. } = instance_type else {
+                panic!("TODO");
+            };
+
+            let index = field_names.iter().position(|n| n == &member_name.value);
+            let Some(index) = index else {
+                panic!();
+            };
+
+            *field_types[index].clone()
+        }
         ast::Expr::Logical => todo!(),
 
         ast::Expr::Call { name, arguments } => {
@@ -329,6 +385,14 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
             TypeKind::Function { parameter_kinds, return_kind: Box::new(return_kind) }
         },
+
+        ast::Expr::Struct { name, values, .. } => {
+            for value in values.iter_mut() {
+                let kind = match_expression(type_info, &mut value.value);
+                value.type_kind = kind;
+            }
+            type_info.get(&name.value).unwrap().clone()
+        }
     }
 }
 

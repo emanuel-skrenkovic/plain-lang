@@ -52,6 +52,20 @@ pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind
             llvm::core::LLVMPointerType(function_type, 0)
         }
         types::TypeKind::Closure { .. }   => todo!(),
+        types::TypeKind::Struct { .. }    => {
+            // TODO: I think I'll need to simply grab the declaration/type pointer
+            // here.
+
+            /*
+            let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
+                .iter()
+                .map(|t| to_llvm_type(context_ref, t))
+                .collect();
+
+            llvm::core::LLVMStructTypeInContext(context_ref, element_types.as_mut_ptr(), element_types.len() as u32, 0)
+            */
+            std::ptr::null_mut()
+        }
         types::TypeKind::Reference { .. } => todo!(),
     }
 }
@@ -182,6 +196,9 @@ pub struct Context
     pub module_scopes: scope::Module<(llvm::prelude::LLVMValueRef, llvm::prelude::LLVMTypeRef)>,
     pub declarations: HashMap<String, (usize, FunctionDefinition)>,
 
+    // TODO: this goes first!!!!!
+    pub declarations2: HashMap<String, llvm::prelude::LLVMTypeRef>,
+
     pub symbol_table: semantic_analysis::SymbolTable,
     pub type_info: scope::Module<types::TypeKind>,
 
@@ -205,6 +222,7 @@ impl Context
             program,
             module_scopes: scope::Module::new(),
             declarations: HashMap::new(),
+            declarations2: HashMap::new(),
             symbol_table,
             type_info,
             function: None,
@@ -289,6 +307,26 @@ pub unsafe fn match_statement
 )
 {
     match stmt {
+        ast::Stmt::Struct { name, members, .. } => {
+            // TODO: this needs to happen in 'forward_declare' and stored in declarations.;
+            let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, name.value.as_ptr() as * const _);
+
+            let struct_type_kind = ctx.type_info.get_from_scope(ctx.current_scope(), &name.value).unwrap();
+            let types::TypeKind::Struct { field_types, .. } = struct_type_kind else {
+                panic!("Expect 'struct' type.");
+            };
+
+            let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
+                .iter()
+                .map(|t| to_llvm_type(ctx.llvm_ctx, &t))
+                .collect();
+
+            llvm::core::LLVMStructSetBody(struct_type, element_types.as_mut_ptr(), members.len() as u32, 0);
+
+            // TODO: I need a place to store the thingy somewhere.
+            ctx.declarations2.insert(name.value.clone(), struct_type);
+        }
+
         ast::Stmt::Function { name, params, body, .. } => {
             ctx.module_scopes.begin_scope();
 
@@ -338,6 +376,15 @@ pub unsafe fn match_statement
         ast::Stmt::Var { name, initializer, .. } => {
             let variable_name = name.value.as_ptr();
             let type_ref      = to_llvm_type(ctx.llvm_ctx, &initializer.type_kind);
+            let type_ref = if type_ref.is_null() { 
+                let types::TypeKind::Struct{ name: ref struct_type_name, .. } = initializer.type_kind else {
+                    panic!();
+                };
+                // #horribleways
+                *ctx.declarations2.get(struct_type_name).unwrap() 
+            } else { 
+                type_ref 
+            };
 
             let variable = llvm
                 ::core
@@ -589,6 +636,49 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
         },
 
+        ast::Expr::MemberAccess { instance_name, member_name } => {
+            let instance_type = ctx.type_info.get_in_scope(ctx.current_scope(), &instance_name.value);
+            let Some(types::TypeKind::Struct { field_names, .. }) = instance_type else {
+                panic!("Expect 'struct' instance type.");
+            };
+
+            let member_index = field_names
+                .iter()
+                .position(|f| f == &member_name.value)
+                .unwrap();
+            // First index in GEP instruction is of the struct itself.
+            let member_index = member_index + 1; 
+            
+            let mut indices: Vec<llvm::prelude::LLVMValueRef> = (0..field_names.len() + 1)
+                .map(|i| {
+                    let t = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+                    llvm::core::LLVMConstInt(t, i as u64, 0)
+                })
+                .collect();
+
+            let (struct_ptr, struct_type) = *ctx
+                .module_scopes
+                .get_from_scope(ctx.current_scope(), &instance_name.value)
+                .unwrap(); 
+
+            let struct_ptr = deref_if_ptr(builder.builder, struct_ptr, struct_type);
+
+            println!("MEMBER INDEX {:?}", member_index);
+
+            let elem_type = to_llvm_type(ctx.llvm_ctx, &expr.type_kind);
+            let member_ref = llvm::core::LLVMBuildInBoundsGEP2
+            (
+                builder.builder, 
+                elem_type, 
+                struct_ptr,// struct_ptr.as_mut().unwrap(), 
+                indices.as_mut_ptr(), 
+                member_index as u32, 
+                member_name.value.clone().as_ptr() as * const _,
+            );
+
+            deref_if_primitive(builder.builder, member_ref, elem_type)
+        }
+
         ast::Expr::Logical => todo!(),
 
         ast::Expr::Call { name, arguments } => {
@@ -662,6 +752,57 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 let name = ctx.name.take().unwrap(/*TODO: remove unwrap*/);
                 closure(ctx, builder, &name, params.to_vec(), body.to_vec())
             }
+
+        ast::Expr::Struct { name, members, values } => {
+            let type_kind = ctx
+                .type_info
+                .get_from_scope(ctx.current_scope(), &name.value)
+                .unwrap(/*TODO: remove unwrap*/);
+
+            let types::TypeKind::Struct { name: struct_type_name, .. } = type_kind else {
+                panic!();
+            };
+            // let llvm_type = to_llvm_type(ctx.llvm_ctx, type_kind);
+            let llvm_type = *ctx.declarations2.get(struct_type_name).unwrap();
+
+            // TODO: actual alloc size.
+            let struct_pointer = llvm::core::LLVMBuildAlloca
+            (
+                builder.builder, 
+                llvm_type.as_mut().unwrap(), 
+                "test".as_ptr() as * const _
+            );
+
+            let mut indices: Vec<llvm::prelude::LLVMValueRef> = (0..members.len() + 1)
+                .map(|i| {
+                    let t = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+                    llvm::core::LLVMConstInt(t, i as u64, 0)
+                }).collect();
+
+            // Struct fields initialisation.
+            for i in 0..members.len() {
+                let member_name        = &members[i];
+                let member_initializer = values[i].as_ref();
+                
+                let value = match_expression(ctx, builder, member_initializer);
+
+                let elem_type = to_llvm_type(ctx.llvm_ctx, &member_initializer.type_kind);
+                let member_ref = llvm::core::LLVMBuildInBoundsGEP2
+                (
+                    builder.builder, 
+                    elem_type, 
+                    struct_pointer,
+                    indices.as_mut_ptr(), 
+                    i as u32 + 1,
+                    member_name.value.clone().as_ptr() as * const _,
+                );
+
+                let value = deref_if_primitive(builder.builder, value, elem_type);
+                llvm::core::LLVMBuildStore(builder.builder, value, member_ref);
+            }
+            
+            struct_pointer
+        }
     }
 }
 
