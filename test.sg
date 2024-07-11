@@ -1,15 +1,28 @@
 Values :: struct
 {
     a: i32;
+	b: i32;
+	c: i32;
+}
+
+sum :: (v: Values): i32
+{
+	v.a + v.b + v.c
 }
 
 main :: (): i32
 {
-	s := Values {
-		a: 69,
+	s := Values { 
+		a: 10, 
+		b: 12, 
+		c: 33,
 	};
+	s.a = 1000;
+	
+	result := sum(s);
 
-	printf("%d", s.a);
+	printf("%d", result);
 
     0
 }
+

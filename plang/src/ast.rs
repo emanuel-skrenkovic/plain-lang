@@ -244,8 +244,11 @@ impl GlobalsHoistingTransformer
                     degrees.push(0);
                 }
 
-                Node::Stmt(Stmt::Function { name, body, .. }) => {
+                Node::Stmt(Stmt::Function { name, body, param_types, .. }) => {
                     let mut deps = Vec::with_capacity(1024);
+                    
+                    deps.append(&mut param_types.iter().map(|t| t.value.clone()).collect());
+
                     Self::match_statements(body, &mut deps);
 
                     declarations.push(name.value.clone());
@@ -273,8 +276,9 @@ impl GlobalsHoistingTransformer
         }
     }
 
-    // TODO: detect cycles
     // Topological sort over the dependency graph.
+    // There will be "unsolvable" orders because of which we need
+    // to forward declare global scope stuff.
     fn topological_sort(graph: &mut DependencyGraph) -> Vec<String>
     {
         let count = graph.nodes.len();
@@ -334,9 +338,12 @@ impl GlobalsHoistingTransformer
                     deps.append(&mut type_names);
                 }
 
-                Stmt::Function { body, .. } => {
+                Stmt::Function { body, param_types, .. } => {
                     let mut nested_deps = Vec::with_capacity(1024);
+
+                    nested_deps.append(&mut param_types.iter().map(|t| t.value.clone()).collect());
                     Self::match_statements(body, &mut nested_deps);
+
                     deps.append(&mut nested_deps);
                 }
 
@@ -403,8 +410,12 @@ impl Transformer for GlobalsHoistingTransformer
         // First we build the dependency graph.
         let mut graph = Self::build_dependency_graph(&nodes);
 
+        println!("{:#?}", graph);
+
         // Then we use topological sort to find the correct declaration order.
         let order = Self::topological_sort(&mut graph);
+
+        println!("{:#?}", order);
 
         // After we get the order we can sort the root AST nodes accordingly.
         let mut nodes = nodes.to_owned();

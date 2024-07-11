@@ -345,7 +345,6 @@ impl Parser
             },
             _ => {
                 if self.is_at_end() { return }
-
                 panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
             }
         }

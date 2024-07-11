@@ -24,23 +24,23 @@ pub struct FunctionDefinition
     pub closure: bool,
 }
 
-pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
+pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
 {
     match type_kind {
         types::TypeKind::Unknown          => todo!(),
-        types::TypeKind::Unit             => llvm::core::LLVMVoidTypeInContext(context_ref),
-        types::TypeKind::Bool             => llvm::core::LLVMInt8TypeInContext(context_ref),
-        types::TypeKind::I32              => llvm::core::LLVMInt32TypeInContext(context_ref),
+        types::TypeKind::Unit             => llvm::core::LLVMVoidTypeInContext(ctx.llvm_ctx),
+        types::TypeKind::Bool             => llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx),
+        types::TypeKind::I32              => llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
         types::TypeKind::String { len }   => {
-            let char_type = llvm::core::LLVMInt8TypeInContext(context_ref);
+            let char_type = llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx);
             llvm::core::LLVMArrayType2(char_type, *len as u64 + 1)
         }
         types::TypeKind::Function { parameter_kinds, return_kind }  => {
-            let return_type = to_llvm_type(context_ref, return_kind);
+            let return_type = to_llvm_type(ctx, return_kind);
 
             let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
                 .iter()
-                .map(|arg| to_llvm_type(context_ref, arg))
+                .map(|arg| to_llvm_type(ctx, arg))
                 .collect();
 
             let arity = param_types.len();
@@ -51,32 +51,13 @@ pub unsafe fn to_llvm_type(context_ref: llvm::prelude::LLVMContextRef, type_kind
 
             llvm::core::LLVMPointerType(function_type, 0)
         }
-        types::TypeKind::Closure { .. }   => todo!(),
-        types::TypeKind::Struct { .. }    => {
-            // TODO: I think I'll need to simply grab the declaration/type pointer
-            // here.
-
-            /*
-            let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
-                .iter()
-                .map(|t| to_llvm_type(context_ref, t))
-                .collect();
-
-            llvm::core::LLVMStructTypeInContext(context_ref, element_types.as_mut_ptr(), element_types.len() as u32, 0)
-            */
-            std::ptr::null_mut()
+        types::TypeKind::Closure { .. } => todo!(),
+        types::TypeKind::Struct { name, .. }  => {
+            let struct_type = *ctx.declarations2.get(name).unwrap();
+            llvm::core::LLVMPointerType(struct_type, 0)
         }
         types::TypeKind::Reference { .. } => todo!(),
     }
-}
-
-pub struct Scope
-{
-    pub index: usize,
-    pub path: Vec<usize>,
-
-    pub variables: HashMap<String, llvm::prelude::LLVMValueRef>,
-    pub variable_types: HashMap<String, llvm::prelude::LLVMTypeRef>,
 }
 
 #[derive(Debug)]
@@ -150,6 +131,7 @@ impl Builder
     pub unsafe fn build_function
     (
         &self,
+        ctx: &Context,
         name: String,
         argument_type_kinds: &[&types::TypeKind],
         return_type_kind: &types::TypeKind,
@@ -157,21 +139,21 @@ impl Builder
         closure: bool,
     ) -> FunctionDefinition
     {
-        let return_type = to_llvm_type(self.ctx, return_type_kind);
-
-        let arity = argument_type_kinds.len();
+        let return_type = to_llvm_type(ctx, return_type_kind);
+        let arity       = argument_type_kinds.len();
 
         let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_kinds
             .iter()
-            .map(|arg| to_llvm_type(self.ctx, arg))
+            .map(|arg| to_llvm_type(ctx, arg))
             .collect();
 
         let function_type = llvm
             ::core
             ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
+
         let function = llvm
             ::core
-            ::LLVMAddFunction(self.module, name.as_ptr() as *const _, function_type);
+            ::LLVMAddFunction(self.module, name.as_ptr() as * const _, function_type);
 
         FunctionDefinition {
             name,
@@ -183,6 +165,35 @@ impl Builder
             code,
             closure,
         }
+    }
+
+    pub unsafe fn struct_member_access
+    (
+        &self, 
+        ctx: &Context, 
+        struct_pointer: llvm::prelude::LLVMValueRef,
+        index: usize,
+        member_type: llvm::prelude::LLVMTypeRef,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        let member_index = index + 1;
+
+        let index_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
+        let indices = 
+        [
+            llvm::core::LLVMConstInt(index_type, member_index as u64, 0)
+        ].as_mut_ptr();
+
+        let member_ref_name = ffi::CString::new("_member_access").unwrap();
+        llvm::core::LLVMBuildInBoundsGEP2
+        (
+            self.builder, 
+            member_type, 
+            struct_pointer,
+            indices,
+            1,
+            member_ref_name.as_ptr(),
+        )
     }
 }
 
@@ -265,9 +276,6 @@ impl Drop for Context
     }
 }
 
-// TODO: there is a problem with the different order of compilation.
-// Here, we compile the main function first, in other places, we evaluate in
-// order of declaration.
 pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
 {
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
@@ -318,7 +326,7 @@ pub unsafe fn match_statement
 
             let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
                 .iter()
-                .map(|t| to_llvm_type(ctx.llvm_ctx, &t))
+                .map(|t| to_llvm_type(ctx, t))
                 .collect();
 
             llvm::core::LLVMStructSetBody(struct_type, element_types.as_mut_ptr(), members.len() as u32, 0);
@@ -328,6 +336,34 @@ pub unsafe fn match_statement
         }
 
         ast::Stmt::Function { name, params, body, .. } => {
+            /*
+            let Some(kind) = &ctx.type_info.get_in_scope(ctx.current_scope(), &name.value) else {
+                panic!("Expected type kind.");
+            };
+
+            let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
+                panic!("Expected function type kind.");
+            };
+
+            let parameter_types: Vec<&types::TypeKind> = parameter_kinds
+                .iter()
+                .map(|p| p.as_ref())
+                .collect();
+
+            let function_call = builder.build_function
+            (
+                ctx,
+                name.value.clone(),
+
+                &parameter_types,
+
+                return_kind,
+                body.iter().map(|s| *s.clone()).collect(),
+                false,
+            );
+
+            ctx.declarations.insert(name.value.clone(), (ctx.current_scope(), function_call));
+            */
             ctx.module_scopes.begin_scope();
 
             let (_, function_call) = ctx.declarations.get(&name.value).unwrap();
@@ -375,7 +411,7 @@ pub unsafe fn match_statement
 
         ast::Stmt::Var { name, initializer, .. } => {
             let variable_name = name.value.as_ptr();
-            let type_ref      = to_llvm_type(ctx.llvm_ctx, &initializer.type_kind);
+            let type_ref      = to_llvm_type(ctx, &initializer.type_kind);
             let type_ref = if type_ref.is_null() { 
                 let types::TypeKind::Struct{ name: ref struct_type_name, .. } = initializer.type_kind else {
                     panic!();
@@ -400,7 +436,7 @@ pub unsafe fn match_statement
         },
 
         ast::Stmt::Const { name, initializer, .. } => {
-            let type_ref      = to_llvm_type(ctx.llvm_ctx, &initializer.type_kind);
+            let type_ref      = to_llvm_type(ctx, &initializer.type_kind);
             let variable_name = ffi::CString::new(name.value.clone()).unwrap();
 
             ctx.name = Some(name.value.clone());
@@ -581,7 +617,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
             builder.set_position(end_block);
 
-            let branch_value_type = to_llvm_type(ctx.llvm_ctx, &expr.type_kind);
+            let branch_value_type = to_llvm_type(ctx, &expr.type_kind);
             let phi_node          = llvm::core::LLVMBuildPhi(builder.builder, branch_value_type, binary_cstr!("_branchphi"));
 
             llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
@@ -632,7 +668,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             let value_expr        = match_expression(ctx, builder, value);
             let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
 
-            let value = deref_if_primitive(builder.builder, value_expr, to_llvm_type(ctx.llvm_ctx, &value.type_kind));
+            let value = deref_if_primitive(builder.builder, value_expr, to_llvm_type(ctx, &value.type_kind));
             llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
         },
 
@@ -646,35 +682,16 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .iter()
                 .position(|f| f == &member_name.value)
                 .unwrap();
-            // First index in GEP instruction is of the struct itself.
-            let member_index = member_index + 1; 
-            
-            let mut indices: Vec<llvm::prelude::LLVMValueRef> = (0..field_names.len() + 1)
-                .map(|i| {
-                    let t = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
-                    llvm::core::LLVMConstInt(t, i as u64, 0)
-                })
-                .collect();
 
-            let (struct_ptr, struct_type) = *ctx
+            let (struct_ptr, struct_type_ref) = *ctx
                 .module_scopes
                 .get_from_scope(ctx.current_scope(), &instance_name.value)
-                .unwrap(); 
+                .unwrap();
 
-            let struct_ptr = deref_if_ptr(builder.builder, struct_ptr, struct_type);
+            let struct_ptr = deref_if_ptr(builder.builder, struct_ptr, struct_type_ref);
 
-            println!("MEMBER INDEX {:?}", member_index);
-
-            let elem_type = to_llvm_type(ctx.llvm_ctx, &expr.type_kind);
-            let member_ref = llvm::core::LLVMBuildInBoundsGEP2
-            (
-                builder.builder, 
-                elem_type, 
-                struct_ptr,// struct_ptr.as_mut().unwrap(), 
-                indices.as_mut_ptr(), 
-                member_index as u32, 
-                member_name.value.clone().as_ptr() as * const _,
-            );
+            let elem_type  = to_llvm_type(ctx, &expr.type_kind);
+            let member_ref = builder.struct_member_access(ctx, struct_ptr, member_index, elem_type);
 
             deref_if_primitive(builder.builder, member_ref, elem_type)
         }
@@ -704,7 +721,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                             .type_info
                             .get_from_scope(ctx.current_scope(), name)
                             .expect("Expect argument type kind.");
-                        let source_type      = to_llvm_type(ctx.llvm_ctx, type_kind);
+                        let source_type      = to_llvm_type(ctx, type_kind);
                         let destination_type = function.param_types[i];
 
                         prime_argument(builder.builder, *var, source_type, destination_type)
@@ -721,7 +738,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .enumerate()
                 .map(|(i, a)| {
                     let arg              = match_expression(ctx, builder, a);
-                    let source_type      = to_llvm_type(ctx.llvm_ctx, &a.type_kind);
+                    let source_type      = to_llvm_type(ctx, &a.type_kind);
                     let destination_type = function.param_types[i];
 
                     prime_argument(builder.builder, arg, source_type, destination_type)
@@ -741,7 +758,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 function.function,
                 args.as_mut_ptr(),
                 function.arity as u32,
-                format!("{}_call", function.name).as_ptr() as *const _,
+                binary_cstr!("_call"),
             );
 
             deref_if_primitive(builder.builder, result, function.function_type)
@@ -753,7 +770,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 closure(ctx, builder, &name, params.to_vec(), body.to_vec())
             }
 
-        ast::Expr::Struct { name, members, values } => {
+        ast::Expr::Struct { name, values, .. } => {
             let type_kind = ctx
                 .type_info
                 .get_from_scope(ctx.current_scope(), &name.value)
@@ -762,42 +779,25 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             let types::TypeKind::Struct { name: struct_type_name, .. } = type_kind else {
                 panic!();
             };
-            // let llvm_type = to_llvm_type(ctx.llvm_ctx, type_kind);
             let llvm_type = *ctx.declarations2.get(struct_type_name).unwrap();
 
             // TODO: actual alloc size.
+            let struct_alloc_name = ffi::CString::new("_struct_alloc").unwrap();
             let struct_pointer = llvm::core::LLVMBuildAlloca
             (
                 builder.builder, 
                 llvm_type.as_mut().unwrap(), 
-                "test".as_ptr() as * const _
+                struct_alloc_name.as_ptr(),
             );
 
-            let mut indices: Vec<llvm::prelude::LLVMValueRef> = (0..members.len() + 1)
-                .map(|i| {
-                    let t = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
-                    llvm::core::LLVMConstInt(t, i as u64, 0)
-                }).collect();
-
             // Struct fields initialisation.
-            for i in 0..members.len() {
-                let member_name        = &members[i];
-                let member_initializer = values[i].as_ref();
-                
+            for (i, member_initializer) in values.iter().enumerate() {
+                let initializer_type = to_llvm_type(ctx, &member_initializer.type_kind);
+                let member_ref       = builder.struct_member_access(ctx, struct_pointer, i, initializer_type);
+
                 let value = match_expression(ctx, builder, member_initializer);
+                let value = deref_if_primitive(builder.builder, value, initializer_type);
 
-                let elem_type = to_llvm_type(ctx.llvm_ctx, &member_initializer.type_kind);
-                let member_ref = llvm::core::LLVMBuildInBoundsGEP2
-                (
-                    builder.builder, 
-                    elem_type, 
-                    struct_pointer,
-                    indices.as_mut_ptr(), 
-                    i as u32 + 1,
-                    member_name.value.clone().as_ptr() as * const _,
-                );
-
-                let value = deref_if_primitive(builder.builder, value, elem_type);
                 llvm::core::LLVMBuildStore(builder.builder, value, member_ref);
             }
             
@@ -818,7 +818,7 @@ pub unsafe fn binary_expr
     let lhs = match_expression(ctx, builder, left);
     let rhs = match_expression(ctx, builder, right);
 
-    let expected_operand_type = to_llvm_type(ctx.llvm_ctx, &left.type_kind);
+    let expected_operand_type = to_llvm_type(ctx, &left.type_kind);
 
     if ctx.is_global() {
         match operator.kind {
@@ -956,8 +956,9 @@ unsafe fn closure
     let mut function_builder = Builder::new(ctx.llvm_ctx, builder.module, new_builder);
 
     for (i, param) in closed_params.iter().enumerate() {
-        let param_ref = llvm::core::LLVMGetParam(function_ref, i as u32);
-        llvm::core::LLVMSetValueName2(param_ref, param.as_ptr() as * const _, param.len());
+        let param_ref     = llvm::core::LLVMGetParam(function_ref, i as u32);
+        let param_op_name = ffi::CString::new(param.clone()).unwrap();
+        llvm::core::LLVMSetValueName2(param_ref, param_op_name.as_ptr(), param.len());
 
         ctx.module_scopes.add_to_current(param, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
     }
@@ -1008,6 +1009,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
                     let function_call = builder.build_function
                     (
+                        ctx,
                         name.to_string(),
 
                         &parameter_types,
@@ -1054,6 +1056,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
                     let function_call = builder.build_function
                     (
+                        ctx,
                         name.to_string(),
 
                         &arg_types,
@@ -1064,6 +1067,29 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                     );
 
                     ctx.declarations.insert(name.clone(), (scope.index, function_call));
+                }
+
+                semantic_analysis::DeclarationKind::Struct { 
+                    name, field_names, field_types: _ 
+                } => {
+                    // TODO: this needs to happen in 'forward_declare' and stored in declarations.;
+                    let struct_definition_name = ffi::CString::new(name.clone()).unwrap();
+                    let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, struct_definition_name.as_ptr());
+
+                    let struct_type_kind = ctx.type_info.get_from_scope(ctx.current_scope(), name).unwrap();
+                    let types::TypeKind::Struct { field_types, .. } = struct_type_kind else {
+                        panic!("Expect 'struct' type.");
+                    };
+
+                    let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
+                        .iter()
+                        .map(|t| to_llvm_type(ctx, t))
+                        .collect();
+
+                    llvm::core::LLVMStructSetBody(struct_type, element_types.as_mut_ptr(), field_names.len() as u32, 0);
+
+                    // TODO: I need a place to store the thingy somewhere.
+                    ctx.declarations2.insert(name.clone(), struct_type);
                 }
 
                 _ => (),
