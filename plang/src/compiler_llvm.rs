@@ -89,7 +89,8 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
                 panic!();
             };
 
-            llvm::core::LLVMPointerType(*type_ref, 0)
+            *type_ref
+            // llvm::core::LLVMPointerType(*type_ref, 0)
         }
         types::TypeKind::Reference { .. } => todo!(),
     }
@@ -230,14 +231,12 @@ impl Builder
     pub unsafe fn struct_member_access
     (
         &self, 
-        ctx: &Context, 
+        ctx: &Context,
         struct_pointer: llvm::prelude::LLVMValueRef,
-        index: usize,
+        member_index: usize,
         member_type: llvm::prelude::LLVMTypeRef,
     ) -> llvm::prelude::LLVMValueRef
     {
-        let member_index = index + 1;
-
         let index_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
         let indices = 
         [
@@ -266,6 +265,7 @@ pub struct Context
 
     pub module_scopes: scope::Module<(llvm::prelude::LLVMValueRef, llvm::prelude::LLVMTypeRef)>,
 
+    // TODO: think about SoA, at least for type refs.
     pub definition_names: Vec<String>,
     pub definitions: Vec<Definition>,
 
@@ -704,7 +704,15 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .get_from_scope(ctx.current_scope(), &instance_name.value)
                 .unwrap();
 
-            let struct_pointer = deref_if_ptr(builder.builder, struct_pointer, struct_type_ref);
+            let struct_pointer = if is_pointer(struct_pointer) {
+                struct_pointer
+            } else {
+                let ptr = llvm
+                    ::core
+                    ::LLVMBuildAlloca(builder.builder, struct_type_ref, binary_cstr!("_alloca"));
+                llvm::core::LLVMBuildStore(builder.builder, struct_pointer, ptr);
+                ptr
+            };
 
             let member_ref = builder.struct_member_access(ctx, struct_pointer, member_index, value_type);
             let value      = deref_if_primitive(builder.builder, value_expr, value_type);
@@ -728,7 +736,15 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .get_from_scope(ctx.current_scope(), &instance_name.value)
                 .unwrap();
 
-            let struct_ptr = deref_if_ptr(builder.builder, struct_ptr, struct_type_ref);
+            let struct_ptr = if is_pointer(struct_ptr) {
+                struct_ptr
+            } else {
+                let ptr = llvm
+                    ::core
+                    ::LLVMBuildAlloca(builder.builder, struct_type_ref, binary_cstr!("_alloca"));
+                llvm::core::LLVMBuildStore(builder.builder, struct_ptr, ptr);
+                ptr
+            };
 
             let elem_type  = to_llvm_type(ctx, &expr.type_kind);
             let member_ref = builder.struct_member_access(ctx, struct_ptr, member_index, elem_type);
@@ -817,7 +833,9 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             let types::TypeKind::Struct { name: struct_type_name, .. } = type_kind else {
                 panic!();
             };
-            let Some(Definition::Struct { type_ref, .. }) = ctx.get_definition(struct_type_name) else {
+
+            let struct_definition = ctx.get_definition(struct_type_name).unwrap().clone();
+            let Definition::Struct { type_ref, .. } = struct_definition else {
                 panic!();
             };
 
@@ -826,7 +844,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             let struct_pointer = llvm::core::LLVMBuildAlloca
             (
                 builder.builder, 
-                *type_ref,
+                type_ref,
                 struct_alloc_name.as_ptr(),
             );
 
@@ -840,8 +858,10 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
                 llvm::core::LLVMBuildStore(builder.builder, value, member_ref);
             }
-            
-            struct_pointer
+
+            llvm
+                ::core
+                ::LLVMBuildLoad2(builder.builder, type_ref, struct_pointer, binary_cstr!("_deref"))
         }
     }
 }

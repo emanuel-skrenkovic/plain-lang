@@ -15,8 +15,8 @@ GLOBAL_VALUE :: 3;
 main :: (): i32
 {
 	s := Values { 
-		a: 10, 
-		b: 12, 
+		a: 11, 
+		b: 22, 
 		c: 33,
 	};
 
