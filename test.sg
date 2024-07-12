@@ -28,10 +28,6 @@ main :: (): i32
 	s.b = 1;
 	s.c = 1;
 
-	add :: (a: i32, b: i32): i32 {
-		a + b
-	}
-
 	result2 := sum(s);
 
 	printf("| %d", result2 + GLOBAL_VALUE);
