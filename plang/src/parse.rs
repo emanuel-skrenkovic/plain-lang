@@ -25,7 +25,7 @@ impl fmt::Display for CompilerError
     {
         let token_len             = self.token.len();
         let token_underline_range = self.token_index..self.token_index + token_len + 1;
-        let mut underline         = " ".repeat(self.source_line.len());
+        let mut underline         = " ".repeat(self.source_line.len() + token_len);
 
         underline.replace_range(token_underline_range, &"^".repeat(token_len));
 
@@ -231,11 +231,9 @@ impl TokenReader
     fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), CompilerError>
     {
         match self.match_token(token_kind) {
-            Ok(value) => match value {
-                true => Ok(()),
-                false => Err(self.error_at(error_message, &self.current.clone()))
-            }
-            Err(err) => Err(err)
+            Ok(true)  => Ok(()),
+            Ok(false) => Err(self.error_at(error_message, &self.current.clone())),
+            Err(err)  => Err(err),
         }
     }
 
@@ -608,12 +606,33 @@ impl Parser
         if self.match_token(scan::TokenKind::Equal) {
             let value_expr = self.expression();
             let value_expr = ast::ExprInfo::new(value_expr);
+
             return ast::Expr::Assignment {
                 name,
                 value: Box::new(value_expr),
             }
         } else if self.match_token(scan::TokenKind::LeftBracket) {
             return self.struct_expression()
+        } else if self.match_token(scan::TokenKind::Dot) {
+            self.consume(scan::TokenKind::Identifier, "Expect identifier.");
+
+            let member_name = self.reader.previous.clone();
+
+            if self.match_token(scan::TokenKind::Equal) {
+                let value = self.expression();
+                let value = ast::ExprInfo::new(value);
+                let value = Box::new(value);
+
+                self.match_token(scan::TokenKind::Semicolon);
+
+                return ast::Expr::MemberAssignment { 
+                    instance_name: name,
+                    member_name,
+                    value,
+                }
+            } else {
+                return ast::Expr::MemberAccess { instance_name: name, member_name };
+            }
         }
 
         // Handles variable expression here.

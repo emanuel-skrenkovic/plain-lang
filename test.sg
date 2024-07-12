@@ -7,8 +7,10 @@ Values :: struct
 
 sum :: (v: Values): i32
 {
-	v.a + v.b + v.c
+	v.a + v.b + v.c + GLOBAL_VALUE
 }
+
+GLOBAL_VALUE :: 3;
 
 main :: (): i32
 {
@@ -17,12 +19,23 @@ main :: (): i32
 		b: 12, 
 		c: 33,
 	};
-	s.a = 1000;
-	
-	result := sum(s);
 
-	printf("%d", result);
+	result1 := sum(s);
 
-    0
+	printf("%d |", result1);
+
+	s.a = 1;
+	s.b = 1;
+	s.c = 1;
+
+	add :: (a: i32, b: i32): i32 {
+		a + b
+	}
+
+	result2 := sum(s);
+
+	printf("| %d", result2 + GLOBAL_VALUE);
+
+   0
 }
 

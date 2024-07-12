@@ -145,6 +145,13 @@ pub enum Expr
         value: Box<ExprInfo>,
     },
 
+    MemberAssignment
+    {
+        instance_name: scan::Token,
+        member_name: scan::Token,
+        value: Box<ExprInfo>,
+    },
+
     MemberAccess
     {
         instance_name: scan::Token,
@@ -410,12 +417,8 @@ impl Transformer for GlobalsHoistingTransformer
         // First we build the dependency graph.
         let mut graph = Self::build_dependency_graph(&nodes);
 
-        println!("{:#?}", graph);
-
         // Then we use topological sort to find the correct declaration order.
         let order = Self::topological_sort(&mut graph);
-
-        println!("{:#?}", order);
 
         // After we get the order we can sort the root AST nodes accordingly.
         let mut nodes = nodes.to_owned();

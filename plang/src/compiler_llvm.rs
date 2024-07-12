@@ -336,34 +336,6 @@ pub unsafe fn match_statement
         }
 
         ast::Stmt::Function { name, params, body, .. } => {
-            /*
-            let Some(kind) = &ctx.type_info.get_in_scope(ctx.current_scope(), &name.value) else {
-                panic!("Expected type kind.");
-            };
-
-            let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
-                panic!("Expected function type kind.");
-            };
-
-            let parameter_types: Vec<&types::TypeKind> = parameter_kinds
-                .iter()
-                .map(|p| p.as_ref())
-                .collect();
-
-            let function_call = builder.build_function
-            (
-                ctx,
-                name.value.clone(),
-
-                &parameter_types,
-
-                return_kind,
-                body.iter().map(|s| *s.clone()).collect(),
-                false,
-            );
-
-            ctx.declarations.insert(name.value.clone(), (ctx.current_scope(), function_call));
-            */
             ctx.module_scopes.begin_scope();
 
             let (_, function_call) = ctx.declarations.get(&name.value).unwrap();
@@ -670,6 +642,33 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
             let value = deref_if_primitive(builder.builder, value_expr, to_llvm_type(ctx, &value.type_kind));
             llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
+        },
+
+        ast::Expr::MemberAssignment { instance_name, member_name, value } => {
+            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), &instance_name.value);
+            let Some(types::TypeKind::Struct { field_names, .. }) = instance_type else {
+                panic!("Expect 'struct' instance type.");
+            };
+
+            let member_index = field_names
+                .iter()
+                .position(|f| f == &member_name.value)
+                .unwrap();
+
+            let value_expr = match_expression(ctx, builder, value);
+            let value_type = to_llvm_type(ctx, &value.type_kind);
+
+            let (struct_pointer, struct_type_ref) = *ctx
+                .module_scopes
+                .get_from_scope(ctx.current_scope(), &instance_name.value)
+                .unwrap();
+
+            let struct_pointer = deref_if_ptr(builder.builder, struct_pointer, struct_type_ref);
+
+            let member_ref = builder.struct_member_access(ctx, struct_pointer, member_index, value_type);
+            let value      = deref_if_primitive(builder.builder, value_expr, value_type);
+
+            llvm::core::LLVMBuildStore(builder.builder, value, member_ref)
         },
 
         ast::Expr::MemberAccess { instance_name, member_name } => {
@@ -1106,9 +1105,10 @@ unsafe fn is_pointer(var: llvm::prelude::LLVMValueRef) -> bool
     var_type_kind == llvm::LLVMTypeKind::LLVMPointerTypeKind
 }
 
-const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 2] = [
+const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 3] = [
     llvm::LLVMTypeKind::LLVMIntegerTypeKind,
     llvm::LLVMTypeKind::LLVMVoidTypeKind,
+    llvm::LLVMTypeKind::LLVMStructTypeKind,
 ];
 
 // TODO: shit name
