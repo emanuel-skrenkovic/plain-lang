@@ -35,6 +35,13 @@ impl ExprInfo
 #[derive(Debug, Clone)]
 pub enum Stmt
 {
+    Struct 
+    {
+        name: scan::Token,
+        members: Vec<scan::Token>,
+        member_types: Vec<scan::Token>,
+    },
+
     Function
     {
         name: scan::Token,
@@ -138,6 +145,19 @@ pub enum Expr
         value: Box<ExprInfo>,
     },
 
+    MemberAssignment
+    {
+        instance_name: scan::Token,
+        member_name: scan::Token,
+        value: Box<ExprInfo>,
+    },
+
+    MemberAccess
+    {
+        instance_name: scan::Token,
+        member_name: scan::Token,
+    },
+
     Logical,
 
     Call
@@ -153,6 +173,13 @@ pub enum Expr
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
+
+    Struct 
+    {
+        name: scan::Token,
+        members: Vec<scan::Token>,
+        values: Vec<Box<ExprInfo>>,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -211,8 +238,24 @@ impl GlobalsHoistingTransformer
 
         for node in nodes.iter() {
             match node {
-                Node::Stmt(Stmt::Function { name, body, .. }) => {
+                Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
+                    declarations.push(name.value.clone());
+
+                    let mut deps: Vec<String> = member_types
+                        .iter()
+                        .map(|t| t.value.clone())
+                        .collect();
+                    deps.dedup();
+
+                    dependencies.push(deps);
+                    degrees.push(0);
+                }
+
+                Node::Stmt(Stmt::Function { name, body, param_types, .. }) => {
                     let mut deps = Vec::with_capacity(1024);
+                    
+                    deps.append(&mut param_types.iter().map(|t| t.value.clone()).collect());
+
                     Self::match_statements(body, &mut deps);
 
                     declarations.push(name.value.clone());
@@ -240,8 +283,9 @@ impl GlobalsHoistingTransformer
         }
     }
 
-    // TODO: detect cycles
     // Topological sort over the dependency graph.
+    // There will be "unsolvable" orders because of which we need
+    // to forward declare global scope stuff.
     fn topological_sort(graph: &mut DependencyGraph) -> Vec<String>
     {
         let count = graph.nodes.len();
@@ -293,11 +337,24 @@ impl GlobalsHoistingTransformer
     {
         for stmt in statements.iter().map(|s| s.as_ref()) {
             match stmt {
-                Stmt::Function { body, .. } => {
+                Stmt::Struct { member_types, .. } => {
+                    let mut type_names = member_types
+                        .iter()
+                        .map(|t| t.value.clone())
+                        .collect();
+                    deps.append(&mut type_names);
+                }
+
+                Stmt::Function { body, param_types, .. } => {
                     let mut nested_deps = Vec::with_capacity(1024);
+
+                    nested_deps.append(&mut param_types.iter().map(|t| t.value.clone()).collect());
                     Self::match_statements(body, &mut nested_deps);
+
                     deps.append(&mut nested_deps);
                 }
+
+                Stmt::Var { initializer, .. } => Self::match_expression(&initializer.value, deps),
 
                 Stmt::Const { initializer, .. } => Self::match_expression(&initializer.value, deps),
 
@@ -330,7 +387,6 @@ impl GlobalsHoistingTransformer
             // TODO: later
             Expr::Variable { name, .. } => deps.push(name.value.clone()),
 
-
             Expr::Assignment { value, .. } => Self::match_expression(&value.value, deps),
 
             Expr::Call { name, arguments } => {
@@ -341,6 +397,13 @@ impl GlobalsHoistingTransformer
             },
 
             Expr::Function { body, .. } => Self::match_statements(body, deps),
+
+            Expr::Struct { name, values, .. } => {
+                deps.push(name.value.clone());
+                for value in values {
+                    Self::match_expression(&value.value, deps)
+                }
+            }
 
             _ => ()
         }
@@ -362,12 +425,14 @@ impl Transformer for GlobalsHoistingTransformer
         nodes.sort_by(|a, b| {
             // TODO: for now we assume all root level nodes are functions.
             let a_name = match a {
+                Node::Stmt(Stmt::Struct { name, .. })   => &name.value,
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
                 Node::Stmt(Stmt::Const { name, .. })    => &name.value,
                 _ => unreachable!(),
             };
 
             let b_name = match b {
+                Node::Stmt(Stmt::Struct { name, .. })   => &name.value,
                 Node::Stmt(Stmt::Function { name, .. }) => &name.value,
                 Node::Stmt(Stmt::Const { name, .. })    => &name.value,
                 _ => unreachable!(),

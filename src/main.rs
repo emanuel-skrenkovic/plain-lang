@@ -16,7 +16,6 @@ fn main()
 
     let source = include_str!("../test.sg").to_string();
     let mut scanner = scan::Scanner::new(source.clone());
-    
 
     let now = std::time::Instant::now();
 

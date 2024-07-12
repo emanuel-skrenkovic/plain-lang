@@ -16,14 +16,22 @@ pub struct Declaration
 #[derive(Clone, Debug)]
 pub enum DeclarationKind
 {
-    Function {
-
+    Function 
+    {
         function: Function
     },
 
-    Closure {
+    Closure 
+    {
         captures: Vec<String>,
         function: Function,
+    },
+
+    Struct
+    {
+        name: String,
+        field_names: Vec<String>,
+        field_types: Vec<String>,
     },
 
     Const { initializer: Box<ast::ExprInfo> },
@@ -86,6 +94,18 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
 
             symbol_table.module.end_scope();
         },
+
+        ast::Stmt::Struct { name, members, member_types } => {
+            let declaration = Declaration {
+                kind: DeclarationKind::Struct {
+                    name: name.value.clone(),
+                    field_names: members.iter().map(|m| m.value.clone()).collect(),
+                    field_types: member_types.iter().map(|t| t.value.clone()).collect(),
+                }
+            };
+
+            symbol_table.module.add_to_current(&name.value, declaration);
+        }
 
         ast::Stmt::Var { name, initializer, .. } => {
             match &initializer.value {

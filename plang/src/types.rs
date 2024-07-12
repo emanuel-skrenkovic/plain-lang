@@ -25,6 +25,12 @@ pub enum TypeKind
         return_kind: Box<TypeKind>,
     },
 
+    Struct {
+        name: String,
+        field_names: Vec<String>,
+        field_types: Vec<Box<TypeKind>>,
+    },
+
     Reference {
         underlying: Box<TypeKind>,
     },
@@ -66,13 +72,13 @@ pub fn infer_global_types(program: &mut [ast::Node], type_info: &mut scope::Modu
             ast::Stmt::Function { name, return_type, param_types, .. } => {
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
                     .iter()
-                    .map(type_from_identifier)
+                    .map(|t| type_from_identifier(t, type_info))
                     .map(Box::new)
                     .collect();
 
                 let kind = TypeKind::Function {
                     parameter_kinds,
-                    return_kind: Box::new(type_from_identifier(return_type)),
+                    return_kind: Box::new(type_from_identifier(return_type, type_info)),
                 };
 
                 type_info.add_to_current(&name.value, kind);
@@ -82,12 +88,30 @@ pub fn infer_global_types(program: &mut [ast::Node], type_info: &mut scope::Modu
                 let kind = match_expression(type_info, &mut initializer.value);
 
                 if let Some(type_name) = type_name {
-                    let defined_type = type_from_identifier(type_name);
+                    let defined_type = type_from_identifier(type_name, type_info);
 
                     if defined_type != kind {
                         panic!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
                     }
                 }
+
+                type_info.add_to_current(&name.value, kind);
+            }
+
+            ast::Stmt::Struct { name, members, member_types } => {
+                let field_types: Vec<Box<TypeKind>> = member_types
+                    .iter()
+                    .map(|t| type_from_identifier(t, type_info))
+                    .map(Box::new)
+                    .collect();
+
+                let field_names = members.iter().map(|m| m.value.clone()).collect();
+
+                let kind = TypeKind::Struct {
+                    name: name.value.clone(),
+                    field_names,
+                    field_types,
+                };
 
                 type_info.add_to_current(&name.value, kind);
             }
@@ -106,7 +130,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             for i in 0..params.len() {
                 let param      = &params[i];
                 let param_type = &param_types[i];
-                let kind       = type_from_identifier(param_type);
+                let kind       = type_from_identifier(param_type, type_info);
 
                 type_info.add_to_current(&param.value, kind);
             }
@@ -123,7 +147,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
                 TypeKind::Unit
             };
 
-            if return_kind != type_from_identifier(return_type) {
+            if return_kind != type_from_identifier(return_type, type_info) {
                 panic!("Returned value does not match function definition.\nFunction: {} Value type: {:?} Return type: {:?}", name.value, return_kind, return_type);
             }
 
@@ -131,7 +155,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
-                .map(type_from_identifier)
+                .map(|t| type_from_identifier(t, type_info))
                 .map(Box::new)
                 .collect();
 
@@ -143,6 +167,24 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             type_info.add_to_current(&name.value, kind);
         },
 
+        ast::Stmt::Struct { name, members, member_types } => {
+            let field_types: Vec<Box<TypeKind>> = member_types
+                .iter()
+                .map(|t| type_from_identifier(t, type_info))
+                .map(Box::new)
+                .collect();
+
+            let field_names = members.iter().map(|m| m.value.clone()).collect();
+
+            let kind = TypeKind::Struct {
+                name: name.value.clone(),
+                field_names,
+                field_types,
+            };
+
+            type_info.add_to_current(&name.value, kind);
+        }
+
         ast::Stmt::Declaration { initializer, .. } => {
             initializer.type_kind = match_expression(type_info, &mut initializer.value);
         },
@@ -151,7 +193,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             let kind = match_expression(type_info, &mut initializer.value);
 
             if let Some(type_name) = type_name {
-                let defined_type = type_from_identifier(type_name);
+                let defined_type = type_from_identifier(type_name, type_info);
 
                 if defined_type != kind {
                     panic!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
@@ -166,7 +208,7 @@ pub fn match_statement(type_info: &mut scope::Module<TypeKind>, stmt: &mut ast::
             let kind = match_expression(type_info, &mut initializer.value);
 
             if let Some(type_name) = type_name {
-                let defined_type = type_from_identifier(type_name);
+                let defined_type = type_from_identifier(type_name, type_info);
 
                 if defined_type != kind {
                     panic!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
@@ -283,7 +325,11 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
         ast::Expr::Literal { value } => token_type(value),
 
-        ast::Expr::Variable { name } => type_info.get(&name.value).unwrap().clone(),
+        ast::Expr::Variable { name } 
+            => type_info
+                .get(&name.value)
+                .unwrap_or_else(|| panic!("Failed to get type info for variable name '{}'", &name.value))
+                .clone(),
 
         ast::Expr::Assignment { value, .. } => {
             let kind = match_expression(type_info, &mut value.value);
@@ -292,6 +338,27 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
             TypeKind::Unit
         },
 
+        ast::Expr::MemberAssignment { value, .. } => {
+            let kind = match_expression(type_info, &mut value.value);
+            value.type_kind = kind.clone();
+
+            TypeKind::Unit
+        }
+
+        ast::Expr::MemberAccess { instance_name, member_name } => {
+            let instance_type = type_info.get(&instance_name.value).unwrap();
+
+            let TypeKind::Struct { field_names, field_types, .. } = instance_type else {
+                panic!("TODO");
+            };
+
+            let index = field_names.iter().position(|n| n == &member_name.value);
+            let Some(index) = index else {
+                panic!();
+            };
+
+            *field_types[index].clone()
+        }
         ast::Expr::Logical => todo!(),
 
         ast::Expr::Call { name, arguments } => {
@@ -312,12 +379,17 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
 
         ast::Expr::Function { param_types, body, .. } => {
             // TODO: handle captured variables as well.
+            type_info.begin_scope();
 
             let parameter_kinds: Vec<Box<TypeKind>> = param_types
                 .iter()
-                .map(type_from_identifier)
+                .map(|t| type_from_identifier(t, type_info))
                 .map(Box::new)
                 .collect();
+
+            for statement in body.iter_mut() {
+                match_statement(type_info, statement);
+            }
 
             let return_kind = if body.is_empty() {
                 TypeKind::Unit
@@ -327,18 +399,28 @@ pub fn match_expression(type_info: &mut scope::Module<TypeKind>, expr: &mut ast:
                 TypeKind::Unit
             };
 
+            type_info.end_scope();
+
             TypeKind::Function { parameter_kinds, return_kind: Box::new(return_kind) }
         },
+
+        ast::Expr::Struct { name, values, .. } => {
+            for value in values.iter_mut() {
+                let kind = match_expression(type_info, &mut value.value);
+                value.type_kind = kind;
+            }
+            type_info.get(&name.value).unwrap().clone()
+        }
     }
 }
 
-fn type_from_identifier(token: &scan::Token) -> TypeKind
+fn type_from_identifier(token: &scan::Token, type_info: &scope::Module<TypeKind>) -> TypeKind
 {
     match token.value.as_str() {
         "i32" => TypeKind::I32,
         "string" => TypeKind::String { len: token.value.len() },
         "bool" => TypeKind::Bool,
-        _ => TypeKind::Unknown,
+        _ => type_info.get(&token.value).unwrap().clone()
     }
 }
 

@@ -6,6 +6,7 @@ pub enum TokenKind
 {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
+    Dot,
     Pipe,
     Comma,
     Bang, BangEqual, EqualEqual, GreaterEqual, LessEqual, Equal,
@@ -19,8 +20,6 @@ pub enum TokenKind
 
 impl TokenKind
 {
-    // TODO: not sure about this. Feels slightly better though.
-    // Also seems more in line with how Rust usually does things.
     pub fn discriminant(&self) -> mem::Discriminant<TokenKind>
     {
         mem::discriminant(self)
@@ -38,6 +37,7 @@ pub struct Token
 
 impl Clone for Token
 {
+
     fn clone(&self) -> Self
     {
         Token {
@@ -53,9 +53,7 @@ impl fmt::Display for Token
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        write!(f, "Kind {:?}\nValue {}\nLine {}\n", self.kind,
-                                                    self.value,
-                                                    self.line)
+        write!(f, "Kind {:?}\nValue {}\nLine {}\n", self.kind, self.value, self.line)
     }
 }
 
@@ -63,7 +61,11 @@ impl Default for Token
 {
     fn default() -> Self
     {
-        Token { kind: TokenKind::Error, value: "".to_owned(), line: 0, token_index: 0 }
+        Token { 
+            kind: TokenKind::Error, 
+            value: "".to_owned(),
+            line: 0, token_index: 0,
+        }
     }
 }
 
@@ -161,6 +163,7 @@ impl Scanner
             '-' => self.emit(TokenKind::Minus),
             '*' => self.emit(TokenKind::Star),
             '/' => self.emit(TokenKind::Slash), // TODO: comments
+            '.' => self.emit(TokenKind::Dot),
             '|' => {
                 if self.match_char('>') {
                     return self.emit(TokenKind::Pipe)

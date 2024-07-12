@@ -25,7 +25,7 @@ impl fmt::Display for CompilerError
     {
         let token_len             = self.token.len();
         let token_underline_range = self.token_index..self.token_index + token_len + 1;
-        let mut underline         = " ".repeat(self.source_line.len());
+        let mut underline         = " ".repeat(self.source_line.len() + token_len);
 
         underline.replace_range(token_underline_range, &"^".repeat(token_len));
 
@@ -100,49 +100,50 @@ struct ParseRule
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 41] =
+static RULES: [ParseRule; 42] =
 [
     ParseRule { prefix: Some(Parser::function_expression), infix: Some(Parser::function_invocation), precedence: Precedence::Call }, // LeftParen
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // RightParen
-    ParseRule { prefix: Some(Parser::block_expression),    infix: None,                               precedence: Precedence::None }, // LeftBracket
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // RightBracket
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LeftAngle
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // RightAngle
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: Some(Parser::semicolon),           infix: None,                               precedence: Precedence::None }, // Semicolon
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Colon
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // ColonColon
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // ColonEquals
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Term }, // Plus
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Term }, // Minus
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Star
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Slash
-    ParseRule { prefix: None,                               infix: Some(Parser::pipe),                precedence: Precedence::Call }, // Pipe
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Comma
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Bang
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Equality }, // BandEqual
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Equality }, // EqualEqual
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // GreaterEqual
-    ParseRule { prefix: None,                               infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LessEqual
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Equal
-    ParseRule { prefix: Some(Parser::literal),             infix: None,                               precedence: Precedence::None }, // True
-    ParseRule { prefix: Some(Parser::literal),             infix: None,                               precedence: Precedence::None }, // False
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // This
-    ParseRule { prefix: Some(Parser::_if),                 infix: None,                               precedence: Precedence::None }, // If
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Else
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Break
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Continue
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Switch
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Case
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // For
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // While
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Func
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Struct
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Interface
-    ParseRule { prefix: Some(Parser::literal),             infix: None,                               precedence: Precedence::None }, // Literal
-    ParseRule { prefix: Some(Parser::variable),            infix: None,                               precedence: Precedence::None }, // Identifier
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }, // Error
-    ParseRule { prefix: None,                               infix: None,                               precedence: Precedence::None }  // End
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // RightParen
+    ParseRule { prefix: Some(Parser::block_expression),    infix: None,                              precedence: Precedence::None }, // LeftBracket
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // RightBracket
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LeftAngle
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // RightAngle
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Questionmark
+    ParseRule { prefix: Some(Parser::semicolon),           infix: None,                              precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Colon
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // ColonColon
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // ColonEquals
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Term }, // Plus
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Term }, // Minus
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Star
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Slash
+    ParseRule { prefix: None,                              infix: Some(Parser::dot_operator),        precedence: Precedence::Call }, // Dot
+    ParseRule { prefix: None,                              infix: Some(Parser::pipe),                precedence: Precedence::Call }, // Pipe
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Comma
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Bang
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Equality }, // BandEqual
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Equality }, // EqualEqual
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // GreaterEqual
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LessEqual
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Equal
+    ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // True
+    ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // False
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // This
+    ParseRule { prefix: Some(Parser::_if),                 infix: None,                              precedence: Precedence::None }, // If
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Else
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Break
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Continue
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Switch
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Case
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // For
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // While
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Func
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Struct
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Interface
+    ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // Literal
+    ParseRule { prefix: Some(Parser::variable),            infix: None,                              precedence: Precedence::None }, // Identifier
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Error
+    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }  // End
 ];
 
 fn get_rule(token_kind: scan::TokenKind) -> ParseRule
@@ -230,11 +231,9 @@ impl TokenReader
     fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), CompilerError>
     {
         match self.match_token(token_kind) {
-            Ok(value) => match value {
-                true => Ok(()),
-                false => Err(self.error_at(error_message, &self.current.clone()))
-            }
-            Err(err) => Err(err)
+            Ok(true)  => Ok(()),
+            Ok(false) => Err(self.error_at(error_message, &self.current.clone())),
+            Err(err)  => Err(err),
         }
     }
 
@@ -344,7 +343,6 @@ impl Parser
             },
             _ => {
                 if self.is_at_end() { return }
-
                 panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
             }
         }
@@ -411,6 +409,16 @@ impl Parser
         expr
     }
 
+    fn dot_operator(&mut self) -> ast::Expr
+    {
+        let instance_name = self.reader.peek(-2).unwrap().clone();
+
+        self.consume(scan::TokenKind::Identifier, "Expect identifier.");
+        let member_name = self.reader.previous.clone();
+
+        ast::Expr::MemberAccess { instance_name, member_name }
+    }
+
     fn literal(&mut self) -> ast::Expr
     {
         let expr = ast::Expr::Literal { value: self.reader.previous.clone() };
@@ -443,6 +451,11 @@ impl Parser
         let next = self.reader.peek(1)?;
 
         let next_kind = next.kind.discriminant();
+        let second_next_kind = self.reader.peek(2)?.kind.discriminant();
+
+        if second_next_kind == scan::TokenKind::Struct.discriminant() {
+            return Some(self._struct());
+        }
 
         let type_definition = next_kind == scan::TokenKind::Colon.discriminant();
         let immutable       = next_kind == scan::TokenKind::ColonColon.discriminant();
@@ -593,9 +606,32 @@ impl Parser
         if self.match_token(scan::TokenKind::Equal) {
             let value_expr = self.expression();
             let value_expr = ast::ExprInfo::new(value_expr);
+
             return ast::Expr::Assignment {
                 name,
                 value: Box::new(value_expr),
+            }
+        } else if self.match_token(scan::TokenKind::LeftBracket) {
+            return self.struct_expression()
+        } else if self.match_token(scan::TokenKind::Dot) {
+            self.consume(scan::TokenKind::Identifier, "Expect identifier.");
+
+            let member_name = self.reader.previous.clone();
+
+            if self.match_token(scan::TokenKind::Equal) {
+                let value = self.expression();
+                let value = ast::ExprInfo::new(value);
+                let value = Box::new(value);
+
+                self.match_token(scan::TokenKind::Semicolon);
+
+                return ast::Expr::MemberAssignment { 
+                    instance_name: name,
+                    member_name,
+                    value,
+                }
+            } else {
+                return ast::Expr::MemberAccess { instance_name: name, member_name };
             }
         }
 
@@ -819,6 +855,41 @@ impl Parser
         ast::Expr::Call { name: function_name_token, arguments }
     }
 
+    fn struct_expression(&mut self) -> ast::Expr
+    {
+        let Some(token) = self.reader.peek(-2) else {
+            return self
+                .error_at("Failed to parse struct expression - no struct name found.", &self.reader.previous.clone());
+        };
+
+        let name = token.clone();
+
+        let mut members = Vec::with_capacity(1024);
+        let mut values  = Vec::with_capacity(1024);
+
+        if !self.reader.check_token(scan::TokenKind::RightParen) {
+            loop {
+                self.consume(scan::TokenKind::Identifier, "Expect field name.");
+
+                let field_name = self.reader.previous.clone();
+                members.push(field_name);
+
+                self.consume(scan::TokenKind::Colon, "Expect ':' after field initializer name.");
+
+                let expr = self.expression();
+                let expr = ast::ExprInfo::new(expr);
+                let expr = Box::new(expr);
+                values.push(expr);
+
+                self.match_token(scan::TokenKind::Comma);
+
+                if self.match_token(scan::TokenKind::RightBracket) { break }
+            }
+        }
+
+        ast::Expr::Struct { name, members, values }
+    }
+
     // TODO: So far, piping into a function is only supported with functions
     // with arity of 1.
     // Because of the different order of operations when using the pipe operator as opposed to
@@ -834,6 +905,47 @@ impl Parser
     fn pipe(&mut self) -> ast::Expr
     {
         todo!()
+    }
+
+    fn _struct(&mut self) -> ast::Stmt
+    {
+        self.consume(scan::TokenKind::Identifier, "Expect struct name identifier.");
+        let struct_name = self.reader.previous.clone();
+
+        self.consume(scan::TokenKind::ColonColon, "Expect '::' after struct identifier.");
+        self.consume(scan::TokenKind::Struct, "Expect 'struct' token.");
+
+        self.consume(scan::TokenKind::LeftBracket, "Expect '{' on struct definition.");
+
+        let mut fields = Vec::with_capacity(1024);
+        let mut field_types = Vec::with_capacity(1024);
+
+        // TODO: parse fields
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
+            self.consume(scan::TokenKind::Identifier, "Expect identifier.");
+            let name_token = self.reader.previous.clone();
+
+            if self.match_token(scan::TokenKind::Colon) {
+                self.consume(scan::TokenKind::Identifier, "Expect type identifier after field name.");
+                let type_name = self.reader.previous.clone();
+
+                fields.push(name_token);
+                field_types.push(type_name);
+
+                self.match_token(scan::TokenKind::Semicolon);
+            } else if self.match_token(scan::TokenKind::ColonColon) {
+                // TODO: method
+            } else {
+                panic!("Invalid token.");
+            }
+        }
+
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' after struct definition.");
+        ast::Stmt::Struct {
+            name: struct_name,
+            members: fields,
+            member_types: field_types,
+        }
     }
 
     fn semicolon(&mut self) -> ast::Expr
