@@ -163,6 +163,31 @@ impl Builder
             ::LLVMBuildCondBr(self.builder, condition, then_block, else_block);
     }
 
+    pub unsafe fn build_struct_definition(&self, ctx: &Context, name: &str) -> Definition
+    {
+        let struct_definition_name = ffi::CString::new(name).unwrap();
+        let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, struct_definition_name.as_ptr());
+
+        let struct_type_kind = ctx.type_info.get_from_scope(ctx.current_scope(), name).unwrap();
+        let types::TypeKind::Struct { field_names, field_types, .. } = struct_type_kind else {
+            panic!("Expect 'struct' type.");
+        };
+
+        let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
+            .iter()
+            .map(|t| to_llvm_type(ctx, t))
+            .collect();
+
+        llvm::core::LLVMStructSetBody(struct_type, element_types.as_mut_ptr(), field_names.len() as u32, 0);
+
+        Definition::Struct {
+            name: name.to_string(),
+            member_names: field_names.clone(),
+            member_types: element_types.clone(),
+            type_ref: struct_type,
+        }
+    }
+
     pub unsafe fn build_function
     (
         &self,
@@ -363,31 +388,6 @@ pub unsafe fn match_statement
 )
 {
     match stmt {
-        ast::Stmt::Struct { name, members, .. } => {
-            // TODO: this needs to happen in 'forward_declare' and stored in declarations.;
-            let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, name.value.as_ptr() as * const _);
-
-            let struct_type_kind = ctx.type_info.get_from_scope(ctx.current_scope(), &name.value).unwrap();
-            let types::TypeKind::Struct { field_names, field_types, .. } = struct_type_kind else {
-                panic!("Expect 'struct' type.");
-            };
-
-            let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
-                .iter()
-                .map(|t| to_llvm_type(ctx, t))
-                .collect();
-
-            llvm::core::LLVMStructSetBody(struct_type, element_types.as_mut_ptr(), members.len() as u32, 0);
-
-            let definition = Definition::Struct {
-                name: name.value.clone(),
-                member_names: field_names.clone(),
-                member_types: element_types.clone(),
-                type_ref: struct_type,
-            };
-            ctx.add_definition(&name.value, definition);
-        }
-
         ast::Stmt::Function { name, params, body, .. } => {
             ctx.module_scopes.begin_scope();
 
@@ -1112,31 +1112,8 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                     ctx.definitions.push(function_call);
                 }
 
-                semantic_analysis::DeclarationKind::Struct { 
-                    name, field_names, field_types: _ 
-                } => {
-                    // TODO: this needs to happen in 'forward_declare' and stored in declarations.;
-                    let struct_definition_name = ffi::CString::new(name.clone()).unwrap();
-                    let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, struct_definition_name.as_ptr());
-
-                    let struct_type_kind = ctx.type_info.get_from_scope(ctx.current_scope(), name).unwrap();
-                    let types::TypeKind::Struct { field_types, .. } = struct_type_kind else {
-                        panic!("Expect 'struct' type.");
-                    };
-
-                    let mut element_types: Vec<llvm::prelude::LLVMTypeRef> = field_types
-                        .iter()
-                        .map(|t| to_llvm_type(ctx, t))
-                        .collect();
-
-                    llvm::core::LLVMStructSetBody(struct_type, element_types.as_mut_ptr(), field_names.len() as u32, 0);
-
-                    let definition = Definition::Struct {
-                        name: name.clone(),
-                        member_names: field_names.clone(),
-                        member_types: element_types.clone(),
-                        type_ref: struct_type,
-                    };
+                semantic_analysis::DeclarationKind::Struct { name, .. } => {
+                    let definition = builder.build_struct_definition(ctx, name);
 
                     ctx.definition_names.push(name.to_owned());
                     ctx.definitions.push(definition);
