@@ -64,22 +64,13 @@ fn main()
     };
 
     let now_compile_bytecode = std::time::Instant::now();
-    let _ = std::process::Command::new("llc")
-        .args(["-filetype=obj", "-O0", "-o", "bin/a.o", "bin/a.bc"])
+    let _ = std::process::Command::new("clang")
+        .args(["-o", "bin/a", "bin/a.bc", "-O0"])
         .spawn()
         .unwrap()
         .wait_with_output()
         .expect("Failed to compile LLVM bytecode");
     let after_compiling_bytecode = now_compile_bytecode.elapsed();
-
-    let now_linking = std::time::Instant::now();
-    let _ = std::process::Command::new("clang")
-        .args(["-o", "bin/a", "bin/a.o"])
-        .spawn()
-        .unwrap()
-        .wait_with_output()
-        .expect("Failed to link output.");
-    let after_linking = now_linking.elapsed();
 
     let total = now.elapsed();
     println!
@@ -92,7 +83,6 @@ fn main()
      Semantic analysis: {:?}
      LLVM backend: {:?}.
      Compiling bytecode: {:?}
-     Linking: {:?}
 
      Total time: {:?}.
 ",
@@ -103,7 +93,6 @@ fn main()
         after_semantic_analysis,
         after_llvm,
         after_compiling_bytecode,
-        after_linking,
         total,
     );
 
