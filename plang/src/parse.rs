@@ -1,46 +1,5 @@
-use std::fmt;
-use crate::{ast, scan};
+use crate::{ast, scan, error};
 
-
-#[derive(Debug)]
-pub enum CompilerErrorKind
-{
-    ParseError
-}
-
-#[derive(Debug)]
-pub struct CompilerError
-{
-    pub line: usize,
-    pub token_index: usize,
-    pub source_line: String,
-    pub token: String,
-    pub msg: String,
-    pub kind: CompilerErrorKind
-}
-
-impl fmt::Display for CompilerError
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
-    {
-        let token_len             = self.token.len();
-        let token_underline_range = self.token_index..self.token_index + token_len + 1;
-        let mut underline         = " ".repeat(self.source_line.len() + token_len);
-
-        underline.replace_range(token_underline_range, &"^".repeat(token_len));
-
-        let line1 = format!("{line:<width$} {line_text}", line=format!("{}:", self.line), line_text=self.source_line, width=6);
-        let line2 = format!("{line:<width$} {line_text}", line="", line_text=underline, width=6);
-
-        write!(
-            f,
-            "Error: {}\n\n{}\n{}",
-            self.msg,
-            line1,
-            line2,
-        )
-    }
-}
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
@@ -186,7 +145,7 @@ impl TokenReader
         }
     }
 
-    fn advance(&mut self) -> Result<(), CompilerError>
+    fn advance(&mut self) -> Result<(), error::CompilerError>
     {
         if matches!(self.current.kind, scan::TokenKind::End) {
             return Ok(())
@@ -213,7 +172,7 @@ impl TokenReader
         Err(self.error_at("Scanner error.", &self.current.clone()))
     }
 
-    fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, CompilerError>
+    fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, error::CompilerError>
     {
         if self.current.kind.discriminant() != token_kind.discriminant() {
             return Ok(false)
@@ -228,7 +187,7 @@ impl TokenReader
         self.current.kind.discriminant() == token_kind.discriminant()
     }
 
-    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), CompilerError>
+    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), error::CompilerError>
     {
         match self.match_token(token_kind) {
             Ok(true)  => Ok(()),
@@ -237,7 +196,7 @@ impl TokenReader
         }
     }
 
-    fn error_at(&mut self, message: &str, token: &scan::Token) -> CompilerError
+    fn error_at(&mut self, message: &str, token: &scan::Token) -> error::CompilerError
     {
         self.panic = true;
         self.error = true;
@@ -248,13 +207,13 @@ impl TokenReader
             .map(String::from)
             .collect();
 
-        CompilerError {
+        error::CompilerError {
             msg: message.to_owned(),
             line: token.line,
             token_index: token.token_index,
             source_line: lines[token.line - 1].clone(),
             token: token.value.clone(),
-            kind: CompilerErrorKind::ParseError,
+            kind: error::CompilerErrorKind::ParseError,
         }
     }
 
@@ -281,7 +240,7 @@ pub struct Parser
     scope_depth: usize,
     stack: Vec<ast::Expr>,
 
-    pub errors: Vec<CompilerError>,
+    pub errors: Vec<error::CompilerError>,
 }
 
 impl Parser
@@ -297,7 +256,7 @@ impl Parser
         }
     }
 
-    pub fn compile(mut self) -> Result<Vec<ast::Node>, Vec<CompilerError>>
+    pub fn compile(mut self) -> Result<Vec<ast::Node>, Vec<error::CompilerError>>
     {
         let _ = self.reader.advance().map_err(|e| self.error(e));
 
@@ -994,7 +953,7 @@ impl Parser
         ast::Expr::Bad { token: token.clone() }
     }
 
-    fn error(&mut self, err: CompilerError)
+    fn error(&mut self, err: error::CompilerError)
     {
         self.errors.push(err)
     }
