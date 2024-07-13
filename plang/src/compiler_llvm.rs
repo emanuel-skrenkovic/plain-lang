@@ -31,31 +31,6 @@ pub enum Definition
     },
 }
 
-#[derive(Clone, Debug)]
-pub struct FunctionDefinition
-{
-    pub name: String,
-
-    pub function: llvm::prelude::LLVMValueRef,
-    pub function_type: llvm::prelude::LLVMTypeRef,
-
-    pub arity: usize,
-    pub param_types: Vec<llvm::prelude::LLVMTypeRef>,
-
-    pub return_type: llvm::prelude::LLVMTypeRef,
-
-    pub code: Vec<ast::Stmt>,
-
-    pub closure: bool,
-}
-
-pub struct StructDefinition
-{
-    pub name: String,
-    pub member_names: Vec<String>,
-    pub member_types: Vec<llvm::prelude::LLVMTypeRef>
-}
-
 pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
 {
     match type_kind {
