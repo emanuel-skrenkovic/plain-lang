@@ -5,28 +5,29 @@ Values :: struct
 	c: i32;
 }
 
-sum :: (v: Values): i32
-{
-	v.a + v.b + v.c + GLOBAL_VALUE
-}
-
 GLOBAL_VALUE :: 3;
 
 main :: (): i32
 {
 	s := Values { 
-		a: 11, 
+		a: 11,
 		b: 22, 
 		c: 33,
+	};
+
+	d :: if s.a == 3 {
+		0
+	} else {
+		1
 	};
 
 	result1 := sum(s);
 
 	printf("%d |", result1);
 
-	s.a = 1;
-	s.b = 1;
-	s.c = 1;
+	s.a = 94;
+	s.b = 182;
+	s.c = 138;
 
 	result2 := sum(s);
 
@@ -35,3 +36,7 @@ main :: (): i32
    0
 }
 
+sum :: (v: Values): i32
+{
+	v.a + v.b + v.c + GLOBAL_VALUE
+}

@@ -6,6 +6,7 @@ use plang::compiler_llvm;
 use plang::parse;
 use plang::scan;
 use plang::types;
+use plang::error;
 use plang::semantic_analysis;
 
 
@@ -17,6 +18,13 @@ fn main()
     let source = include_str!("../test.sg").to_string();
     let mut scanner = scan::Scanner::new(source.clone());
 
+    let mut reporter = error::ErrorReporter {
+        source: source.clone(),
+        errors: Vec::with_capacity(1024),
+        error: false,
+
+    };
+
     let now = std::time::Instant::now();
 
     let now_scan = std::time::Instant::now();
@@ -24,7 +32,15 @@ fn main()
     let after_scanning = now_scan.elapsed();
 
     let now_compile = std::time::Instant::now();
-    let program = parse::Parser::new(source, tokens).compile();
+    let program = parse::Parser::new(reporter.clone(), tokens).compile();
+    if reporter.error {
+        for err in reporter.errors {
+            writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+        }
+        stderr().flush().unwrap();
+        std::process::exit(1);
+    }
+
     let after_compiling = now_compile.elapsed();
 
     let program = match program {
@@ -43,10 +59,18 @@ fn main()
     let after_transformation = now_transformation.elapsed();
 
     let now_type_analysis = std::time::Instant::now();
-    let (program, type_info) = types::infer_types(&program);
+    let (program, type_info) = types::Typer::new(&mut reporter).infer_types(&program);
     let after_type_analysis = now_type_analysis.elapsed();
 
     println!("{:#?}", program);
+
+    if reporter.error {
+        for err in reporter.errors {
+            writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+        }
+        stderr().flush().unwrap();
+        std::process::exit(1);
+    }
 
     let now_semantic_analysis = std::time::Instant::now();
     let symbol_table = semantic_analysis::analyse(&program).unwrap();
@@ -64,22 +88,13 @@ fn main()
     };
 
     let now_compile_bytecode = std::time::Instant::now();
-    let _ = std::process::Command::new("llc")
-        .args(["-filetype=obj", "-O0", "-o", "bin/a.o", "bin/a.bc"])
+    let _ = std::process::Command::new("clang")
+        .args(["-o", "bin/a", "bin/a.bc", "-O0"])
         .spawn()
         .unwrap()
         .wait_with_output()
         .expect("Failed to compile LLVM bytecode");
     let after_compiling_bytecode = now_compile_bytecode.elapsed();
-
-    let now_linking = std::time::Instant::now();
-    let _ = std::process::Command::new("clang")
-        .args(["-o", "bin/a", "bin/a.o"])
-        .spawn()
-        .unwrap()
-        .wait_with_output()
-        .expect("Failed to link output.");
-    let after_linking = now_linking.elapsed();
 
     let total = now.elapsed();
     println!
@@ -92,7 +107,6 @@ fn main()
      Semantic analysis: {:?}
      LLVM backend: {:?}.
      Compiling bytecode: {:?}
-     Linking: {:?}
 
      Total time: {:?}.
 ",
@@ -103,7 +117,6 @@ fn main()
         after_semantic_analysis,
         after_llvm,
         after_compiling_bytecode,
-        after_linking,
         total,
     );
 

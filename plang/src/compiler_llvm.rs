@@ -31,31 +31,6 @@ pub enum Definition
     },
 }
 
-#[derive(Clone, Debug)]
-pub struct FunctionDefinition
-{
-    pub name: String,
-
-    pub function: llvm::prelude::LLVMValueRef,
-    pub function_type: llvm::prelude::LLVMTypeRef,
-
-    pub arity: usize,
-    pub param_types: Vec<llvm::prelude::LLVMTypeRef>,
-
-    pub return_type: llvm::prelude::LLVMTypeRef,
-
-    pub code: Vec<ast::Stmt>,
-
-    pub closure: bool,
-}
-
-pub struct StructDefinition
-{
-    pub name: String,
-    pub member_names: Vec<String>,
-    pub member_types: Vec<llvm::prelude::LLVMTypeRef>
-}
-
 pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::prelude::LLVMTypeRef
 {
     match type_kind {
@@ -90,7 +65,6 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
             };
 
             *type_ref
-            // llvm::core::LLVMPointerType(*type_ref, 0)
         }
         types::TypeKind::Reference { .. } => todo!(),
     }
@@ -476,7 +450,7 @@ pub unsafe fn match_statement
             ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
         },
 
-        ast::Stmt::For { initializer, condition, advancement, body } => {
+        ast::Stmt::For { initializer, condition, advancement, body, .. } => {
             let start_branch       = builder.append_block(ctx.function_ref(), "_for_start");
             let condition_branch   = builder.append_block(ctx.function_ref(), "_for_condition");
             let body_branch        = builder.append_block(ctx.function_ref(), "_for_body");
@@ -518,7 +492,7 @@ pub unsafe fn match_statement
             builder.set_position(end_branch);
         },
 
-        ast::Stmt::While { condition, body } => {
+        ast::Stmt::While { condition, body, .. } => {
             let start_branch = builder.append_block(ctx.function_ref(), "_while_start");
             let body_branch  = builder.append_block(ctx.function_ref(), "_while_body");
             let end_branch   = builder.append_block(ctx.function_ref(), "_while_end");
@@ -556,7 +530,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
     match &expr.value {
         ast::Expr::Bad { .. } => todo!(),
 
-        ast::Expr::Block { statements, value } => {
+        ast::Expr::Block { statements, value, .. } => {
             ctx.module_scopes.begin_scope();
 
             for stmt in statements {
@@ -571,7 +545,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             deref_if_ptr(builder.builder, expr, return_type)
         },
 
-        ast::Expr::If { condition, then_branch, then_value, else_branch, else_value } => {
+        ast::Expr::If { condition, then_branch, then_value, else_branch, else_value, .. } => {
             let branch_entry_block = builder.append_block(ctx.function_ref(), "_entry_branch");
             builder.build_break(branch_entry_block);
             builder.set_position(branch_entry_block);
