@@ -1,12 +1,14 @@
 use std::fmt;
+use crate::scan;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum CompilerErrorKind
 {
-    ParseError
+    ParseError,
+    TypeError,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompilerError
 {
     pub line: usize,
@@ -37,6 +39,40 @@ impl fmt::Display for CompilerError
             line1,
             line2,
         )
+    }
+}
+
+#[derive(Clone)]
+pub struct ErrorReporter
+{
+    pub source: String,
+    pub errors: Vec<CompilerError>,
+    pub error: bool,
+}
+
+impl ErrorReporter
+{
+    pub fn error_at(&mut self, message: &str, kind: CompilerErrorKind, token: &scan::Token) -> CompilerError
+    {
+        self.error = true;
+
+        let lines: Vec<String> = self
+            .source
+            .lines()
+            .map(String::from)
+            .collect();
+
+        let error = CompilerError {
+            msg: message.to_owned(),
+            line: token.line,
+            token_index: token.token_index,
+            source_line: lines[token.line - 1].clone(),
+            token: token.value.clone(),
+            kind,
+        };
+        self.errors.push(error.clone());
+
+        error
     }
 }
 

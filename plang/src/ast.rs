@@ -46,7 +46,7 @@ pub enum Stmt
     {
         name: scan::Token,
         params: Vec<scan::Token>,
-        return_type: scan::Token,
+        return_type: Option<scan::Token>,
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
@@ -55,11 +55,6 @@ pub enum Stmt
     {
         name: scan::Token,
         initializer: Box<ExprInfo>,
-    },
-
-    Block
-    {
-        statements: Vec<Box<Stmt>>,
     },
 
     Var
@@ -77,6 +72,7 @@ pub enum Stmt
     },
 
     For {
+        token: scan::Token,
         initializer: Box<Stmt>,
         condition: Box<ExprInfo>,
         advancement: Box<Stmt>,
@@ -85,6 +81,7 @@ pub enum Stmt
 
     While
     {
+        token: scan::Token,
         condition: Box<ExprInfo>,
         body: Vec<Box<Stmt>>,
     },
@@ -109,12 +106,15 @@ pub enum Expr
 
     Block
     {
+        left_bracket: scan::Token,
+        right_bracket: scan::Token,
         statements: Vec<Box<Stmt>>,
         value: Box<ExprInfo>,
     },
 
     If
     {
+        token: scan::Token,
         condition: Box<ExprInfo>,
         then_branch: Vec<Box<Stmt>>,
         then_value: Box<ExprInfo>,
@@ -168,8 +168,10 @@ pub enum Expr
 
     Function
     {
+        left_paren: scan::Token,
+        right_paren: scan::Token,
         params: Vec<scan::Token>,
-        return_type: scan::Token,
+        return_type: Option<scan::Token>,
         param_types: Vec<scan::Token>,
         body: Vec<Box<Stmt>>,
     },
@@ -368,7 +370,7 @@ impl GlobalsHoistingTransformer
     fn match_expression(expr: &Expr, deps: &mut Vec<String>)
     {
         match expr {
-            Expr::Block { statements, value } => {
+            Expr::Block { statements, value, .. } => {
                 Self::match_statements(statements, deps);
                 Self::match_expression(&value.value, deps);
             },

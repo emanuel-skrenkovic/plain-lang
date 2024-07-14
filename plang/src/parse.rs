@@ -1,6 +1,19 @@
 use crate::{ast, scan, error};
 
 
+// params, return_type, argument_type_names, body
+
+pub struct Function
+{
+    left_paren: scan::Token,
+    right_paren: scan::Token,
+    params: Vec<scan::Token>, 
+    param_types: Vec<scan::Token>,
+    return_type: Option<scan::Token>, 
+    body: Vec<Box<ast::Stmt>>,
+}
+
+
 #[repr(u8)]
 #[derive(Copy, Clone, PartialOrd, PartialEq)]
 enum Precedence
@@ -115,7 +128,7 @@ pub struct TokenReader
     // Also keep the source in the parser for better error reporting.
     // Feel like this solution is bad, and that I should avoid cloning the source so much.
     // Got no other ideas, just feels that way currently.
-    source: String,
+    reporter: error::ErrorReporter,
     tokens: Vec<scan::Token>,
     scanned_tokens: Vec<scan::Token>,
 
@@ -125,23 +138,21 @@ pub struct TokenReader
     previous: scan::Token,
 
     panic: bool,
-    error: bool
 }
 
 impl TokenReader
 {
     #[must_use]
-    pub fn new(source: String, tokens: Vec<scan::Token>) -> Self
+    pub fn new(reporter: error::ErrorReporter, tokens: Vec<scan::Token>) -> Self
     {
         Self {
-            source,
+            reporter,
             tokens,
             scanned_tokens: Vec::with_capacity(1024 * 8),
             current_index: 0,
             current: scan::Token::default(),
             previous: scan::Token::default(),
             panic: false,
-            error: false
         }
     }
 
@@ -198,23 +209,7 @@ impl TokenReader
 
     fn error_at(&mut self, message: &str, token: &scan::Token) -> error::CompilerError
     {
-        self.panic = true;
-        self.error = true;
-
-        let lines: Vec<String> = self
-            .source
-            .lines()
-            .map(String::from)
-            .collect();
-
-        error::CompilerError {
-            msg: message.to_owned(),
-            line: token.line,
-            token_index: token.token_index,
-            source_line: lines[token.line - 1].clone(),
-            token: token.value.clone(),
-            kind: error::CompilerErrorKind::ParseError,
-        }
+        self.reporter.error_at(message, error::CompilerErrorKind::ParseError, token)
     }
 
     // TODO: horrible and I should be publicly shamed, doesn't even work oh my gosh how embarrassing oh my
@@ -239,26 +234,23 @@ pub struct Parser
 
     scope_depth: usize,
     stack: Vec<ast::Expr>,
-
-    pub errors: Vec<error::CompilerError>,
 }
 
 impl Parser
 {
     #[must_use]
-    pub fn new(source: String, tokens: Vec<scan::Token>) -> Self
+    pub fn new(reporter: error::ErrorReporter, tokens: Vec<scan::Token>) -> Self
     {
         Self {
-            reader: TokenReader::new(source, tokens),
+            reader: TokenReader::new(reporter, tokens),
             scope_depth: 0,
             stack: Vec::with_capacity(1024),
-            errors: vec![],
         }
     }
 
     pub fn compile(mut self) -> Result<Vec<ast::Node>, Vec<error::CompilerError>>
     {
-        let _ = self.reader.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance();
 
         // TODO: should probably enclose program itself.
 
@@ -280,7 +272,7 @@ impl Parser
         }
 
         if self.reader.panic {
-            return Err(self.errors)
+            return Err(self.reader.reporter.errors)
         }
 
         Ok(nodes)
@@ -293,7 +285,7 @@ impl Parser
 
     fn parse_precedence(&mut self, prec: Precedence)
     {
-        let _ = self.reader.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance();
 
         match get_rule(self.reader.previous.kind).prefix {
             Some(prefix) => {
@@ -307,7 +299,7 @@ impl Parser
         }
 
         while prec.discriminator() <= get_rule(self.reader.current.kind).precedence.discriminator() {
-            let _ = self.reader.advance().map_err(|e| self.error(e));
+            let _ = self.reader.advance();
 
             let Some(infix_rule) = get_rule(self.reader.previous.kind).infix else {
                 self.error_at("Failed to get infix rule.", &self.reader.previous.clone());
@@ -335,10 +327,17 @@ impl Parser
 
     fn block_expression(&mut self) -> ast::Expr
     {
-        let (statements, value) = self.block();
+        let (left_bracket, right_bracket, statements, value) = self.block();
+
         let value = ast::ExprInfo::new(value);
         let value = Box::new(value);
-        ast::Expr::Block { statements, value }
+        
+        ast::Expr::Block { 
+            left_bracket, 
+            right_bracket, 
+            statements, 
+            value,
+        }
     }
 
     fn binary(&mut self) -> ast::Expr
@@ -391,11 +390,11 @@ impl Parser
     {
         match self.reader.current.kind {
             scan::TokenKind::While => {
-                let _ = self.reader.advance().map_err(|e| self.error(e));
+                let _ = self.reader.advance();
                 self._while()
             },
             scan::TokenKind::For => {
-                let _ = self.reader.advance().map_err(|e| self.error(e));
+                let _ = self.reader.advance();
                 self._for()
             }
             scan::TokenKind::Identifier => {
@@ -426,7 +425,7 @@ impl Parser
 
         let variable_token = self.reader.current.clone();
 
-        let _ = self.reader.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance();
 
         let mut maybe_type_name: Option<scan::Token> = None;
         if type_definition {
@@ -457,17 +456,17 @@ impl Parser
         if self.reader.current.kind.discriminant() == scan::TokenKind::LeftParen.discriminant() && self.scope_depth == 0 {
             // Cannot use match here because this is only for global scope - we could
             // unintentionally advance.
-            let _ = self.reader.advance().map_err(|e| self.error(e));
+            let _ = self.reader.advance();
 
             // Declare self first to allow recursion.
-            let (params, return_type, param_types, body) = self.function();
+            let function = self.function();
 
             let stmt = ast::Stmt::Function {
                 name: variable_token,
-                params,
-                return_type,
-                param_types,
-                body,
+                params: function.params,
+                return_type: function.return_type,
+                param_types: function.param_types,
+                body: function.body,
             };
             return Some(stmt)
         }
@@ -510,7 +509,7 @@ impl Parser
 
         let variable_token = self.reader.current.clone();
 
-        let _ = self.reader.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance();
 
         let mut maybe_type_name: Option<scan::Token> = None;
         if type_definition {
@@ -601,11 +600,19 @@ impl Parser
 
     fn function_expression(&mut self) -> ast::Expr
     {
-        let (params, return_type, param_types, body) = self.function();
-        ast::Expr::Function { params, return_type, param_types, body }
+        // let (params, return_type, param_types, body) = self.function();
+        let function = self.function();
+        ast::Expr::Function { 
+            left_paren: function.left_paren,
+            right_paren: function.right_paren,
+            params: function.params, 
+            return_type: function.return_type, 
+            param_types: function.param_types, 
+            body: function.body
+        }
     }
 
-    fn function(&mut self) -> (Vec<scan::Token>, scan::Token, Vec<scan::Token>, Vec<Box<ast::Stmt>>)
+    fn function(&mut self) -> Function
     {
         self.begin_scope();
 
@@ -615,8 +622,10 @@ impl Parser
         // let function_token = self.reader.peek(-3).unwrap().clone();
         // let function_name = function_token.value.clone();
 
-        let mut argument_type_names = Vec::with_capacity(512);
-        let mut params              = Vec::with_capacity(512);
+        let left_paren = self.reader.previous.clone();
+
+        let mut param_types = Vec::with_capacity(512);
+        let mut params      = Vec::with_capacity(512);
 
         if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -629,17 +638,22 @@ impl Parser
                 self.consume(scan::TokenKind::Identifier, "Expected type identifier");
 
                 let type_name = &self.reader.previous;
-                argument_type_names.push(type_name.clone());
+                param_types.push(type_name.clone());
 
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
-        self.consume(scan::TokenKind::Colon, "Expect ':' after function parameters.");
-        self.consume(scan::TokenKind::Identifier, "Expect return type identifier.");
+        let right_paren = self.reader.previous.clone();
 
-        let return_type = self.reader.previous.clone();
+        self.consume(scan::TokenKind::Colon, "Expect ':' after function parameters.");
+
+        let return_type = if self.match_token(scan::TokenKind::Identifier) {
+            Some(self.reader.previous.clone())
+        } else {
+            None
+        };
 
         self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
 
@@ -653,11 +667,21 @@ impl Parser
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
         self.end_scope();
-        (params, return_type, argument_type_names, body)
+        Function {
+            left_paren,
+            right_paren,
+            params, 
+            param_types,
+            return_type, 
+            body,
+        }
     }
 
-    fn block(&mut self) -> (Vec<Box<ast::Stmt>>, ast::Expr)
+    // fn block(&mut self) -> (Vec<Box<ast::Stmt>>, ast::Expr)
+    fn block(&mut self) -> (scan::Token, scan::Token, Vec<Box<ast::Stmt>>, ast::Expr)
     {
+        let left_bracket = self.reader.previous.clone();
+
         self.begin_scope();
 
         let mut statements = vec![];
@@ -676,6 +700,8 @@ impl Parser
                         && !statements.is_empty();
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+        let right_bracket = self.reader.previous.clone();
+
         self.match_token(scan::TokenKind::Semicolon);
 
         // TODO: need to take tokens into account here:
@@ -692,22 +718,24 @@ impl Parser
         };
 
         self.end_scope();
-        (statements, expr)
+        (left_bracket, right_bracket, statements, expr)
     }
 
     fn _if(&mut self) -> ast::Expr
     {
+        let token = self.reader.previous.clone();
+
         let condition = self.expression();
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
-        let (then_branch, then_value) = self.block();
+        let (_, _, then_branch, then_value) = self.block();
 
         // This looks ugly. :(
         let (else_branch, else_value) = if self.match_token(scan::TokenKind::Else) {
             self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
-            let (branch, value) = self.block();
+            let (_, _, branch, value) = self.block();
             (branch, value)
         } else {
             (vec![], ast::Expr::Literal { value: scan::Token::default() })
@@ -718,6 +746,7 @@ impl Parser
         let else_value = Box::new(ast::ExprInfo::new(else_value));
 
         ast::Expr::If {
+            token,
             condition: Box::new(condition),
             then_branch,
             then_value,
@@ -728,6 +757,8 @@ impl Parser
 
     fn _while(&mut self) -> ast::Stmt
     {
+        let while_token = self.reader.previous.clone();
+        
         let condition = self.expression();
 
         // Body
@@ -745,6 +776,7 @@ impl Parser
         let condition = ast::ExprInfo::new(condition);
 
         ast::Stmt::While {
+            token: while_token,
             condition: Box::new(condition),
             body,
         }
@@ -755,6 +787,8 @@ impl Parser
     // will make up for everything.
     fn _for(&mut self) -> ast::Stmt
     {
+        let for_token = self.reader.previous.clone();
+         
         // TODO: no unwrap
         let variable       = self.variable_statement().unwrap();
         let condition_expr = self.expression();
@@ -777,6 +811,7 @@ impl Parser
         let condition_expr = ast::ExprInfo::new(condition_expr);
 
         ast::Stmt::For {
+            token: for_token,
             initializer: Box::new(variable),
             condition: Box::new(condition_expr),
             advancement: Box::new(advancement),
@@ -876,7 +911,7 @@ impl Parser
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' on struct definition.");
 
-        let mut fields = Vec::with_capacity(1024);
+        let mut fields      = Vec::with_capacity(1024);
         let mut field_types = Vec::with_capacity(1024);
 
         // TODO: parse fields
@@ -932,29 +967,20 @@ impl Parser
             return false
         }
 
-        let _ = self.reader.advance().map_err(|e| self.error(e));
+        let _ = self.reader.advance();
         true
     }
 
     fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str)
     {
-        let _ = self
-            .reader
-            .consume(token_kind, error_message)
-            .map_err(|e| self.error(e));
+        let _ = self.reader.consume(token_kind, error_message);
     }
 
     //
 
     fn error_at(&mut self, msg: &str, token: &scan::Token) -> ast::Expr
     {
-        let err = self.reader.error_at(msg, token);
-        self.errors.push(err);
+        self.reader.error_at(msg, token);
         ast::Expr::Bad { token: token.clone() }
-    }
-
-    fn error(&mut self, err: error::CompilerError)
-    {
-        self.errors.push(err)
     }
 }
