@@ -59,7 +59,7 @@ fn main()
     let after_transformation = now_transformation.elapsed();
 
     let now_type_analysis = std::time::Instant::now();
-    let (program, type_info) = types::infer_types(&mut reporter, &program);
+    let (program, type_info) = types::Typer::new(&mut reporter).infer_types(&program);
     let after_type_analysis = now_type_analysis.elapsed();
 
     println!("{:#?}", program);
