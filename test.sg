@@ -15,15 +15,22 @@ main :: (): i32
 		c: 33,
 	};
 
-	d :: if s.a == 3 {
+	d := if s.a == 3 {
 		0
 	} else {
 		1
 	};
 
+	mutate :: () {
+		s.a = 15;
+		d = d - 5;
+	}
+	
+	mutate();
+
 	result1 := sum(s);
 
-	printf("%d |", result1);
+	printf("%d |", result1 + d);
 
 	s.a = 94;
 	s.b = 182;

@@ -166,21 +166,14 @@ impl Builder
     pub unsafe fn build_function
     (
         &self,
-        ctx: &Context,
         name: String,
-        argument_type_kinds: &[&types::TypeKind],
-        return_type_kind: &types::TypeKind,
+        mut param_types: Vec<llvm::prelude::LLVMTypeRef>,
+        return_type: llvm::prelude::LLVMTypeRef,
         code: Vec<ast::Stmt>,
         closure: bool,
     ) -> Definition
     {
-        let return_type = to_llvm_type(ctx, return_type_kind);
-        let arity       = argument_type_kinds.len();
-
-        let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = argument_type_kinds
-            .iter()
-            .map(|arg| to_llvm_type(ctx, arg))
-            .collect();
+        let arity = param_types.len();
 
         let function_type = llvm
             ::core
@@ -734,26 +727,15 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .unwrap_or_else(|| panic!("Expect variable '{}'.", &name.value))
                 .clone();
 
-            let Definition::Function { function, function_type, param_types, closure, arity, .. } = function else {
+            let Definition::Function { function, function_type, param_types, closure, arity, return_type, .. } = function else {
                 panic!()
             };
 
-            // TODO: only do the below if it's a closure.
             let mut closed_variables = if closure {
-                variables_in_scope(ctx)
+                captured_variables(ctx)
                     .iter()
-                    .enumerate()
-                    .filter(|(_, (key, _))| key != &name.value)
-                    .map(|(i, (name, var))| {
-                        let type_kind = ctx
-                            .type_info
-                            .get_from_scope(ctx.current_scope(), name)
-                            .expect("Expect argument type kind.");
-                        let source_type      = to_llvm_type(ctx, type_kind);
-                        let destination_type = param_types[i];
-
-                        prime_argument(builder.builder, *var, source_type, destination_type)
-                    })
+                    .filter(|(key, _)| key != &name.value)
+                    .map(|(_, var)| *var)
                     .collect()
             } else {
                 vec![]
@@ -779,6 +761,14 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             args.append(&mut initial_args);
             args.append(&mut closed_variables);
 
+            let is_void = is_void(return_type);
+
+            // LLVM requires the name of the call result to be an empty string
+            // when the function return type is 'void'.
+            let call_result_name = if is_void { "" } 
+                                   else       { "_call" };
+
+            let n = ffi::CString::new(call_result_name).unwrap();
             let result = llvm::core::LLVMBuildCall2
             (
                 builder.builder,
@@ -786,17 +776,17 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 function,
                 args.as_mut_ptr(),
                 arity as u32,
-                binary_cstr!("_call"),
+                n.as_ptr(),
             );
 
-            deref_if_primitive(builder.builder, result, function_type)
+            if is_void { result } 
+            else       { deref_if_primitive(builder.builder, result, function_type) }
         },
 
-        ast::Expr::Function { params, body, .. }
-            => {
-                let name = ctx.name.take().unwrap(/*TODO: remove unwrap*/);
-                closure(ctx, builder, &name, params.to_vec(), body.to_vec())
-            }
+        ast::Expr::Function { params, body, .. } => {
+            let name = ctx.name.take().unwrap(/*TODO: remove unwrap*/);
+            closure(ctx, builder, &name, params.to_vec(), body.to_vec())
+        }
 
         ast::Expr::Struct { name, values, .. } => {
             let type_kind = ctx
@@ -954,7 +944,7 @@ unsafe fn closure
 {
     ctx.module_scopes.begin_scope();
 
-    let mut closed_variables: Vec<String> = variables_in_scope(ctx)
+    let mut closed_variables: Vec<String> = captured_variables(ctx)
         .into_iter()
         .filter(|(n, _)| n != &name)
         .map(|(name, _)| name.to_string())
@@ -973,7 +963,7 @@ unsafe fn closure
 
     // let (_, function_call) = ctx.declarations.get(name).unwrap();
     let function_call = ctx.get_definition(name).unwrap().clone();
-    let Definition::Function { function, return_type, .. } = function_call else {
+    let Definition::Function { function, param_types, return_type, .. } = function_call else {
         panic!()
     };
 
@@ -993,26 +983,30 @@ unsafe fn closure
     for (i, param) in closed_params.iter().enumerate() {
         let param_ref     = llvm::core::LLVMGetParam(function, i as u32);
         let param_op_name = ffi::CString::new(param.clone()).unwrap();
-        llvm::core::LLVMSetValueName2(param_ref, param_op_name.as_ptr(), param.len());
 
-        ctx.module_scopes.add_to_current(param, (param_ref, llvm::core::LLVMTypeOf(param_ref)));
+        llvm::core::LLVMSetValueName2(param_ref, param_op_name.as_ptr(), param_op_name.as_bytes().len());
+
+        ctx.module_scopes.add_to_current(param, (param_ref, param_types[i]));
     }
 
-    if !body.is_empty() {
-        for stmt in &body[..body.len()-1] {
+    // #horribleways
+    if llvm::core::LLVMGetTypeKind(return_type) == llvm::LLVMTypeKind::LLVMVoidTypeKind {
+        for stmt in &body[..body.len()] {
             match_statement(ctx, &mut function_builder, stmt);
         }
-    }
+        llvm::core::LLVMBuildRetVoid(function_builder.builder);
+    } else {
+        for stmt in &body[..body.len() - 1] {
+            match_statement(ctx, &mut function_builder, stmt);
+        }
 
-    let result = match body.last().map(|s| s.as_ref()) {
-        Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_builder, expr),
-        _                              => llvm::core::LLVMConstNull(return_type),
+        let result = match body.last().map(|s| s.as_ref()) {
+            Some(ast::Stmt::Expr { expr }) => match_expression(ctx, &mut function_builder, expr),
+            _                              => llvm::core::LLVMConstNull(return_type),
+        };
+        llvm::core::LLVMBuildRet(function_builder.builder, result);
     };
-
-
-    let result = deref_if_primitive(function_builder.builder, result, return_type);
-    llvm::core::LLVMBuildRet(function_builder.builder, result);
-
+    
     ctx.module_scopes.end_scope();
 
     function
@@ -1037,19 +1031,18 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         panic!("Expected function type kind.");
                     };
 
-                    let parameter_types: Vec<&types::TypeKind> = parameter_kinds
+                    let param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
                         .iter()
-                        .map(|p| p.as_ref())
+                        .map(|p| to_llvm_type(ctx, p))
                         .collect();
+
+                    let return_type = to_llvm_type(ctx, return_kind);
 
                     let function_call = builder.build_function
                     (
-                        ctx,
                         name.to_string(),
-
-                        &parameter_types,
-
-                        return_kind,
+                        param_types,
+                        return_type,
                         body.iter().map(|s| *s.clone()).collect(),
                         false,
                     );
@@ -1066,38 +1059,34 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         panic!("Expected type kind.");
                     };
 
-                    let mut capture_kinds: Vec<&types::TypeKind> = captures.iter().map(|c| {
-                        let value_type = ctx
-                            .type_info
-                            .get_from_scope(scope.index, c)
-                            .unwrap_or_else(|| panic!("Expect closed variable '{}'", c));
-
-                        value_type
-                    }).collect();
+                    let mut capture_kinds = vec![
+                        llvm::core::LLVMPointerTypeInContext(ctx.llvm_ctx, 0); 
+                        captures.len()
+                    ];
 
                     let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
                         panic!("Expected function type kind.");
                     };
 
-                    let mut parameter_types: Vec<&types::TypeKind> = parameter_kinds
+                    let mut parameter_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
                         .iter()
                         .map(|p| p.as_ref())
+                        .map(|p| to_llvm_type(ctx, p))
                         .collect();
 
                     let arity = capture_kinds.len() + parameter_types.len();
-                    let mut arg_types = Vec::with_capacity(arity);
+                    let mut param_types = Vec::with_capacity(arity);
 
-                    arg_types.append(&mut capture_kinds);
-                    arg_types.append(&mut parameter_types);
+                    param_types.append(&mut capture_kinds);
+                    param_types.append(&mut parameter_types);
+
+                    let return_type = to_llvm_type(ctx, return_kind);
 
                     let function_call = builder.build_function
                     (
-                        ctx,
                         name.to_string(),
-
-                        &arg_types,
-
-                        return_kind,
+                        param_types,
+                        return_type,
                         body.iter().map(|s| *s.clone()).collect(),
                         true,
                     );
@@ -1219,7 +1208,12 @@ unsafe fn deref_if_ptr
     value
 }
 
-pub unsafe fn variables_in_scope(ctx: &Context) -> Vec<(&str, llvm::prelude::LLVMValueRef)>
+pub unsafe fn is_void(type_ref: llvm::prelude::LLVMTypeRef) -> bool
+{
+    llvm::core::LLVMGetTypeKind(type_ref) == llvm::LLVMTypeKind::LLVMVoidTypeKind
+}
+
+pub unsafe fn captured_variables(ctx: &Context) -> Vec<(&str, llvm::prelude::LLVMValueRef)>
 {
     let scope = ctx.module_scopes.current_scope();
 
@@ -1233,6 +1227,8 @@ pub unsafe fn variables_in_scope(ctx: &Context) -> Vec<(&str, llvm::prelude::LLV
     }
 
     for i in &scope.path {
+        if *i == 0 { continue }
+
         let closed_scope = &ctx.module_scopes.scopes[*i];
 
         for i in 0..closed_scope.values.len() {
