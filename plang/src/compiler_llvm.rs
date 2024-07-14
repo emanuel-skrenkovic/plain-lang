@@ -1,9 +1,51 @@
 extern crate llvm_sys as llvm;
 
-use std::ffi;
 use macros::binary_cstr;
 
 use crate::{ast, scope, scan, semantic_analysis, types};
+
+pub struct CStr
+{
+    value: *mut i8,
+    len: usize,
+}
+
+impl CStr
+{
+    pub fn new(value: String) -> Self
+    {
+        use std::ffi;
+        let len = value.len();
+        let value = ffi::CString::new(value).unwrap();
+        let raw = value.into_raw();
+        Self { 
+            value: raw,
+            len,
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self
+    {
+        use std::ffi;
+        let len = value.len();
+        let value = ffi::CString::new(value).unwrap();
+        Self { 
+            value: value.into_raw(),
+            len,
+        }
+    }
+}
+
+impl Drop for CStr
+{
+    fn drop(&mut self)
+    {
+        unsafe {
+            use std::ffi;
+            let _ = ffi::CString::from_raw(self.value);
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum Definition
@@ -111,12 +153,12 @@ impl Builder
         name: &str
     ) -> llvm::prelude::LLVMBasicBlockRef
     {
-        let block_name = ffi::CString::new(name).unwrap();
+        let block_name = CStr::from_str(name);
         llvm::core::LLVMAppendBasicBlockInContext
         (
             self.ctx,
             function_ref,
-            block_name.as_ptr(),
+            block_name.value,
         )
     }
 
@@ -140,8 +182,8 @@ impl Builder
 
     pub unsafe fn build_struct_definition(&self, ctx: &Context, name: &str) -> Definition
     {
-        let struct_definition_name = ffi::CString::new(name).unwrap();
-        let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, struct_definition_name.as_ptr());
+        let struct_definition_name = CStr::from_str(name);
+        let struct_type = llvm::core::LLVMStructCreateNamed(ctx.llvm_ctx, struct_definition_name.value);
 
         let struct_type_kind = ctx.type_info.get_from_scope(ctx.current_scope(), name).unwrap();
         let types::TypeKind::Struct { field_names, field_types, .. } = struct_type_kind else {
@@ -210,7 +252,7 @@ impl Builder
             llvm::core::LLVMConstInt(index_type, member_index as u64, 0)
         ].as_mut_ptr();
 
-        let member_ref_name = ffi::CString::new("_member_access").unwrap();
+        let member_ref_name = CStr::from_str("_member_access");
         llvm::core::LLVMBuildInBoundsGEP2
         (
             self.builder, 
@@ -218,7 +260,7 @@ impl Builder
             struct_pointer,
             indices,
             1,
-            member_ref_name.as_ptr(),
+            member_ref_name.value
         )
     }
 }
@@ -347,12 +389,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     module
 }
 
-pub unsafe fn match_statement
-(
-    ctx: &mut Context,
-    builder: &mut Builder,
-    stmt: &ast::Stmt
-)
+pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &ast::Stmt)
 {
     match stmt {
         ast::Stmt::Function { name, params, body, .. } => {
@@ -417,13 +454,13 @@ pub unsafe fn match_statement
 
         ast::Stmt::Const { name, initializer, .. } => {
             let type_ref      = to_llvm_type(ctx, &initializer.type_kind);
-            let variable_name = ffi::CString::new(name.value.clone()).unwrap();
+            let variable_name = CStr::new(name.value.clone());
 
             ctx.name = Some(name.value.clone());
 
             // Global scoped variables work differently.
             let variable = if ctx.is_global() {
-                let global = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.as_ptr());
+                let global = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.value);
                 let value  = match_expression(ctx, builder, initializer);
 
                 llvm::core::LLVMSetInitializer(global, value);
@@ -432,7 +469,7 @@ pub unsafe fn match_statement
             } else {
                 let variable = llvm
                     ::core
-                    ::LLVMBuildAlloca(builder.builder, type_ref, variable_name.as_ptr());
+                    ::LLVMBuildAlloca(builder.builder, type_ref, variable_name.value);
 
                 let value = match_expression(ctx, builder, initializer);
                 llvm::core::LLVMBuildStore(builder.builder, value, variable);
@@ -629,10 +666,10 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 types::TypeKind::String { .. } => {
                     let value   = &value.value;
                     let trimmed = value[1..value.len()-1].to_string(); // Strip away '"' from start and end.
-                    let val     = ffi::CString::new(trimmed).unwrap();
+                    let val     = CStr::new(trimmed);
                     llvm
                         ::core
-                        ::LLVMConstStringInContext(ctx.llvm_ctx, val.as_ptr(), value.len() as u32, 0)
+                        ::LLVMConstStringInContext(ctx.llvm_ctx, val.value, value.len() as u32, 0)
                 }
 
                 _ => panic!("Unrecognized literal type {:#?}", expr),
@@ -768,7 +805,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             let call_result_name = if is_void { "" } 
                                    else       { "_call" };
 
-            let n = ffi::CString::new(call_result_name).unwrap();
+            let call_name = CStr::from_str(call_result_name);
             let result = llvm::core::LLVMBuildCall2
             (
                 builder.builder,
@@ -776,7 +813,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 function,
                 args.as_mut_ptr(),
                 arity as u32,
-                n.as_ptr(),
+                call_name.value,
             );
 
             if is_void { result } 
@@ -804,12 +841,12 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             };
 
             // TODO: actual alloc size.
-            let struct_alloc_name = ffi::CString::new("_struct_alloc").unwrap();
+            let struct_alloc_name = CStr::from_str("_struct_alloc");
             let struct_pointer = llvm::core::LLVMBuildAlloca
             (
                 builder.builder, 
                 type_ref,
-                struct_alloc_name.as_ptr(),
+                struct_alloc_name.value,
             );
 
             // Struct fields initialisation.
@@ -982,9 +1019,9 @@ unsafe fn closure
 
     for (i, param) in closed_params.iter().enumerate() {
         let param_ref     = llvm::core::LLVMGetParam(function, i as u32);
-        let param_op_name = ffi::CString::new(param.clone()).unwrap();
+        let param_op_name = CStr::new(param.clone());
 
-        llvm::core::LLVMSetValueName2(param_ref, param_op_name.as_ptr(), param_op_name.as_bytes().len());
+        llvm::core::LLVMSetValueName2(param_ref, param_op_name.value, param_op_name.len);
 
         ctx.module_scopes.add_to_current(param, (param_ref, param_types[i]));
     }
