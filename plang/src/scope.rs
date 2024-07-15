@@ -58,7 +58,7 @@ impl <T> Module<T>
                 new_scope_path.push(parent_scope.index);
                 new_scope_path
             }
-            _ => vec![],
+            _ => Vec::with_capacity(512)
         };
 
         let new_scope = Scope {

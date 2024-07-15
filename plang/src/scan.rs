@@ -100,11 +100,11 @@ impl Scanner
 
     pub fn scan_tokens(&mut self) -> Vec<Token>
     {
-        let mut tokens: Vec<Token> = Vec::with_capacity(1024 * 8);
+        let mut tokens: Vec<Token> = Vec::with_capacity(1024);
 
         loop {
             let current = self.scan_token();
-            let end = current.kind.discriminant() == TokenKind::End.discriminant();
+            let end     = current.kind.discriminant() == TokenKind::End.discriminant();
 
             tokens.push(current);
 

@@ -30,8 +30,8 @@ pub enum DeclarationKind
     Struct
     {
         name: String,
-        field_names: Vec<String>,
-        field_types: Vec<String>,
+        member_names: Vec<String>,
+        member_types: Vec<String>,
     },
 
     Const { initializer: Box<ast::ExprInfo> },
@@ -75,15 +75,13 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
 {
     match stmt {
         ast::Stmt::Function { name, params, body, .. } => {
-            let declaration = Declaration {
-                kind: DeclarationKind::Function {
-                    function: Function {
-                        params: params.clone(),
-                        body: body.clone(),
-                    }
+            let kind = DeclarationKind::Function { 
+                function: Function { 
+                    params: params.clone(), 
+                    body: body.clone(),
                 },
             };
-
+            let declaration = Declaration { kind };
             symbol_table.module.add_to_current(&name.value.clone(), declaration);
 
             symbol_table.module.begin_scope();
@@ -96,11 +94,14 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
         },
 
         ast::Stmt::Struct { name, members, member_types } => {
+            let member_names = members.iter().map(|m| m.value.clone()).collect();
+            let member_types = member_types.iter().map(|t| t.value.clone()).collect();
+
             let declaration = Declaration {
                 kind: DeclarationKind::Struct {
                     name: name.value.clone(),
-                    field_names: members.iter().map(|m| m.value.clone()).collect(),
-                    field_types: member_types.iter().map(|t| t.value.clone()).collect(),
+                    member_names, 
+                    member_types, 
                 }
             };
 
@@ -116,10 +117,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
                             body: body.clone(),
                         },
                     };
-                    let declaration = Declaration {
-                        kind,
-                    };
-
+                    let declaration = Declaration { kind };
                     symbol_table.module.add_to_current(&name.value, declaration);
 
                     symbol_table.module.begin_scope();

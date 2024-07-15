@@ -27,8 +27,8 @@ pub enum TypeKind
 
     Struct {
         name: String,
-        field_names: Vec<String>,
-        field_types: Vec<Box<TypeKind>>,
+        member_names: Vec<String>,
+        member_types: Vec<Box<TypeKind>>,
     },
 
     Reference {
@@ -125,19 +125,19 @@ impl <'a> Typer<'a>
                 }
 
                 ast::Stmt::Struct { name, members, member_types } => {
-                    let field_types: Vec<Box<TypeKind>> = member_types
+                    let member_types: Vec<Box<TypeKind>> = member_types
                         .iter()
                         .map(|t| self.type_from_identifier(t))
                         .map_while(|t| t.ok())
                         .map(Box::new)
                         .collect();
 
-                    let field_names = members.iter().map(|m| m.value.clone()).collect();
+                    let member_names = members.iter().map(|m| m.value.clone()).collect();
 
                     let kind = TypeKind::Struct {
                         name: name.value.clone(),
-                        field_names,
-                        field_types,
+                        member_names,
+                        member_types,
                     };
 
                     self.type_info.add_to_current(&name.value, kind);
@@ -178,7 +178,6 @@ impl <'a> Typer<'a>
                     TypeKind::Unit
                 } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
                     self.match_expression(&mut expr.value)?
-                        
                 } else {
                     TypeKind::Unit
                 };
@@ -222,19 +221,19 @@ impl <'a> Typer<'a>
             },
 
             ast::Stmt::Struct { name, members, member_types } => {
-                let field_types: Vec<Box<TypeKind>> = member_types
+                let member_types: Vec<Box<TypeKind>> = member_types
                     .iter()
                     .map(|t| self.type_from_identifier(t))
                     .map_while(|t| t.ok())
                     .map(Box::new)
                     .collect();
 
-                let field_names = members.iter().map(|m| m.value.clone()).collect();
+                let member_names = members.iter().map(|m| m.value.clone()).collect();
 
                 let kind = TypeKind::Struct {
                     name: name.value.clone(),
-                    field_names,
-                    field_types,
+                    member_names,
+                    member_types,
                 };
 
                 self.type_info.add_to_current(&name.value, kind);
@@ -278,13 +277,14 @@ impl <'a> Typer<'a>
             }
 
             ast::Stmt::For { token, initializer, condition, advancement, body } => {
-                self.match_statement(initializer)?;
+                let _ = self.match_statement(initializer);
 
                 let condition_type = self.match_expression(&mut condition.value)?;
                 if condition_type != TypeKind::Bool {
                     let message = format!("'for' condition type must be a boolean. Found type: {:?}", condition_type);
                     self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token);
                 }
+
                 condition.type_kind = condition_type;
 
                 let _ = self.match_statement(advancement);
@@ -342,7 +342,7 @@ impl <'a> Typer<'a>
 
                 if condition_type != TypeKind::Bool {
                     let message = format!("'if' condition type must be a boolean. Found type: {:?}", condition_type);
-                    self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token);
+                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token));
                 }
 
                 let kind = then_branch_type.clone();
@@ -424,17 +424,17 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
                 };
 
-                let TypeKind::Struct { name, field_names, field_types, .. } = instance_type else {
+                let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
                     let message = format!("Instance type is not a struct. Found: {:?}", instance_type);
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, instance_name));
                 };
 
-                let Some(index) = field_names.iter().position(|n| n == &member_name.value) else {
+                let Some(index) = member_names.iter().position(|n| n == &member_name.value) else {
                     let message = format!("{} is not a member of {}", &member_name.value, name);
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
                 };
 
-                let member_type = &field_types[index];
+                let member_type = &member_types[index];
                 if member_type.as_ref() != &kind {
                     let message = format!(
                         "Value of assignment does not match member type. Found {:?}. Expected {:?}",
@@ -454,18 +454,18 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, instance_name))
                 };
 
-                let TypeKind::Struct { name, field_names, field_types, .. } = instance_type else {
+                let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
                     let message = format!("Instance type is not a struct. Found: {:?}", instance_type);
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, instance_name));
                 };
 
-                let index = field_names.iter().position(|n| n == &member_name.value);
+                let index = member_names.iter().position(|n| n == &member_name.value);
                 let Some(index) = index else {
                     let message = format!("{} is not a member of {}", &member_name.value, name);
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
                 };
 
-                *field_types[index].clone()
+                *member_types[index].clone()
             }
             ast::Expr::Logical => todo!(),
 
@@ -481,7 +481,8 @@ impl <'a> Typer<'a>
                     TypeKind::Unknown
                 } else {
                     let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(&name.value) else {
-                        panic!("PANIC PANIC");
+                        let message = format!("'{}' is not a function.", &name.value);
+                        return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
                     };
 
                     *return_kind.clone()
@@ -526,7 +527,7 @@ impl <'a> Typer<'a>
 
                 let instance_type = instance_type.clone();
 
-                let TypeKind::Struct { field_names, field_types, .. } = instance_type else {
+                let TypeKind::Struct { member_names, member_types, .. } = instance_type else {
                     let message = format!("Instance type is not a struct. Found: {:?}", name);
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
                 };
@@ -537,12 +538,14 @@ impl <'a> Typer<'a>
 
                     let member_name = &members[i];
 
-                    let Some(index) = field_names.iter().position(|n| n == &member_name.value) else {
+                    let Some(index) = member_names.iter().position(|n| n == &member_name.value) else {
                         let message = format!("{} is not a member of {}", &member_name.value, name);
-                        return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
+                        self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name);
+
+                        continue
                     };
 
-                    let member_type = &field_types[index];
+                    let member_type = &member_types[index];
                     if member_type.as_ref() != &kind {
                         let message = format!(
                             "Value of assignment does not match member type. Found {:?}. Expected {:?}",
@@ -551,8 +554,9 @@ impl <'a> Typer<'a>
                         );
 
                         self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name);
-                    }
 
+                        continue
+                    }
 
                     value.type_kind = kind;
                 }
@@ -571,10 +575,10 @@ impl <'a> Typer<'a>
 
     fn type_from_identifier(&mut self, token: &scan::Token) -> Result<TypeKind, error::CompilerError>
     {
-        match token.value.as_str() {
-            "i32"    => Ok(TypeKind::I32),
-            "string" => Ok(TypeKind::String { len: token.value.len() }),
-            "bool"   => Ok(TypeKind::Bool),
+        let kind = match token.value.as_str() {
+            "i32"    => TypeKind::I32,
+            "string" => TypeKind::String { len: token.value.len() },
+            "bool"   => TypeKind::Bool,
             _        => {
                 let kind = self.type_info.get(&token.value);
                 let Some(kind) = kind else {
@@ -582,9 +586,11 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token))
                 };
 
-                Ok(kind.clone())
+                kind.clone()
             }
-        }
+        };
+
+        Ok(kind)
     }
 }
 

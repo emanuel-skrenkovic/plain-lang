@@ -441,7 +441,9 @@ impl Parser
                     &self.reader.current.clone()
                 );
                 let error = ast::ExprInfo::new(error);
-                return Some(ast::Stmt::Expr { expr: Box::new(error) })
+                let error = Box::new(error);
+
+                return Some(ast::Stmt::Expr { expr: error })
             }
         } else if mutable || immutable {
             let mutable = if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon };
@@ -512,23 +514,27 @@ impl Parser
         let _ = self.reader.advance();
 
         let mut maybe_type_name: Option<scan::Token> = None;
-        if type_definition {
-            let _ = self.match_token(scan::TokenKind::Colon);
-            self.consume(scan::TokenKind::Identifier, "Expected identifier");
+        match (type_definition, immutable, mutable) {
+            (true, _, _) => {
+                let _ = self.match_token(scan::TokenKind::Colon);
+                self.consume(scan::TokenKind::Identifier, "Expect identifier");
 
-            maybe_type_name = Some(self.reader.previous.clone());
+                maybe_type_name = Some(self.reader.previous.clone());
 
-            if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
-                let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.reader.current.clone());
-                let error = ast::ExprInfo::new(error);
-                return Some(ast::Stmt::Expr { expr: Box::new(error) })
+                if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
+                    let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.reader.current.clone());
+                    let error = ast::ExprInfo::new(error);
+                    return Some(ast::Stmt::Expr { expr: Box::new(error) })
+                }
             }
-        } else if mutable || immutable {
-            self.match_token(
-                if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon }
-            );
-        } else {
-            return None
+
+            (false, true, _) | (false, _, true) => {
+                self.match_token(
+                    if mutable { scan::TokenKind::ColonEquals } else { scan::TokenKind::ColonColon }
+                );
+            }
+
+            _ => { return None }
         }
 
         let initializer = self.expression();
@@ -684,12 +690,13 @@ impl Parser
 
         self.begin_scope();
 
-        let mut statements = vec![];
+        let mut statements = Vec::with_capacity(1024);
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let statement = self.declaration();
-            statements.push(Box::new(statement));
+            let statement = Box::new(statement);
+            statements.push(statement);
         }
 
         // Blocks are expressions - this captures if the block contains a value,
@@ -708,11 +715,13 @@ impl Parser
         // if the last expression in the block ends with a semicolon,
         // it is of Unit value;
         let expr = if has_value {
-            let binding = statements.pop().unwrap();
-            match binding.as_ref() {
-                ast::Stmt::Expr { expr } => expr.to_owned().value,
-                _                        => panic!(),
-            }
+            let binding                  = statements.pop().unwrap();
+            let ast::Stmt::Expr { expr } = binding.as_ref() else {
+                // TODO: I don't like this panic here.
+                panic!();
+            };
+
+            expr.to_owned().value
         } else {
             ast::Expr::Literal { value: scan::Token::default() }
         };
@@ -758,26 +767,27 @@ impl Parser
     fn _while(&mut self) -> ast::Stmt
     {
         let while_token = self.reader.previous.clone();
-        
-        let condition = self.expression();
+        let condition   = self.expression();
 
         // Body
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body = vec![];
+        let mut body = Vec::with_capacity(1024);
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let stmt = self.declaration();
-            body.push(Box::new(stmt));
+            let stmt = Box::new(stmt);
+            body.push(stmt);
         }
 
         self.match_token(scan::TokenKind::RightBracket);
 
         let condition = ast::ExprInfo::new(condition);
+        let condition = Box::new(condition);
 
         ast::Stmt::While {
             token: while_token,
-            condition: Box::new(condition),
+            condition,
             body,
         }
     }
@@ -790,31 +800,37 @@ impl Parser
         let for_token = self.reader.previous.clone();
          
         // TODO: no unwrap
-        let variable       = self.variable_statement().unwrap();
-        let condition_expr = self.expression();
+        let variable = self.variable_statement().unwrap();
+        let variable = Box::new(variable);
+
+        let condition = self.expression();
+        let condition = ast::ExprInfo::new(condition);
+        let condition = Box::new(condition);
+
         // TODO: needs to be just unary statement.
-        let advancement    = self.declaration();
+        let advancement = self.declaration();
+        let advancement = Box::new(advancement);
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body: Vec<Box<ast::Stmt>> = vec![];
+        let mut body: Vec<Box<ast::Stmt>> = Vec::with_capacity(1024);
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
-            body.push(Box::new(self.declaration()));
+            let declaration = self.declaration();
+            let declaration = Box::new(declaration);
+            body.push(declaration);
         }
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' after the 'for' block.");
 
         // end body
 
-        let condition_expr = ast::ExprInfo::new(condition_expr);
-
         ast::Stmt::For {
             token: for_token,
-            initializer: Box::new(variable),
-            condition: Box::new(condition_expr),
-            advancement: Box::new(advancement),
+            initializer: variable,
+            condition,
+            advancement,
             body,
         }
     }
@@ -828,7 +844,7 @@ impl Parser
 
         let function_name_token = token.clone();
 
-        let mut arguments: Vec<Box<ast::ExprInfo>> = vec![];
+        let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
 
         if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -863,12 +879,12 @@ impl Parser
 
         if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
-                self.consume(scan::TokenKind::Identifier, "Expect field name.");
+                self.consume(scan::TokenKind::Identifier, "Expect member ame.");
 
-                let field_name = self.reader.previous.clone();
-                members.push(field_name);
+                let member_name = self.reader.previous.clone();
+                members.push(member_name);
 
-                self.consume(scan::TokenKind::Colon, "Expect ':' after field initializer name.");
+                self.consume(scan::TokenKind::Colon, "Expect ':' after member initializer name.");
 
                 let expr = self.expression();
                 let expr = ast::ExprInfo::new(expr);
@@ -911,20 +927,19 @@ impl Parser
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' on struct definition.");
 
-        let mut fields      = Vec::with_capacity(1024);
-        let mut field_types = Vec::with_capacity(1024);
+        let mut members      = Vec::with_capacity(1024);
+        let mut member_types = Vec::with_capacity(1024);
 
-        // TODO: parse fields
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             self.consume(scan::TokenKind::Identifier, "Expect identifier.");
             let name_token = self.reader.previous.clone();
 
             if self.match_token(scan::TokenKind::Colon) {
-                self.consume(scan::TokenKind::Identifier, "Expect type identifier after field name.");
+                self.consume(scan::TokenKind::Identifier, "Expect type identifier after member name.");
                 let type_name = self.reader.previous.clone();
 
-                fields.push(name_token);
-                field_types.push(type_name);
+                members.push(name_token);
+                member_types.push(type_name);
 
                 self.match_token(scan::TokenKind::Semicolon);
             } else if self.match_token(scan::TokenKind::ColonColon) {
@@ -937,8 +952,8 @@ impl Parser
         self.consume(scan::TokenKind::RightBracket, "Expect '}' after struct definition.");
         ast::Stmt::Struct {
             name: struct_name,
-            members: fields,
-            member_types: field_types,
+            members,
+            member_types,
         }
     }
 
@@ -958,9 +973,6 @@ impl Parser
         self.scope_depth -= 1;
     }
 
-    // This section basically implements the parser methods, the difference is that the
-    // errors are pushed into the compiler error vec. This is so the caller doesn't need to
-    // manually bother with this stuff all the time.
     fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
     {
         if self.reader.current.kind.discriminant() != token_kind.discriminant() {
@@ -975,8 +987,6 @@ impl Parser
     {
         let _ = self.reader.consume(token_kind, error_message);
     }
-
-    //
 
     fn error_at(&mut self, msg: &str, token: &scan::Token) -> ast::Expr
     {
