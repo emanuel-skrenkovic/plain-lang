@@ -411,7 +411,7 @@ impl <'a> Typer<'a>
             }
 
             ast::Expr::Assignment { value, .. } => {
-                let kind = self.match_expression(&mut value.value)?;
+                let kind        = self.match_expression(&mut value.value)?;
                 value.type_kind = kind.clone();
 
                 TypeKind::Unit
@@ -443,7 +443,6 @@ impl <'a> Typer<'a>
                         kind,
                         member_type,
                     );
-
                     return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name))
                 }
 
@@ -493,7 +492,7 @@ impl <'a> Typer<'a>
                 kind
             },
 
-            ast::Expr::Function { param_types, body, .. } => {
+            ast::Expr::Function { right_paren, param_types, body, return_type, .. } => {
                 // TODO: handle captured variables as well.
                 self.type_info.begin_scope();
 
@@ -508,15 +507,38 @@ impl <'a> Typer<'a>
                     let _ = self.match_statement(statement);
                 }
 
-                // TODO: this looks ugly. Do something about it.
-                let return_kind = if body.is_empty() {
-                    TypeKind::Unit
-                } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
-                    self.match_expression(&mut expr.value)?
-                } else {
-                    TypeKind::Unit
-                };
-                
+                let defined_kind = match return_type {
+                    Some(return_type) => self.type_from_identifier(return_type),
+                    None              => Ok(TypeKind::Unit)
+                }?;
+
+                let last = body.last_mut().map(|s| s.as_mut());
+
+                let return_kind = match (&defined_kind, last) {
+                    // If we find a return value, match its type against the defined type.
+                    (_, Some(ast::Stmt::Expr { expr })) => 'expression: {
+                        let returned_kind = self.match_expression(&mut expr.value)?;    
+                        
+                        if returned_kind != defined_kind {
+                            let message = format!("Expected return value of {:?} found {:?}", defined_kind, returned_kind);
+                            let error   = self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, right_paren);
+                            break 'expression Err(error)
+                        }
+
+                        Ok(defined_kind)    
+                    }
+
+                    // If we find no value, and the return type is Unit, then it is correct.
+                    (TypeKind::Unit, _) => Ok(TypeKind::Unit),
+
+                    // If we find expect a return value other than Unit, and we find no value, then
+                    // it is an error.
+                    (_, _) => {
+                        let message = format!("Expected return value matching defined type: {:?}. Found no value.", defined_kind);
+                        Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, right_paren))
+                    }
+                }?;
+
                 let return_kind = Box::new(return_kind);
 
                 self.type_info.end_scope();

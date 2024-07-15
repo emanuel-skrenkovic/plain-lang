@@ -408,7 +408,7 @@ impl Parser
     {
         let next = self.reader.peek(1)?;
 
-        let next_kind = next.kind.discriminant();
+        let next_kind        = next.kind.discriminant();
         let second_next_kind = self.reader.peek(2)?.kind.discriminant();
 
         if second_next_kind == scan::TokenKind::Struct.discriminant() {
@@ -423,16 +423,15 @@ impl Parser
             return None
         }
 
-        let variable_token = self.reader.current.clone();
+        let name = self.reader.current.clone();
+        let _    = self.reader.advance();
 
-        let _ = self.reader.advance();
-
-        let mut maybe_type_name: Option<scan::Token> = None;
+        let mut type_name: Option<scan::Token> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
-            maybe_type_name = Some(self.reader.previous.clone());
+            type_name = Some(self.reader.previous.clone());
 
             if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
                 let error = self.error_at
@@ -464,7 +463,7 @@ impl Parser
             let function = self.function();
 
             let stmt = ast::Stmt::Function {
-                name: variable_token,
+                name,
                 params: function.params,
                 return_type: function.return_type,
                 param_types: function.param_types,
@@ -474,31 +473,20 @@ impl Parser
         }
 
         let initializer = self.expression();
+        let initializer = ast::ExprInfo::new(initializer);
+        let initializer = Box::new(initializer);
 
         self.match_token(scan::TokenKind::Semicolon);
 
-        let initializer = Box::new(ast::ExprInfo::new(initializer));
-        let stmt = if mutable {
-            ast::Stmt::Var {
-                name: variable_token,
-                type_name: maybe_type_name,
-                initializer
-            }
-        } else {
-            ast::Stmt::Const {
-                name: variable_token,
-                type_name: maybe_type_name,
-                initializer
-            }
-        };
+        let stmt = if mutable { ast::Stmt::Var   { name, type_name, initializer } } 
+                   else       { ast::Stmt::Const { name, type_name, initializer } };
 
         Some(stmt)
     }
 
     fn variable_statement(&mut self) -> Option<ast::Stmt>
     {
-        let next = self.reader.peek(1)?;
-
+        let next      = self.reader.peek(1)?;
         let next_kind = next.kind.discriminant();
 
         let type_definition = next_kind == scan::TokenKind::Colon.discriminant();
@@ -509,17 +497,16 @@ impl Parser
             return None
         }
 
-        let variable_token = self.reader.current.clone();
+        let name = self.reader.current.clone();
+        let _    = self.reader.advance();
 
-        let _ = self.reader.advance();
-
-        let mut maybe_type_name: Option<scan::Token> = None;
+        let mut type_name: Option<scan::Token> = None;
         match (type_definition, immutable, mutable) {
             (true, _, _) => {
                 let _ = self.match_token(scan::TokenKind::Colon);
                 self.consume(scan::TokenKind::Identifier, "Expect identifier");
 
-                maybe_type_name = Some(self.reader.previous.clone());
+                type_name = Some(self.reader.previous.clone());
 
                 if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
                     let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.reader.current.clone());
@@ -539,21 +526,12 @@ impl Parser
 
         let initializer = self.expression();
         let initializer = ast::ExprInfo::new(initializer);
+        let initializer = Box::new(initializer);
 
         self.match_token(scan::TokenKind::Semicolon);
-        let stmt = if mutable {
-            ast::Stmt::Var {
-                name: variable_token,
-                type_name: maybe_type_name,
-                initializer: Box::new(initializer),
-            }
-        } else {
-            ast::Stmt::Const {
-                name: variable_token,
-                type_name: maybe_type_name,
-                initializer: Box::new(initializer),
-            }
-        };
+        
+        let stmt = if mutable { ast::Stmt::Var   { name, type_name, initializer } } 
+                   else       { ast::Stmt::Const { name, type_name, initializer } };
 
         Some(stmt)
     }
@@ -666,13 +644,15 @@ impl Parser
         let mut body = Vec::with_capacity(512);
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
-            let stmt = self.declaration();
-            body.push(Box::new(stmt));
+            let statement = self.declaration();
+            let statement = Box::new(statement);
+            body.push(statement);
         }
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
 
         self.end_scope();
+
         Function {
             left_paren,
             right_paren,
@@ -750,13 +730,14 @@ impl Parser
             (vec![], ast::Expr::Literal { value: scan::Token::default() })
         };
 
-        let condition = ast::ExprInfo::new(condition);
+        let condition  = ast::ExprInfo::new(condition);
+        let condition  = Box::new(condition);
         let then_value = Box::new(ast::ExprInfo::new(then_value));
         let else_value = Box::new(ast::ExprInfo::new(else_value));
 
         ast::Expr::If {
             token,
-            condition: Box::new(condition),
+            condition,
             then_branch,
             then_value,
             else_branch,

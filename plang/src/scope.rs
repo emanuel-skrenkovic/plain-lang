@@ -62,8 +62,8 @@ impl <T> Module<T>
             _ => Vec::with_capacity(512)
         };
 
-        let mut new_scope_names  = Vec::with_capacity(1024);
-        let mut new_scope_values = Vec::with_capacity(1024);
+        let mut new_scope_names  = Vec::with_capacity(512);
+        let mut new_scope_values = Vec::with_capacity(512);
 
         if let Some(parent_scope) = parent_scope {
             let parent_scope       = &self.scopes[parent_scope.index];
