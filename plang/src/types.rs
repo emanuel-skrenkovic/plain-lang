@@ -245,7 +245,8 @@ impl <'a> Typer<'a>
             },
 
             ast::Stmt::Var { name, initializer, type_name } => {
-                let kind = self.match_expression(&mut initializer.value)?;
+                let index = self.type_info.add_to_current(&name.value, TypeKind::Unknown);
+                let kind  = self.match_expression(&mut initializer.value)?;
 
                 if let Some(type_name) = type_name {
                     let defined_type = self.type_from_identifier(type_name)?;
@@ -257,11 +258,12 @@ impl <'a> Typer<'a>
                 }
 
                 initializer.type_kind = kind.clone();
-                self.type_info.add_to_current(&name.value, kind);
+                self.type_info.update_in_current(index, kind);
             }
 
             ast::Stmt::Const { name, initializer, type_name } => {
-                let kind = self.match_expression(&mut initializer.value)?;
+                let index = self.type_info.add_to_current(&name.value, TypeKind::Unknown);
+                let kind  = self.match_expression(&mut initializer.value)?;
 
                 if let Some(type_name) = type_name {
                     let defined_type = self.type_from_identifier(type_name)?;
@@ -273,7 +275,7 @@ impl <'a> Typer<'a>
                 }
 
                 initializer.type_kind = kind.clone();
-                self.type_info.add_to_current(&name.value, kind);
+                self.type_info.update_in_current(index, kind);
             }
 
             ast::Stmt::For { token, initializer, condition, advancement, body } => {
@@ -506,6 +508,7 @@ impl <'a> Typer<'a>
                     let _ = self.match_statement(statement);
                 }
 
+                // TODO: this looks ugly. Do something about it.
                 let return_kind = if body.is_empty() {
                     TypeKind::Unit
                 } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
@@ -513,10 +516,12 @@ impl <'a> Typer<'a>
                 } else {
                     TypeKind::Unit
                 };
+                
+                let return_kind = Box::new(return_kind);
 
                 self.type_info.end_scope();
 
-                TypeKind::Function { parameter_kinds, return_kind: Box::new(return_kind) }
+                TypeKind::Function { parameter_kinds, return_kind }
             },
 
             ast::Expr::Struct { name, values, members } => {
@@ -552,7 +557,6 @@ impl <'a> Typer<'a>
                             kind,
                             member_type,
                         );
-
                         self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name);
 
                         continue

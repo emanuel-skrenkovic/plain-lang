@@ -1,9 +1,10 @@
 use std::fmt::Debug;
+use std::collections::BTreeSet;
 
 
 #[derive(Clone, Debug)]
 pub struct Scope<T>
-    where T : Debug
+    where T : Debug + Clone
 {
     pub index: usize,
     pub path: Vec<usize>,
@@ -17,14 +18,14 @@ pub struct Scope<T>
 
 #[derive(Clone, Debug)]
 pub struct Module<T>
-    where T : Debug
+    where T : Debug + Clone,
 {
     pub scopes: Vec<Scope<T>>,
     pub current_scope_index: usize,
 }
 
 impl <T> Module<T>
-    where T : Debug
+    where T : Debug + Clone
 {
     pub fn new() -> Self
     {
@@ -61,11 +62,22 @@ impl <T> Module<T>
             _ => Vec::with_capacity(512)
         };
 
+        let mut new_scope_names  = Vec::with_capacity(1024);
+        let mut new_scope_values = Vec::with_capacity(1024);
+
+        if let Some(parent_scope) = parent_scope {
+            let parent_scope       = &self.scopes[parent_scope.index];
+
+            // TODO: clone + append? chained? extend_from_slice? Something else?
+            new_scope_names.extend_from_slice(&parent_scope.names);
+            new_scope_values.extend_from_slice(&parent_scope.values);
+        }
+
         let new_scope = Scope {
             index: self.scopes.len(),
             path: new_scope_path,
-            names: Vec::with_capacity(1024),
-            values: Vec::with_capacity(1024),
+            names: new_scope_names,
+            values: new_scope_values,
         };
 
         self.current_scope_index = new_scope.index;
@@ -77,95 +89,59 @@ impl <T> Module<T>
         let scope = &self.scopes[self.current_scope_index];
         if scope.path.is_empty() { return }
 
-        let parent_scope         = scope.path.last().unwrap();
-        self.current_scope_index = *parent_scope;
+        self.current_scope_index = *scope.path.last().unwrap();
     }
 
     pub fn get(&self, name: &str) -> Option<&T>
     {
         let scope = self.current_scope();
+        let index = scope.names.iter().rposition(|n| n == name)?;
 
-        let index = scope.names.iter().position(|n| n == name);
-        if let Some(index) = index {
-            return Some(&scope.values[index])
-        }
-
-        for i in scope.path.iter().rev() {
-            let scope = &self.scopes[*i];
-
-            let index = scope.names.iter().position(|n| n == name);
-            if let Some(index) = index {
-                return Some(&scope.values[index])
-            }
-        }
-
-        None
-    }
-
-    pub fn get_in_scope(&self, scope: usize, name: &str) -> Option<&T>
-    {
-        let scope = self.scopes.get(scope)?;
-
-        let index = scope.names.iter().position(|n| n == name);
-        if let Some(index) = index {
-            return Some(&scope.values[index])
-        }
-
-        None
+        Some(&scope.values[index])
     }
 
     pub fn get_from_scope(&self, scope: usize, name: &str) -> Option<&T>
     {
         let scope = self.scopes.get(scope)?;
+        let index = scope.names.iter().rposition(|n| n == name)?;
 
-        let index = scope.names.iter().position(|n| n == name);
-        if let Some(index) = index {
-            return Some(&scope.values[index])
-        }
-
-        for i in scope.path.iter().rev() {
-            let scope = &self.scopes[*i];
-
-            let index = scope.names.iter().position(|n| n == name);
-            if let Some(index) = index {
-                return Some(&scope.values[index])
-            }
-        }
-
-        None
+        Some(&scope.values[index])
     }
 
-    pub fn add_to_current(&mut self, name: &str, value: T)
+    pub fn add_to_current(&mut self, name: &str, value: T) -> usize
     {
         let scope = self.current_scope_mut();
         scope.names.push(name.to_string());
         scope.values.push(value);
+        scope.values.len() - 1
+    }
+
+    pub fn update_in_current(&mut self, index: usize, value: T)
+    {
+        let scope = self.current_scope_mut();
+        scope.values[index] = value;
     }
 
     pub fn captures(&self) -> Vec<String>
     {
         let scope = self.current_scope();
 
-        let mut vars = Vec::with_capacity(1024);
+        let global_scope = &self.scopes[0];
+        let globals      = global_scope.names.iter().map(|n| n.as_str()).collect::<Vec<&str>>();
+        let to_remove    = BTreeSet::<&str>::from_iter(globals);
 
-        for name in &scope.names {
-            vars.push(name.clone());
-        }
+        let capacity              = scope.names.len() - global_scope.names.len();
+        let mut vars: Vec<String> = Vec::with_capacity(capacity);
 
-        for i in scope.path.iter().filter(|s| **s != 0) {
-            let closed_scope = &self.scopes[*i];
-
-            for name in &closed_scope.names {
-                vars.push(name.clone());
-            }
-        }
-
+        vars.append(&mut scope.names.clone());
+        vars.retain(|n| !to_remove.contains(n.as_str()));
+        
         vars
     }
 }
 
 impl<T> Default for Module<T>
-    where T : Debug
+    where T : Debug + Clone
 {
     fn default() -> Self
     {

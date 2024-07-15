@@ -1,4 +1,5 @@
 extern crate llvm_sys as llvm;
+use std::collections::BTreeSet;
 
 use macros::binary_cstr;
 
@@ -721,7 +722,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
         },
 
         ast::Expr::MemberAccess { instance_name, member_name } => {
-            let instance_type = ctx.type_info.get_in_scope(ctx.current_scope(), &instance_name.value);
+            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), &instance_name.value);
             let Some(types::TypeKind::Struct { member_names, .. }) = instance_type else {
                 panic!("Expect 'struct' instance type.");
             };
@@ -1040,14 +1041,16 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 {
     for scope in &ctx.symbol_table.module.scopes {
         for i in 0..scope.values.len() {
-            let name        = &scope.names[i];
+            let name = &scope.names[i];
+            if ctx.definition_names.contains(name) { continue }
+
             let declaration = &scope.values[i];
 
             match &declaration.kind {
                 semantic_analysis::DeclarationKind::Function {
                     function: semantic_analysis::Function { body, .. }
                 } => {
-                    let Some(kind) = &ctx.type_info.get_in_scope(scope.index, name) else {
+                    let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
                         panic!("Expected type kind.");
                     };
 
@@ -1079,7 +1082,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                     captures,
                     function: semantic_analysis::Function { body, .. }
                 } => {
-                    let Some(kind) = &ctx.type_info.get_in_scope(scope.index, name) else {
+                    let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
                         panic!("Expected type kind.");
                     };
 
@@ -1089,7 +1092,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                     ];
 
                     let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
-                        panic!("Expected function type kind.");
+                        panic!("Expected function type kind, found {:?}.", kind);
                     };
 
                     let mut parameter_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
@@ -1240,27 +1243,20 @@ pub unsafe fn captured_variables(ctx: &Context) -> Vec<(&str, llvm::prelude::LLV
 {
     let scope = ctx.module_scopes.current_scope();
 
-    let mut vars: Vec<(&str, llvm::prelude::LLVMValueRef)> = Vec::with_capacity(1024);
+    let global_scope = &ctx.module_scopes.scopes[0];
+    let globals      = global_scope.names.iter().map(|n| n.as_str()).collect::<Vec<&str>>();
+    let to_remove    = BTreeSet::<&str>::from_iter(globals);
 
-    for i in 0..scope.values.len() {
-        let key        = &scope.names[i];
-        let (value, _) = &scope.values[i];
+    let capacity              = scope.names.len() - global_scope.names.len();
+    let mut vars: Vec<(&str, llvm::prelude::LLVMValueRef)> = Vec::with_capacity(capacity);
 
-        vars.push((key, *value));
-    }
+    for i in 0..scope.names.len() {
+        let name = &scope.names[i];
+        if to_remove.contains(name.as_str()) { continue }
 
-    for i in &scope.path {
-        // Don't close over globally scoped values, they are always available.
-        if *i == 0 { continue }
+        let (value, _) = scope.values[i];
 
-        let closed_scope = &ctx.module_scopes.scopes[*i];
-
-        for i in 0..closed_scope.values.len() {
-            let key        = &closed_scope.names[i];
-            let (value, _) = &closed_scope.values[i];
-
-            vars.push((key, *value));
-        }
+        vars.push((name.as_str(), value));
     }
 
     vars
