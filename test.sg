@@ -40,7 +40,7 @@ main :: (): i32
 
 	printf("| %d", result2 + GLOBAL_VALUE);
 
-   0
+	0
 }
 
 sum :: (v: Values): i32
