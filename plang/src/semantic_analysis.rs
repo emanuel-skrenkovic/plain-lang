@@ -16,6 +16,11 @@ pub struct Declaration
 #[derive(Clone, Debug)]
 pub enum DeclarationKind
 {
+    NativeFunction 
+    {
+        name: &'static str
+    },
+
     Function 
     {
         function: Function
@@ -39,6 +44,11 @@ pub enum DeclarationKind
     Var,
 }
 
+static NATIVE_FUNCTIONS: [Declaration; 1] = 
+[
+    Declaration { kind: DeclarationKind::NativeFunction { name: "printf" }}
+];
+
 #[derive(Debug)]
 pub struct SymbolTable
 {
@@ -55,10 +65,24 @@ pub fn analyse(program: &[ast::Node]) -> Result<SymbolTable, String>
     };
 
     symbol_table.module.begin_scope();
+
+    handle_native_functions(&mut symbol_table);
     forward_declarations(program, &mut symbol_table);
+
     symbol_table.module.end_scope();
 
     Ok(symbol_table)
+}
+
+pub fn handle_native_functions(symbol_table: &mut SymbolTable)
+{
+    for native in &NATIVE_FUNCTIONS {
+        let DeclarationKind::NativeFunction { name } = native.kind else {
+            continue
+        };
+
+        symbol_table.module.add_to_current(name, native.clone());    
+    }
 }
 
 pub fn forward_declarations(program: &[ast::Node], symbol_table: &mut SymbolTable)
@@ -67,6 +91,7 @@ pub fn forward_declarations(program: &[ast::Node], symbol_table: &mut SymbolTabl
         let ast::Node::Stmt(stmt) = stmt else {
             continue
         };
+
         match_statement(symbol_table, stmt);
     }
 }
@@ -178,9 +203,8 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
                     let declaration = Declaration {
                         kind: DeclarationKind::Const { initializer: initializer.clone() },
                     };
-                    symbol_table
-                        .module
-                        .add_to_current(&name.value, declaration);
+
+                    symbol_table.module.add_to_current(&name.value, declaration);
                 }
             }
         }

@@ -17,6 +17,7 @@ pub enum TypeKind
     Function {
         parameter_kinds: Vec<Box<TypeKind>>,
         return_kind: Box<TypeKind>,
+        variadic: bool,
     },
 
     Closure {
@@ -56,11 +57,13 @@ impl <'a> Typer<'a>
     {
         let mut typed_program = Vec::with_capacity(program.len());
 
-        self.type_info.begin_scope();
-
         // TODO: think about moving program to struct scope. In either case,
         // the execution of Typer is per Typer instance.
         let mut program = program.to_owned();
+
+        self.type_info.begin_scope();
+
+        self.handle_native_functions();
 
         let _ = self.infer_global_types(&mut program);
 
@@ -104,6 +107,7 @@ impl <'a> Typer<'a>
                     let kind = TypeKind::Function {
                         parameter_kinds,
                         return_kind: Box::new(return_kind),
+                        variadic: false,
                     };
 
                     self.type_info.add_to_current(&name.value, kind);
@@ -148,6 +152,22 @@ impl <'a> Typer<'a>
         }
 
         Ok(())
+    }
+
+    pub fn handle_native_functions(&mut self)
+    {
+        self.type_info.add_to_current("printf", TypeKind::Function {
+            parameter_kinds: vec![
+                Box::new
+                (
+                    TypeKind::Reference {
+                        underlying: Box::new(TypeKind::String{ len: 0 }) 
+                    }
+                )
+            ],
+            return_kind: Box::new(TypeKind::I32),
+            variadic: true,
+        });
     }
 
     pub fn match_statement(&mut self, stmt: &mut ast::Stmt) -> Result<ast::Stmt, error::CompilerError>
@@ -215,6 +235,7 @@ impl <'a> Typer<'a>
                 let kind = TypeKind::Function {
                     parameter_kinds,
                     return_kind: Box::new(return_kind),
+                    variadic: false,
                 };
 
                 self.type_info.add_to_current(&name.value, kind);
@@ -478,18 +499,12 @@ impl <'a> Typer<'a>
                     arg.type_kind = kind; 
                 }
 
-                let kind = if name.value == "printf" {
-                    TypeKind::Unknown
-                } else {
-                    let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(&name.value) else {
-                        let message = format!("'{}' is not a function.", &name.value);
-                        return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
-                    };
-
-                    *return_kind.clone()
+                let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(&name.value) else {
+                    let message = format!("'{}' is not a function.", &name.value);
+                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
                 };
 
-                kind
+                *return_kind.clone()
             },
 
             ast::Expr::Function { right_paren, param_types, body, return_type, .. } => {
@@ -543,7 +558,7 @@ impl <'a> Typer<'a>
 
                 self.type_info.end_scope();
 
-                TypeKind::Function { parameter_kinds, return_kind }
+                TypeKind::Function { parameter_kinds, return_kind, variadic: false }
             },
 
             ast::Expr::Struct { name, values, members } => {

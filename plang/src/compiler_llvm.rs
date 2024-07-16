@@ -23,6 +23,7 @@ pub enum Definition
         code: Vec<ast::Stmt>,
 
         closure: bool,
+        variadic: bool,
     },
 
     Struct { 
@@ -44,7 +45,7 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
             let char_type = llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx);
             llvm::core::LLVMArrayType2(char_type, *len as u64 + 1)
         }
-        types::TypeKind::Function { parameter_kinds, return_kind }  => {
+        types::TypeKind::Function { parameter_kinds, return_kind, variadic }  => {
             let return_type = to_llvm_type(ctx, return_kind);
 
             let mut param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
@@ -52,9 +53,10 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
                 .map(|arg| to_llvm_type(ctx, arg))
                 .collect();
 
+            let varargs = if *variadic { 1 } else { 0 };
             let function_type = llvm
                 ::core
-                ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), param_types.len() as u32, 0);
+                ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), param_types.len() as u32, varargs);
 
             llvm::core::LLVMPointerType(function_type, 0)
         }
@@ -66,7 +68,7 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
 
             *type_ref
         }
-        types::TypeKind::Reference { .. } => todo!(),
+        types::TypeKind::Reference { .. } => llvm::core::LLVMPointerTypeInContext(ctx.llvm_ctx, 0)
     }
 }
 
@@ -173,13 +175,15 @@ impl Builder
         return_type: llvm::prelude::LLVMTypeRef,
         code: Vec<ast::Stmt>,
         closure: bool,
+        variadic: bool,
     ) -> Definition
     {
         let arity = param_types.len();
 
+        let vararg = if variadic { 1 } else { 0 };
         let function_type = llvm
             ::core
-            ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
+            ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, vararg);
 
         let function_name = CStr::from_str(name);
         let function = llvm
@@ -197,6 +201,7 @@ impl Builder
             return_type,
             code,
             closure,
+            variadic,
         }
     }
 
@@ -351,12 +356,6 @@ impl Context
         self.current_scope() == 0
     }
 
-    fn add_definition(&mut self, name: &str, definition: Definition)
-    {
-        self.definition_names.push(name.to_owned());
-        self.definitions.push(definition);
-    }
-
     fn get_definition(&self, name: &str) -> Option<&Definition>
     {
         let index = self.definition_names.iter().position(|n| n == name)?;
@@ -384,13 +383,10 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
-    // Adding globals.
-    let printf = printf_function(ctx, module);
-    ctx.add_definition("printf", printf);
-
     let builder     = llvm::core::LLVMCreateBuilderInContext(ctx.llvm_ctx);
     let mut builder = Builder::new(ctx.llvm_ctx, module, builder);
 
+    // Adding globals.
     forward_declare(ctx, &mut builder);
 
     // Compile the rest of the program
@@ -420,6 +416,36 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
             let declaration = &scope.values[i];
 
             match &declaration.kind {
+                semantic_analysis::DeclarationKind::NativeFunction { name } => {
+                    let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
+                        panic!("Expected type kind.");
+                    };
+
+                    let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
+                        panic!("Expected function type kind.");
+                    };
+
+                    let param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
+                        .iter()
+                        .map(|p| to_llvm_type(ctx, p))
+                        .collect();
+
+                    let return_type = to_llvm_type(ctx, return_kind);
+
+                    let function_call = builder.build_function
+                    (
+                        name,
+                        param_types,
+                        return_type,
+                        vec![],
+                        false,
+                        *variadic,
+                    );
+
+                    ctx.definition_names.push(name.to_string());
+                    ctx.definitions.push(function_call);
+                }
+
                 semantic_analysis::DeclarationKind::Function {
                     function: semantic_analysis::Function { body, .. }
                 } => {
@@ -427,7 +453,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         panic!("Expected type kind.");
                     };
 
-                    let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
+                    let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
                         panic!("Expected function type kind.");
                     };
 
@@ -445,6 +471,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         return_type,
                         body.iter().map(|s| *s.clone()).collect(),
                         false,
+                        *variadic,
                     );
 
                     ctx.definition_names.push(name.to_owned());
@@ -464,7 +491,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         captures.len()
                     ];
 
-                    let types::TypeKind::Function { parameter_kinds, return_kind } = kind else {
+                    let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
                         panic!("Expected function type kind, found {:?}.", kind);
                     };
 
@@ -487,6 +514,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         return_type,
                         body.iter().map(|s| *s.clone()).collect(),
                         true,
+                        *variadic,
                     );
 
                     ctx.definition_names.push(name.to_owned());
@@ -860,7 +888,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .unwrap_or_else(|| panic!("Expect variable '{}'.", &name.value))
                 .clone();
 
-            let Definition::Function { function, function_type, param_types, closure, arity, return_type, .. } = function else {
+            let Definition::Function { function, function_type, param_types, closure, arity, return_type, variadic, .. } = function else {
                 panic!("{} is not an instance of a callable.", &name.value)
             };
 
@@ -875,14 +903,17 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             };
 
             // TODO: I'm not sure of the semantics of arguments.
-            // I'm thinking copy by default and take the reference explicitly.
+            // I'm thinking copy by default and take the reference explicitly.  
             let mut initial_args: Vec<llvm::prelude::LLVMValueRef> = arguments
                 .iter()
                 .enumerate()
                 .map(|(i, a)| {
-                    let arg              = match_expression(ctx, builder, a);
-                    let source_type      = to_llvm_type(ctx, &a.type_kind);
-                    let destination_type = param_types[i];
+                    let arg         = match_expression(ctx, builder, a);
+                    let source_type = to_llvm_type(ctx, &a.type_kind);
+
+                    // gosh darn varargs.
+                    let destination_type = if i >= param_types.len() { to_llvm_type(ctx, &a.type_kind) } 
+                                           else                      { param_types[i] };
 
                     builder.prime_argument(arg, source_type, destination_type)
                 })
@@ -908,7 +939,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 function_type,
                 function,
                 args.as_mut_ptr(),
-                arity as u32,
+                if variadic { args.len() } else { arity } as u32,
                 call_name.value,
             );
 
@@ -1249,39 +1280,6 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
     }
 
     Ok(())
-}
-
-// TODO: remove this hack!
-pub unsafe fn printf_function
-(
-    ctx: &mut Context, module: llvm::prelude::LLVMModuleRef,
-) -> Definition
-{
-    let printf_type = llvm::core::LLVMFunctionType
-    (
-        llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
-        [llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0)].as_mut_ptr(),
-        1,
-        1,
-    );
-
-    let printf = llvm
-        ::core
-        ::LLVMAddFunction(module, binary_cstr!("printf"), printf_type);
-
-    Definition::Function {
-        name: "printf".to_string(),
-        function: printf,
-        function_type: printf_type,
-        arity: 2,
-        param_types: vec![
-            llvm::core::LLVMPointerType(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), 0),
-            llvm::core::LLVMVoidTypeInContext(ctx.llvm_ctx),
-        ],
-        return_type: llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx),
-        code: vec![],
-        closure: false,
-    }
 }
 
 struct CStr
