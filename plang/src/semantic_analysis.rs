@@ -58,7 +58,7 @@ pub struct SymbolTable
 // TODO: build symbol table to forward-declare
 // all declarations.
 // Walking the AST later is problematic if we don't have this.
-pub fn analyse(program: &[ast::Node]) -> Result<SymbolTable, String>
+pub fn analyse(program: Vec<ast::Node>) -> Result<(Vec<ast::Node>, SymbolTable), String>
 {
     let mut symbol_table = SymbolTable {
         module: scope::Module::new(),
@@ -67,11 +67,11 @@ pub fn analyse(program: &[ast::Node]) -> Result<SymbolTable, String>
     symbol_table.module.begin_scope();
 
     handle_native_functions(&mut symbol_table);
-    forward_declarations(program, &mut symbol_table);
+    forward_declarations(&program, &mut symbol_table);
 
     symbol_table.module.end_scope();
 
-    Ok(symbol_table)
+    Ok((program, symbol_table))
 }
 
 pub fn handle_native_functions(symbol_table: &mut SymbolTable)
@@ -87,7 +87,7 @@ pub fn handle_native_functions(symbol_table: &mut SymbolTable)
 
 pub fn forward_declarations(program: &[ast::Node], symbol_table: &mut SymbolTable)
 {
-    for stmt in &program.to_owned() {
+    for stmt in program {
         let ast::Node::Stmt(stmt) = stmt else {
             continue
         };
@@ -134,78 +134,71 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
         }
 
         ast::Stmt::Var { name, initializer, .. } => {
-            match &initializer.value {
-                ast::Expr::Function { params, body, .. } => {
-                    let kind = DeclarationKind::Function {
-                        function: Function {
-                            params: params.clone(),
-                            body: body.clone(),
-                        },
-                    };
-                    let declaration = Declaration { kind };
-                    symbol_table.module.add_to_current(&name.value, declaration);
+            if let ast::Expr::Function { params, body, .. } = &initializer.value {
+                let kind = DeclarationKind::Function {
+                    function: Function {
+                        params: params.clone(),
+                        body: body.clone(),
+                    },
+                };
+                let declaration = Declaration { kind };
+                symbol_table.module.add_to_current(&name.value, declaration);
 
-                    symbol_table.module.begin_scope();
+                symbol_table.module.begin_scope();
 
-                    if !body.is_empty() {
-                        for stmt in &body[..body.len()-1] {
-                            match_statement(symbol_table, stmt);
-                        }
+                if !body.is_empty() {
+                    for stmt in &body[..body.len()-1] {
+                        match_statement(symbol_table, stmt);
                     }
-
-                    symbol_table.module.end_scope();
                 }
-                _ => {
-                    let declaration = Declaration {
-                        kind: DeclarationKind::Var,
-                    };
 
-                    symbol_table
-                        .module
-                        .add_to_current(&name.value.clone(), declaration);
-                }
+                symbol_table.module.end_scope();
+            } else {
+                let declaration = Declaration {
+                    kind: DeclarationKind::Var,
+                };
+
+                symbol_table
+                    .module
+                    .add_to_current(&name.value.clone(), declaration);
             }
         }
 
         ast::Stmt::Const { name, initializer, .. } => {
-            match &initializer.value {
-                ast::Expr::Function { params, body, .. } => {
-                    let function = Function {
-                        params: params.clone(),
-                        body: body.clone(),
-                    };
+            if let ast::Expr::Function { params, body, .. } = &initializer.value {
+                let function = Function {
+                    params: params.clone(),
+                    body: body.clone(),
+                };
 
-                    let captures = symbol_table
-                        .module
-                        .captures();
+                let captures = symbol_table
+                    .module
+                    .captures();
 
-                    let declaration = Declaration {
-                        kind: DeclarationKind::Closure {
-                            captures,
-                            function,
-                        },
-                    };
+                let declaration = Declaration {
+                    kind: DeclarationKind::Closure {
+                        captures,
+                        function,
+                    },
+                };
 
-                    symbol_table.module.add_to_current(&name.value, declaration);
+                symbol_table.module.add_to_current(&name.value, declaration);
 
-                    symbol_table.module.begin_scope();
+                symbol_table.module.begin_scope();
 
-                    if !body.is_empty() {
-                        for stmt in &body[..body.len()-1] {
-                            match_statement(symbol_table, stmt);
-                        }
+                if !body.is_empty() {
+                    for stmt in &body[..body.len()-1] {
+                        match_statement(symbol_table, stmt);
                     }
-
-                    symbol_table.module.end_scope();
                 }
 
-                _ => {
-                    let declaration = Declaration {
-                        kind: DeclarationKind::Const { initializer: initializer.clone() },
-                    };
+                symbol_table.module.end_scope();
+            } else {
+                let declaration = Declaration {
+                    kind: DeclarationKind::Const { initializer: initializer.clone() },
+                };
 
-                    symbol_table.module.add_to_current(&name.value, declaration);
-                }
+                symbol_table.module.add_to_current(&name.value, declaration);
             }
         }
 

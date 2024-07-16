@@ -127,7 +127,7 @@ impl <T> Module<T>
         let scope = self.current_scope();
 
         let global_scope = &self.scopes[0];
-        let globals      = global_scope.names.iter().map(|n| n.as_str()).collect::<Vec<&str>>();
+        let globals      = global_scope.names.iter().map(std::string::String::as_str).collect::<Vec<&str>>();
         let to_remove    = BTreeSet::<&str>::from_iter(globals);
 
         let capacity              = scope.names.len() - global_scope.names.len();

@@ -10,7 +10,7 @@ pub struct Function
     params: Vec<scan::Token>, 
     param_types: Vec<scan::Token>,
     return_type: Option<scan::Token>, 
-    body: Vec<Box<ast::Stmt>>,
+    body: Vec<ast::Stmt>,
 }
 
 
@@ -128,7 +128,7 @@ pub struct TokenReader
     // Also keep the source in the parser for better error reporting.
     // Feel like this solution is bad, and that I should avoid cloning the source so much.
     // Got no other ideas, just feels that way currently.
-    reporter: error::ErrorReporter,
+    reporter: error::Reporter,
     tokens: Vec<scan::Token>,
     scanned_tokens: Vec<scan::Token>,
 
@@ -143,7 +143,7 @@ pub struct TokenReader
 impl TokenReader
 {
     #[must_use]
-    pub fn new(reporter: error::ErrorReporter, tokens: Vec<scan::Token>) -> Self
+    pub fn new(reporter: error::Reporter, tokens: Vec<scan::Token>) -> Self
     {
         Self {
             reporter,
@@ -156,7 +156,7 @@ impl TokenReader
         }
     }
 
-    fn advance(&mut self) -> Result<(), error::CompilerError>
+    fn advance(&mut self) -> Result<(), error::Error>
     {
         if matches!(self.current.kind, scan::TokenKind::End) {
             return Ok(())
@@ -183,7 +183,7 @@ impl TokenReader
         Err(self.error_at("Scanner error.", &self.current.clone()))
     }
 
-    fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, error::CompilerError>
+    fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, error::Error>
     {
         if self.current.kind.discriminant() != token_kind.discriminant() {
             return Ok(false)
@@ -198,7 +198,7 @@ impl TokenReader
         self.current.kind.discriminant() == token_kind.discriminant()
     }
 
-    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), error::CompilerError>
+    fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), error::Error>
     {
         match self.match_token(token_kind) {
             Ok(true)  => Ok(()),
@@ -207,22 +207,22 @@ impl TokenReader
         }
     }
 
-    fn error_at(&mut self, message: &str, token: &scan::Token) -> error::CompilerError
+    fn error_at(&mut self, message: &str, token: &scan::Token) -> error::Error
     {
-        self.reporter.error_at(message, error::CompilerErrorKind::ParseError, token)
+        self.reporter.error_at(message, error::Kind::ParseError, token)
     }
 
     // TODO: horrible and I should be publicly shamed, doesn't even work oh my gosh how embarrassing oh my
     fn peek(&self, diff: i32) -> Option<&scan::Token>
     {
         let index = self.current_index - 1;
-        let index = index as i32 + diff;
+        let index = i32::try_from(index).unwrap() + diff;
 
-        if index < 0 || index > self.tokens.len() as i32 {
+        if index < 0 || index > self.tokens.len().try_into().unwrap() {
             return None
         }
 
-        let index = index as usize;
+        let index: usize = index.try_into().unwrap();
 
         Some(&self.tokens[index])
     }
@@ -239,7 +239,7 @@ pub struct Parser
 impl Parser
 {
     #[must_use]
-    pub fn new(reporter: error::ErrorReporter, tokens: Vec<scan::Token>) -> Self
+    pub fn new(reporter: error::Reporter, tokens: Vec<scan::Token>) -> Self
     {
         Self {
             reader: TokenReader::new(reporter, tokens),
@@ -248,7 +248,7 @@ impl Parser
         }
     }
 
-    pub fn compile(mut self) -> Result<Vec<ast::Node>, Vec<error::CompilerError>>
+    pub fn parse(mut self) -> Result<Vec<ast::Node>, Vec<error::Error>>
     {
         let _ = self.reader.advance();
 
@@ -257,18 +257,17 @@ impl Parser
         let mut nodes: Vec<ast::Node> = Vec::with_capacity(1024 * 8);
 
         loop {
-            match self.reader.current.kind {
-                scan::TokenKind::End => break,
-                _ => {
-                    let decl = self.declaration();
-                    if let ast::Stmt::Expr { ref expr } = decl {
-                        if let ast::ExprInfo { value: ast::Expr::Bad { token }, .. } = expr.as_ref() {
-                            panic!("{:?}", token);
-                        }
-                    }
-                    nodes.push(ast::Node::Stmt(decl));
+            if let scan::TokenKind::End = self.reader.current.kind {
+                break
+            }
+
+            let decl = self.declaration();
+            if let ast::Stmt::Expr { ref expr } = decl {
+                if let ast::ExprInfo { value: ast::Expr::Bad { token }, .. } = expr.as_ref() {
+                    panic!("{token:?}");
                 }
             }
+            nodes.push(ast::Node::Stmt(decl));
         }
 
         if self.reader.panic {
@@ -287,15 +286,12 @@ impl Parser
     {
         let _ = self.reader.advance();
 
-        match get_rule(self.reader.previous.kind).prefix {
-            Some(prefix) => {
-                let prefix_expr = prefix(self);
-                self.stack.push(prefix_expr);
-            },
-            _ => {
-                if self.is_at_end() { return }
-                panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
-            }
+        if let Some(prefix) = get_rule(self.reader.previous.kind).prefix {
+            let prefix_expr = prefix(self);
+            self.stack.push(prefix_expr);
+        } else {
+            if self.is_at_end() { return }
+            panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
         }
 
         while prec.discriminator() <= get_rule(self.reader.current.kind).precedence.discriminator() {
@@ -328,6 +324,8 @@ impl Parser
     fn block_expression(&mut self) -> ast::Expr
     {
         let (left_bracket, right_bracket, statements, value) = self.block();
+
+        let statements = statements.into_iter().map(Box::new).collect();
 
         let value = ast::ExprInfo::new(value);
         let value = Box::new(value);
@@ -460,14 +458,16 @@ impl Parser
             let _ = self.reader.advance();
 
             // Declare self first to allow recursion.
+
             let function = self.function();
+            let body     = function.body.into_iter().map(Box::new).collect();
 
             let stmt = ast::Stmt::Function {
                 name,
                 params: function.params,
                 return_type: function.return_type,
                 param_types: function.param_types,
-                body: function.body,
+                body,
             };
             return Some(stmt)
         }
@@ -572,9 +572,9 @@ impl Parser
                     member_name,
                     value,
                 }
-            } else {
-                return ast::Expr::MemberAccess { instance_name: name, member_name };
-            }
+            } 
+
+            return ast::Expr::MemberAccess { instance_name: name, member_name };
         }
 
         // Handles variable expression here.
@@ -584,15 +584,16 @@ impl Parser
 
     fn function_expression(&mut self) -> ast::Expr
     {
-        // let (params, return_type, param_types, body) = self.function();
         let function = self.function();
+        let body     = function.body.into_iter().map(Box::new).collect();
+
         ast::Expr::Function { 
             left_paren: function.left_paren,
             right_paren: function.right_paren,
             params: function.params, 
             return_type: function.return_type, 
             param_types: function.param_types, 
-            body: function.body
+            body,
         }
     }
 
@@ -645,7 +646,6 @@ impl Parser
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let statement = self.declaration();
-            let statement = Box::new(statement);
             body.push(statement);
         }
 
@@ -653,18 +653,18 @@ impl Parser
 
         self.end_scope();
 
-        Function {
-            left_paren,
-            right_paren,
+        Function { 
+            left_paren, 
+            right_paren, 
             params, 
-            param_types,
+            param_types, 
             return_type, 
             body,
         }
     }
 
     // fn block(&mut self) -> (Vec<Box<ast::Stmt>>, ast::Expr)
-    fn block(&mut self) -> (scan::Token, scan::Token, Vec<Box<ast::Stmt>>, ast::Expr)
+    fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, ast::Expr)
     {
         let left_bracket = self.reader.previous.clone();
 
@@ -675,7 +675,6 @@ impl Parser
         // Compile code until the end of the block or the end of the program is reached.
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let statement = self.declaration();
-            let statement = Box::new(statement);
             statements.push(statement);
         }
 
@@ -696,12 +695,12 @@ impl Parser
         // it is of Unit value;
         let expr = if has_value {
             let binding                  = statements.pop().unwrap();
-            let ast::Stmt::Expr { expr } = binding.as_ref() else {
+            let ast::Stmt::Expr { expr } = binding else {
                 // TODO: I don't like this panic here.
                 panic!();
             };
 
-            expr.to_owned().value
+            expr.clone().value
         } else {
             ast::Expr::Literal { value: scan::Token::default() }
         };
@@ -730,10 +729,14 @@ impl Parser
             (vec![], ast::Expr::Literal { value: scan::Token::default() })
         };
 
-        let condition  = ast::ExprInfo::new(condition);
-        let condition  = Box::new(condition);
+        let condition = ast::ExprInfo::new(condition);
+        let condition = Box::new(condition);
+
         let then_value = Box::new(ast::ExprInfo::new(then_value));
         let else_value = Box::new(ast::ExprInfo::new(else_value));
+
+        let then_branch = then_branch.into_iter().map(Box::new).collect();
+        let else_branch = else_branch.into_iter().map(Box::new).collect();
 
         ast::Expr::If {
             token,

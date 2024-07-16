@@ -238,7 +238,7 @@ impl GlobalsHoistingTransformer
         let mut dependencies: Vec<Vec<String>> = Vec::with_capacity(nodes_count);
         let mut degrees: Vec<usize>            = Vec::with_capacity(nodes_count);
 
-        for node in nodes.iter() {
+        for node in nodes {
             match node {
                 Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
                     declarations.push(name.value.clone());
@@ -337,7 +337,7 @@ impl GlobalsHoistingTransformer
 
     fn match_statements(statements: &[Box<Stmt>], deps: &mut Vec<String>)
     {
-        for stmt in statements.iter().map(|s| s.as_ref()) {
+        for stmt in statements.iter().map(std::convert::AsRef::as_ref) {
             match stmt {
                 Stmt::Struct { member_types, .. } => {
                     let mut type_names = member_types
@@ -356,9 +356,8 @@ impl GlobalsHoistingTransformer
                     deps.append(&mut nested_deps);
                 }
 
-                Stmt::Var { initializer, .. } => Self::match_expression(&initializer.value, deps),
-
-                Stmt::Const { initializer, .. } => Self::match_expression(&initializer.value, deps),
+                Stmt::Var { initializer, .. } | Stmt::Const { initializer, .. } 
+                    => Self::match_expression(&initializer.value, deps),
 
                 Stmt::Expr { expr } => Self::match_expression(&expr.value, deps),
 
@@ -403,7 +402,7 @@ impl GlobalsHoistingTransformer
             Expr::Struct { name, values, .. } => {
                 deps.push(name.value.clone());
                 for value in values {
-                    Self::match_expression(&value.value, deps)
+                    Self::match_expression(&value.value, deps);
                 }
             }
 
@@ -423,20 +422,20 @@ impl Transformer for GlobalsHoistingTransformer
         let order = Self::topological_sort(&mut graph);
 
         // After we get the order we can sort the root AST nodes accordingly.
-        let mut nodes = nodes.to_owned();
+        let mut nodes = nodes.clone();
         nodes.sort_by(|a, b| {
             // TODO: for now we assume all root level nodes are functions.
             let a_name = match a {
-                Node::Stmt(Stmt::Struct { name, .. })   => &name.value,
-                Node::Stmt(Stmt::Function { name, .. }) => &name.value,
-                Node::Stmt(Stmt::Const { name, .. })    => &name.value,
+                Node::Stmt(
+                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
+                ) => &name.value,
                 _ => unreachable!(),
             };
 
             let b_name = match b {
-                Node::Stmt(Stmt::Struct { name, .. })   => &name.value,
-                Node::Stmt(Stmt::Function { name, .. }) => &name.value,
-                Node::Stmt(Stmt::Const { name, .. })    => &name.value,
+                Node::Stmt(
+                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
+                ) => &name.value,
                 _ => unreachable!(),
             };
 

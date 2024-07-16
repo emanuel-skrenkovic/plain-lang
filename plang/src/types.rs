@@ -39,13 +39,13 @@ pub enum TypeKind
 
 pub struct Typer<'a>
 {
-    reporter: &'a mut error::ErrorReporter,
+    reporter: &'a mut error::Reporter,
     type_info: scope::Module<TypeKind>,
 }
 
 impl <'a> Typer<'a>
 {
-    pub fn new(reporter: &'a mut error::ErrorReporter) -> Self
+    pub fn new(reporter: &'a mut error::Reporter) -> Self
     {
         Self {
             reporter,
@@ -53,18 +53,15 @@ impl <'a> Typer<'a>
         }
     }
 
-    pub fn infer_types(mut self, program: &[ast::Node]) -> (Vec<ast::Node>, scope::Module<TypeKind>)
+    pub fn infer_types(mut self, mut program: Vec<ast::Node>) -> (Vec<ast::Node>, scope::Module<TypeKind>)
     {
         let mut typed_program = Vec::with_capacity(program.len());
 
         // TODO: think about moving program to struct scope. In either case,
         // the execution of Typer is per Typer instance.
-        let mut program = program.to_owned();
-
         self.type_info.begin_scope();
 
         self.handle_native_functions();
-
         let _ = self.infer_global_types(&mut program);
 
         for stmt in &mut program {
@@ -76,7 +73,8 @@ impl <'a> Typer<'a>
                 continue
             };
 
-            typed_program.push(ast::Node::Stmt(stmt));
+            let node = ast::Node::Stmt(stmt);
+            typed_program.push(node);
         }
 
         self.type_info.end_scope();
@@ -84,7 +82,7 @@ impl <'a> Typer<'a>
         (typed_program, self.type_info)
     }
 
-    pub fn infer_global_types(&mut self, program: &mut [ast::Node]) -> Result<(), error::CompilerError>
+    pub fn infer_global_types(&mut self, program: &mut [ast::Node]) -> Result<(), error::Error>
     {
         for node in program.iter_mut() {
             let ast::Node::Stmt(stmt) = node else {
@@ -96,7 +94,7 @@ impl <'a> Typer<'a>
                     let parameter_kinds: Vec<Box<TypeKind>> = param_types
                         .iter()
                         .map(|t| self.type_from_identifier(t))
-                        .map_while(|t| t.ok())
+                        .map_while(std::result::Result::ok)
                         .map(Box::new)
                         .collect();
 
@@ -120,8 +118,8 @@ impl <'a> Typer<'a>
                         let defined_type = self.type_from_identifier(type_name)?;
 
                         if defined_type != kind {
-                            let message = format!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
-                            self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name);
+                            let message = format!("Defined type '{defined_type:?}' does not match expression type '{kind:?}'");
+                            self.reporter.error_at(&message, error::Kind::TypeError, name);
                         }
                     }
 
@@ -132,7 +130,7 @@ impl <'a> Typer<'a>
                     let member_types: Vec<Box<TypeKind>> = member_types
                         .iter()
                         .map(|t| self.type_from_identifier(t))
-                        .map_while(|t| t.ok())
+                        .map_while(std::result::Result::ok)
                         .map(Box::new)
                         .collect();
 
@@ -156,7 +154,7 @@ impl <'a> Typer<'a>
 
     pub fn handle_native_functions(&mut self)
     {
-        self.type_info.add_to_current("printf", TypeKind::Function {
+        let printf = TypeKind::Function {
             parameter_kinds: vec![
                 Box::new
                 (
@@ -167,10 +165,11 @@ impl <'a> Typer<'a>
             ],
             return_kind: Box::new(TypeKind::I32),
             variadic: true,
-        });
+        };
+        self.type_info.add_to_current("printf", printf);
     }
 
-    pub fn match_statement(&mut self, stmt: &mut ast::Stmt) -> Result<ast::Stmt, error::CompilerError>
+    pub fn match_statement(&mut self, stmt: &mut ast::Stmt) -> Result<ast::Stmt, error::Error>
     {
         match stmt {
             ast::Stmt::Function { name, params, return_type, param_types, body } => {
@@ -187,20 +186,44 @@ impl <'a> Typer<'a>
                     };
 
                     let message = format!("Failed to get type for {}", &param.value);
-                    let _ = self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, param);
+                    let _ = self.reporter.error_at(&message, error::Kind::TypeError, param);
                 }
 
                 for statement in body.iter_mut() {
                     let _ = self.match_statement(statement);
                 }
 
-                let return_kind = if body.is_empty() {
-                    TypeKind::Unit
-                } else if let Some(ast::Stmt::Expr { expr }) = body.last_mut().map(|s| s.as_mut()) {
-                    self.match_expression(&mut expr.value)?
-                } else {
-                    TypeKind::Unit
-                };
+                let defined_kind = match return_type {
+                    Some(return_type) => self.type_from_identifier(return_type),
+                    None              => Ok(TypeKind::Unit)
+                }?;
+
+                let last = body.last_mut().map(std::convert::AsMut::as_mut);
+
+                let return_kind = match (&defined_kind, last) {
+                    // If we find a return value, match its type against the defined type.
+                    (_, Some(ast::Stmt::Expr { expr })) => 'expression: {
+                        let returned_kind = self.match_expression(&mut expr.value)?;    
+                        
+                        if returned_kind != defined_kind {
+                            let message = format!("Expected return value of {defined_kind:?} found {returned_kind:?}");
+                            let error   = self.reporter.error_at(&message, error::Kind::TypeError, name);
+                            break 'expression Err(error)
+                        }
+
+                        Ok(defined_kind)    
+                    }
+
+                    // If we find no value, and the return type is Unit, then it is correct.
+                    (TypeKind::Unit, _) => Ok(TypeKind::Unit),
+
+                    // If we find expect a return value other than Unit, and we find no value, then
+                    // it is an error.
+                    (_, _) => {
+                        let message = format!("Expected return value matching defined type: {defined_kind:?}. Found no value.");
+                        Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
+                    }
+                }?;
 
                 let specified_return_kind = match return_type {
                     Some(return_type) => self.type_from_identifier(return_type)?,
@@ -210,7 +233,7 @@ impl <'a> Typer<'a>
                 if return_kind != specified_return_kind {
                     let message = format!
                     (
-                        "Returned value does not match function definition.\nFunction: {} Value type: {:?} Return type: {:?}", 
+                        "Returned value does not match function definition.Function: {} Value type: {:?} Return type: {:?}", 
                         name.value, 
                         return_kind, 
                         return_type,
@@ -218,7 +241,7 @@ impl <'a> Typer<'a>
                     self.reporter.error_at
                     (
                         &message, 
-                        error::CompilerErrorKind::TypeError, 
+                        error::Kind::TypeError, 
                         return_type.as_ref().unwrap_or(name),
                     );
                 }
@@ -228,7 +251,7 @@ impl <'a> Typer<'a>
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
                     .iter()
                     .map(|t| self.type_from_identifier(t))
-                    .map_while(|t| t.ok())
+                    .map_while(std::result::Result::ok)
                     .map(Box::new)
                     .collect();
 
@@ -245,7 +268,7 @@ impl <'a> Typer<'a>
                 let member_types: Vec<Box<TypeKind>> = member_types
                     .iter()
                     .map(|t| self.type_from_identifier(t))
-                    .map_while(|t| t.ok())
+                    .map_while(std::result::Result::ok)
                     .map(Box::new)
                     .collect();
 
@@ -273,8 +296,8 @@ impl <'a> Typer<'a>
                     let defined_type = self.type_from_identifier(type_name)?;
 
                     if defined_type != kind {
-                        let message = format!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
-                        return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, type_name));
+                        let message = format!("Defined type '{defined_type:?}' does not match expression type '{kind:?}'");
+                        return Err(self.reporter.error_at(&message, error::Kind::TypeError, type_name));
                     }
                 }
 
@@ -290,8 +313,8 @@ impl <'a> Typer<'a>
                     let defined_type = self.type_from_identifier(type_name)?;
 
                     if defined_type != kind {
-                        let message = format!("Defined type '{:?}' does not match expression type '{:?}'", defined_type, kind);
-                        self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, type_name);
+                        let message = format!("Defined type '{defined_type:?}' does not match expression type '{kind:?}'");
+                        self.reporter.error_at(&message, error::Kind::TypeError, type_name);
                     }
                 }
 
@@ -304,8 +327,8 @@ impl <'a> Typer<'a>
 
                 let condition_type = self.match_expression(&mut condition.value)?;
                 if condition_type != TypeKind::Bool {
-                    let message = format!("'for' condition type must be a boolean. Found type: {:?}", condition_type);
-                    self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token);
+                    let message = format!("'for' condition type must be a boolean. Found type: {condition_type:?}");
+                    self.reporter.error_at(&message, error::Kind::TypeError, token);
                 }
 
                 condition.type_kind = condition_type;
@@ -320,8 +343,8 @@ impl <'a> Typer<'a>
             ast::Stmt::While { token, condition, body } => {
                 let condition_type = self.match_expression(&mut condition.value)?;
                 if condition_type != TypeKind::Bool {
-                    let message = format!("'while' condition type must be a boolean. Found type: {:?}", condition_type);
-                    self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token);
+                    let message = format!("'while' condition type must be a boolean. Found type: {condition_type:?}");
+                    self.reporter.error_at(&message, error::Kind::TypeError, token);
                 }
 
                 condition.type_kind = condition_type;
@@ -343,13 +366,13 @@ impl <'a> Typer<'a>
     (
         &mut self,
         expr: &mut ast::Expr,
-    ) -> Result<TypeKind, error::CompilerError>
+    ) -> Result<TypeKind, error::Error>
     {
         let kind = match expr {
             ast::Expr::Bad { .. } => TypeKind::Unknown,
 
             ast::Expr::Block { value, .. } => {
-                let kind = self.match_expression(&mut value.value)?;
+                let kind        = self.match_expression(&mut value.value)?;
                 value.type_kind = kind.clone();
                 kind
             }
@@ -360,12 +383,12 @@ impl <'a> Typer<'a>
                 let else_branch_type = self.match_expression(&mut else_value.value)?;
 
                 if then_branch_type != else_branch_type {
-                    self.reporter.error_at("Incompatible types between branches", error::CompilerErrorKind::TypeError, token);
+                    self.reporter.error_at("Incompatible types between branches", error::Kind::TypeError, token);
                 }
 
                 if condition_type != TypeKind::Bool {
-                    let message = format!("'if' condition type must be a boolean. Found type: {:?}", condition_type);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token));
+                    let message = format!("'if' condition type must be a boolean. Found type: {condition_type:?}");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, token));
                 }
 
                 let kind = then_branch_type.clone();
@@ -384,11 +407,9 @@ impl <'a> Typer<'a>
                 if left_type != right_type {
                     let message = format!
                     (
-                        "Binary operation between incompatible types. Left: {:?} Right: {:?}", 
-                        left_type, 
-                        right_type,
+                        "Binary operation between incompatible types. Left: {left_type:?} Right: {right_type:?}"
                     );
-                    self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, operator);
+                    self.reporter.error_at(&message, error::Kind::TypeError, operator);
                 }
 
                 let kind = match operator.kind {
@@ -408,7 +429,7 @@ impl <'a> Typer<'a>
 
                     _ => {
                         let message = format!("Unrecognized binary expression token. {:?}", operator.kind);
-                        return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, operator))
+                        return Err(self.reporter.error_at(&message, error::Kind::TypeError, operator))
                     }
                 };
 
@@ -425,7 +446,7 @@ impl <'a> Typer<'a>
                 => {
                 let Some(kind) = self.type_info.get(&name.value) else {
                     let message = format!("Failed to get type info for {}", &name.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name))
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
                 };
 
                 kind.clone()
@@ -444,27 +465,26 @@ impl <'a> Typer<'a>
 
                 let Some(instance_type) = self.type_info.get(&instance_name.value) else {
                     let message = format!("Failed to find type name of {}.", &instance_name.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
                 let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
-                    let message = format!("Instance type is not a struct. Found: {:?}", instance_type);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, instance_name));
+                    let message = format!("Instance type is not a struct. Found: {instance_type:?}");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
 
                 let Some(index) = member_names.iter().position(|n| n == &member_name.value) else {
                     let message = format!("{} is not a member of {}", &member_name.value, name);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
                 let member_type = &member_types[index];
                 if member_type.as_ref() != &kind {
-                    let message = format!(
-                        "Value of assignment does not match member type. Found {:?}. Expected {:?}",
-                        kind,
-                        member_type,
+                    let message = format!
+                    (
+                        "Value of assignment does not match member type. Found {kind:?}. Expected {member_type:?}"
                     );
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name))
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name))
                 }
 
                 TypeKind::Unit
@@ -473,18 +493,18 @@ impl <'a> Typer<'a>
             ast::Expr::MemberAccess { instance_name, member_name } => {
                 let Some(instance_type) = self.type_info.get(&instance_name.value) else {
                     let message = format!("Failed to get type info for {}", &instance_name.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, instance_name))
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name))
                 };
 
                 let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
-                    let message = format!("Instance type is not a struct. Found: {:?}", instance_type);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, instance_name));
+                    let message = format!("Instance type is not a struct. Found: {instance_type:?}");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
 
                 let index = member_names.iter().position(|n| n == &member_name.value);
                 let Some(index) = index else {
                     let message = format!("{} is not a member of {}", &member_name.value, name);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name));
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
                 *member_types[index].clone()
@@ -501,7 +521,7 @@ impl <'a> Typer<'a>
 
                 let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(&name.value) else {
                     let message = format!("'{}' is not a function.", &name.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
 
                 *return_kind.clone()
@@ -514,7 +534,7 @@ impl <'a> Typer<'a>
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
                     .iter()
                     .map(|t| self.type_from_identifier(t))
-                    .map_while(|t| t.ok())
+                    .map_while(std::result::Result::ok)
                     .map(Box::new)
                     .collect();
 
@@ -527,7 +547,7 @@ impl <'a> Typer<'a>
                     None              => Ok(TypeKind::Unit)
                 }?;
 
-                let last = body.last_mut().map(|s| s.as_mut());
+                let last = body.last_mut().map(std::convert::AsMut::as_mut);
 
                 let return_kind = match (&defined_kind, last) {
                     // If we find a return value, match its type against the defined type.
@@ -535,8 +555,8 @@ impl <'a> Typer<'a>
                         let returned_kind = self.match_expression(&mut expr.value)?;    
                         
                         if returned_kind != defined_kind {
-                            let message = format!("Expected return value of {:?} found {:?}", defined_kind, returned_kind);
-                            let error   = self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, right_paren);
+                            let message = format!("Expected return value of {defined_kind:?} found {returned_kind:?}");
+                            let error   = self.reporter.error_at(&message, error::Kind::TypeError, right_paren);
                             break 'expression Err(error)
                         }
 
@@ -549,8 +569,8 @@ impl <'a> Typer<'a>
                     // If we find expect a return value other than Unit, and we find no value, then
                     // it is an error.
                     (_, _) => {
-                        let message = format!("Expected return value matching defined type: {:?}. Found no value.", defined_kind);
-                        Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, right_paren))
+                        let message = format!("Expected return value matching defined type: {defined_kind:?}. Found no value.");
+                        Err(self.reporter.error_at(&message, error::Kind::TypeError, right_paren))
                     }
                 }?;
 
@@ -564,14 +584,14 @@ impl <'a> Typer<'a>
             ast::Expr::Struct { name, values, members } => {
                 let Some(instance_type) = self.type_info.get(&name.value) else {
                     let message = format!("Failed to find type {}.", &name.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
 
                 let instance_type = instance_type.clone();
 
                 let TypeKind::Struct { member_names, member_types, .. } = instance_type else {
-                    let message = format!("Instance type is not a struct. Found: {:?}", name);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name));
+                    let message = format!("Instance type is not a struct. Found: {name:?}");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
 
                 for (i, value) in values.iter_mut().enumerate() {
@@ -582,19 +602,18 @@ impl <'a> Typer<'a>
 
                     let Some(index) = member_names.iter().position(|n| n == &member_name.value) else {
                         let message = format!("{} is not a member of {}", &member_name.value, name);
-                        self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name);
+                        self.reporter.error_at(&message, error::Kind::TypeError, member_name);
 
                         continue
                     };
 
                     let member_type = &member_types[index];
                     if member_type.as_ref() != &kind {
-                        let message = format!(
-                            "Value of assignment does not match member type. Found {:?}. Expected {:?}",
-                            kind,
-                            member_type,
+                        let message = format!
+                        (
+                            "Value of assignment does not match member type. Found {kind:?}. Expected {member_type:?}",
                         );
-                        self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, member_name);
+                        self.reporter.error_at(&message, error::Kind::TypeError, member_name);
 
                         continue
                     }
@@ -604,7 +623,7 @@ impl <'a> Typer<'a>
 
                 let Some(kind) = self.type_info.get(&name.value) else {
                     let message = format!("Failed to get type for '{}'", &name.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, name))
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
                 };
 
                 kind.clone()
@@ -614,7 +633,7 @@ impl <'a> Typer<'a>
         Ok(kind)
     }
 
-    fn type_from_identifier(&mut self, token: &scan::Token) -> Result<TypeKind, error::CompilerError>
+    fn type_from_identifier(&mut self, token: &scan::Token) -> Result<TypeKind, error::Error>
     {
         let kind = match token.value.as_str() {
             "i32"    => TypeKind::I32,
@@ -624,8 +643,8 @@ impl <'a> Typer<'a>
                 let kind = self.type_info.get(&token.value);
                 let Some(kind) = kind else {
                     let message = format!("Failed to find type of {}.", &token.value);
-                    return Err(self.reporter.error_at(&message, error::CompilerErrorKind::TypeError, token))
-                };
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, token))
+               };
 
                 kind.clone()
             }

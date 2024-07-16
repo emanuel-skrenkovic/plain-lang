@@ -2,29 +2,29 @@ use std::fmt;
 use crate::scan;
 
 #[derive(Clone, Debug)]
-pub enum CompilerErrorKind
+pub enum Kind
 {
     ParseError,
     TypeError,
 }
 
 #[derive(Clone, Debug)]
-pub struct CompilerError
+pub struct Error
 {
     pub line: usize,
     pub token_index: usize,
     pub source_line: String,
     pub token: String,
     pub msg: String,
-    pub kind: CompilerErrorKind
+    pub kind: Kind
 }
 
-impl fmt::Display for CompilerError
+impl fmt::Display for Error
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
         let token_len             = self.token.len();
-        let token_underline_range = self.token_index..self.token_index + token_len + 1;
+        let token_underline_range = self.token_index..=(self.token_index + token_len);
         let mut underline         = " ".repeat(self.source_line.len() + token_len);
 
         underline.replace_range(token_underline_range, &"^".repeat(token_len));
@@ -43,30 +43,41 @@ impl fmt::Display for CompilerError
 }
 
 #[derive(Clone)]
-pub struct ErrorReporter
+pub struct Reporter
 {
     pub source: String,
-    pub errors: Vec<CompilerError>,
+    pub lines: Vec<String>,
+    pub errors: Vec<Error>,
     pub error: bool,
 }
 
-impl ErrorReporter
+impl Reporter
 {
-    pub fn error_at(&mut self, message: &str, kind: CompilerErrorKind, token: &scan::Token) -> CompilerError
+    #[must_use]
+    pub fn new(source: String) -> Self
     {
-        self.error = true;
-
-        let lines: Vec<String> = self
-            .source
+        let lines: Vec<String> = source
             .lines()
             .map(String::from)
             .collect();
 
-        let error = CompilerError {
+        Self {
+            source,        
+            lines,
+            errors: Vec::with_capacity(1024),
+            error: false,
+        }
+    }
+
+    pub fn error_at(&mut self, message: &str, kind: Kind, token: &scan::Token) -> Error
+    {
+        self.error = true;
+
+        let error = Error {
             msg: message.to_owned(),
             line: token.line,
             token_index: token.token_index,
-            source_line: lines[token.line - 1].clone(),
+            source_line: self.lines[token.line - 1].clone(),
             token: token.value.clone(),
             kind,
         };

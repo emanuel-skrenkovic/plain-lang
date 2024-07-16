@@ -63,7 +63,7 @@ impl Default for Token
     {
         Token { 
             kind: TokenKind::Error, 
-            value: "".to_owned(),
+            value: String::new(),
             line: 0, token_index: 0,
         }
     }

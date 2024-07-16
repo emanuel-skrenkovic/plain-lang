@@ -18,62 +18,57 @@ fn main()
     let source = include_str!("../test.sg").to_string();
     let mut scanner = scan::Scanner::new(source.clone());
 
-    let mut reporter = error::ErrorReporter {
-        source: source.clone(),
-        errors: Vec::with_capacity(1024),
-        error: false,
-
-    };
+    let mut reporter = error::Reporter::new(source);
 
     let now = std::time::Instant::now();
 
-    let now_scan = std::time::Instant::now();
-    let tokens = scanner.scan_tokens();
+    let now_scan       = std::time::Instant::now();
+    let tokens         = scanner.scan_tokens();
     let after_scanning = now_scan.elapsed();
 
-    let now_compile = std::time::Instant::now();
-    let program = parse::Parser::new(reporter.clone(), tokens).compile();
+    let now_parse     = std::time::Instant::now();
+    let program       = parse::Parser::new(reporter.clone(), tokens).parse();
+    let after_parsing = now_parse.elapsed();
+
     if reporter.error {
         for err in reporter.errors {
-            writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+            writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
         }
         stderr().flush().unwrap();
         std::process::exit(1);
     }
 
-    let after_compiling = now_compile.elapsed();
-
     let program = match program {
         Ok(program) => program,
         Err(errors) => {
             for err in errors {
-                writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+                writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
             }
             stderr().flush().unwrap();
             std::process::exit(1);
         }
     };
 
-    let now_transformation = std::time::Instant::now();
-    let program = ast::GlobalsHoistingTransformer::transform(program);
+    let now_transformation   = std::time::Instant::now();
+    let program              = ast::GlobalsHoistingTransformer::transform(program);
     let after_transformation = now_transformation.elapsed();
 
-    let now_type_analysis = std::time::Instant::now();
-    let (program, type_info) = types::Typer::new(&mut reporter).infer_types(&program);
-    let after_type_analysis = now_type_analysis.elapsed();
+    let now_type_analysis    = std::time::Instant::now();
+    let (program, type_info) = types::Typer::new(&mut reporter).infer_types(program);
+    let after_type_analysis  = now_type_analysis.elapsed();
 
-    println!("{:#?}", program);
+    println!("{program:#?}");
 
     if reporter.error {
         for err in reporter.errors {
-            writeln!(stderr(), "{}", err).expect("Failed to write to stderr.");
+            writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
         }
         stderr().flush().unwrap();
         std::process::exit(1);
     }
 
-    let now_semantic_analysis = std::time::Instant::now();
-    let symbol_table = semantic_analysis::analyse(&program).unwrap();
+    let now_semantic_analysis   = std::time::Instant::now();
+    let (program, symbol_table) = semantic_analysis::analyse(program).unwrap();
     let after_semantic_analysis = now_semantic_analysis.elapsed();
 
     let after_llvm = unsafe {
@@ -100,25 +95,16 @@ fn main()
     println!
     (
 "
-     Tokenization: {:?}.
-     Parsing: {:?}.
-     Transformation: {:?}
-     Type analysis: {:?}
-     Semantic analysis: {:?}
-     LLVM backend: {:?}.
-     Compiling bytecode: {:?}
+     Tokenization: {after_scanning:?}.
+     Parsing: {after_parsing:?}.
+     Transformation: {after_transformation:?}
+     Type analysis: {after_type_analysis:?}
+     Semantic analysis: {after_semantic_analysis:?}
+     LLVM backend: {after_llvm:?}.
+     Compiling bytecode: {after_compiling_bytecode:?}
 
-     Total time: {:?}.
-",
-        after_scanning,
-        after_compiling,
-        after_transformation,
-        after_type_analysis,
-        after_semantic_analysis,
-        after_llvm,
-        after_compiling_bytecode,
-        total,
-    );
+     Total time: {total:?}.
+");
 
     std::process::exit(0);
 }
