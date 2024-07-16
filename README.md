@@ -7,7 +7,7 @@ Lots of silly code inside, so beware.
 
 * Defined language semantics - no
 
-* GC - I would like to try to implement a GC one day, so probably.
+* GC - I would like to try to implement a GC one day, so probably. For now, it just leaks memory. :)
 
 * How do I build and run the compiler? - please don't
 
