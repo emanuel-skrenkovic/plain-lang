@@ -168,7 +168,7 @@ impl Builder
     pub unsafe fn build_function
     (
         &self,
-        name: String,
+        name: &str,
         mut param_types: Vec<llvm::prelude::LLVMTypeRef>,
         return_type: llvm::prelude::LLVMTypeRef,
         code: Vec<ast::Stmt>,
@@ -181,9 +181,12 @@ impl Builder
             ::core
             ::LLVMFunctionType(return_type, param_types.as_mut_ptr(), arity as u32, 0);
 
+        let function_name = CStr::from_str(name);
         let function = llvm
             ::core
-            ::LLVMAddFunction(self.module, name.as_ptr() as * const _, function_type);
+            ::LLVMAddFunction(self.module, function_name.value, function_type);
+
+        let name = name.to_string();
 
         Definition::Function {
             name,
@@ -222,6 +225,64 @@ impl Builder
             1,
             member_ref_name.value
         )
+    }
+
+    pub unsafe fn assign_to_address
+    (
+        &self,
+        value: llvm::prelude::LLVMValueRef,
+        type_ref: llvm::prelude::LLVMTypeRef,
+        name: &str,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        let name = CStr::from_str(name);
+        let container = llvm
+            ::core
+            ::LLVMBuildAlloca(self.builder, type_ref, name.value);
+        llvm::core::LLVMBuildStore(self.builder, value, container);
+        container
+    }
+
+    // TODO: shit name
+    unsafe fn prime_argument
+    (
+        &self,
+        value: llvm::prelude::LLVMValueRef,
+        source_type: llvm::prelude::LLVMTypeRef,
+        destination_type: llvm::prelude::LLVMTypeRef,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        let source_type_kind      = llvm::core::LLVMGetTypeKind(source_type);
+        let destination_type_kind = llvm::core::LLVMGetTypeKind(destination_type);
+
+        let is_pointer = is_pointer(value);
+
+        // Handle primitives
+        if PRIMITIVE_TYPES.contains(&source_type_kind) {
+            let is_source_pointer        = PRIMITIVE_TYPES.contains(&source_type_kind) && is_pointer;
+            let is_destination_primitive = PRIMITIVE_TYPES.contains(&destination_type_kind);
+
+            return match (is_source_pointer, is_destination_primitive) {
+                // Deref pointers into a primitive type.
+                (true, true) => llvm
+                    ::core
+                    ::LLVMBuildLoad2(self.builder, source_type, value, binary_cstr!("_deref")),
+
+                (true, false) => {
+                    // Take address if passing primitive into a pointer.
+                    self.assign_to_address(value, source_type, "_alloc")
+                }
+
+                (false, false) | (false, true) => value
+            }
+        }
+
+        if is_pointer {
+            return value
+        }
+
+        // Take pointer of if passing pointer type as value.
+        self.assign_to_address(value, source_type, "_alloc")
     }
 }
 
@@ -379,7 +440,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
                     let function_call = builder.build_function
                     (
-                        name.to_string(),
+                        name,
                         param_types,
                         return_type,
                         body.iter().map(|s| *s.clone()).collect(),
@@ -409,8 +470,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
                     let mut parameter_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
                         .iter()
-                        .map(|p| p.as_ref())
-                        .map(|p| to_llvm_type(ctx, p))
+                        .map(|p| to_llvm_type(ctx, p.as_ref()))
                         .collect();
 
                     let mut param_types = Vec::with_capacity(capture_kinds.len() + parameter_types.len());
@@ -422,7 +482,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
                     let function_call = builder.build_function
                     (
-                        name.to_string(),
+                        name,
                         param_types,
                         return_type,
                         body.iter().map(|s| *s.clone()).collect(),
@@ -467,7 +527,8 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
 
             for (i, param) in params.iter().enumerate() {
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i as u32);
-                llvm::core::LLVMSetValueName2(param_ref, param.value.as_ptr() as * const _, param.value.len());
+                let param_name = CStr::from_str(&param.value);
+                llvm::core::LLVMSetValueName2(param_ref, param_name.value, param_name.len);
 
                 let value = (param_ref, param_types[i]);
                 ctx.module_scopes.add_to_current(&param.value, value);
@@ -477,6 +538,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
                 match_statement(ctx, &mut function_builder, stmt);
             }
 
+            // TODO: looks horrible.
             let result = match body.last().unwrap(/* TODO: remove unwrap */).as_ref() {
                 ast::Stmt::Expr { expr } => match_expression(ctx, &mut function_builder, expr),
                 _                        => llvm::core::LLVMConstNull(return_type) // TODO
@@ -489,43 +551,32 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
-            let variable_name = CStr::from_str(&name.value);
-            let type_ref      = to_llvm_type(ctx, &initializer.type_kind);
-
-            let variable = llvm
-                ::core
-                ::LLVMBuildAlloca(builder.builder, type_ref, variable_name.value);
-
             ctx.name = Some(name.value.clone());
 
-            let value = match_expression(ctx, builder, initializer);
-            llvm::core::LLVMBuildStore(builder.builder, value, variable);
+            let value    = match_expression(ctx, builder, initializer);
+            let type_ref = to_llvm_type(ctx, &initializer.type_kind);
+            let variable = builder.assign_to_address(value, type_ref, &name.value);
 
-            ctx.module_scopes
-               .add_to_current(&name.value, (variable, llvm::core::LLVMTypeOf(variable)));
+            ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
         },
 
         ast::Stmt::Const { name, initializer, .. } => {
-            let variable_name = CStr::new(name.value.clone());
-            let type_ref      = to_llvm_type(ctx, &initializer.type_kind);
-
             ctx.name = Some(name.value.clone());
+
+            let type_ref = to_llvm_type(ctx, &initializer.type_kind);
 
             // Global scoped variables work differently.
             let variable = if ctx.is_global() {
-                let global = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.value);
                 let value  = match_expression(ctx, builder, initializer);
 
+                let variable_name = CStr::new(name.value.clone());
+                let global        = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.value);
                 llvm::core::LLVMSetInitializer(global, value);
 
                 global
             } else {
-                let variable = llvm
-                    ::core
-                    ::LLVMBuildAlloca(builder.builder, type_ref, variable_name.value);
-
-                let value = match_expression(ctx, builder, initializer);
-                llvm::core::LLVMBuildStore(builder.builder, value, variable);
+                let value    = match_expression(ctx, builder, initializer);
+                let variable = builder.assign_to_address(value, type_ref, &name.value);
 
                 variable
             };
@@ -756,19 +807,15 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             let value_expr = match_expression(ctx, builder, value);
             let value_type = to_llvm_type(ctx, &value.type_kind);
 
-            let (struct_pointer, struct_type_ref) = *ctx
+            let (struct_value, struct_type_ref) = *ctx
                 .module_scopes
                 .get_from_scope(ctx.current_scope(), &instance_name.value)
                 .unwrap();
 
-            let struct_pointer = if is_pointer(struct_pointer) {
-                struct_pointer
+            let struct_pointer = if is_pointer(struct_value) {
+                struct_value
             } else {
-                let ptr = llvm
-                    ::core
-                    ::LLVMBuildAlloca(builder.builder, struct_type_ref, binary_cstr!("_alloca"));
-                llvm::core::LLVMBuildStore(builder.builder, struct_pointer, ptr);
-                ptr
+                builder.assign_to_address(struct_value, struct_type_ref, "_alloca")
             };
 
             let member_ref = builder.struct_member_access(ctx, struct_pointer, member_index, value_type);
@@ -788,19 +835,15 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .position(|f| f == &member_name.value)
                 .unwrap();
 
-            let (struct_pointer, struct_type_ref) = *ctx
+            let (struct_value, struct_type_ref) = *ctx
                 .module_scopes
                 .get_from_scope(ctx.current_scope(), &instance_name.value)
                 .unwrap();
 
-            let struct_pointer = if is_pointer(struct_pointer) {
-                struct_pointer
+            let struct_pointer = if is_pointer(struct_value) {
+                struct_value
             } else {
-                let pointer = llvm
-                    ::core
-                    ::LLVMBuildAlloca(builder.builder, struct_type_ref, binary_cstr!("_alloca"));
-                llvm::core::LLVMBuildStore(builder.builder, struct_pointer, pointer);
-                pointer
+                builder.assign_to_address(struct_value, struct_type_ref, "_alloca")
             };
 
             let elem_type  = to_llvm_type(ctx, &expr.type_kind);
@@ -841,7 +884,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                     let source_type      = to_llvm_type(ctx, &a.type_kind);
                     let destination_type = param_types[i];
 
-                    prime_argument(builder.builder, arg, source_type, destination_type)
+                    builder.prime_argument(arg, source_type, destination_type)
                 })
                 .collect();
 
@@ -1063,8 +1106,8 @@ unsafe fn closure
 
     for (i, param) in closed_params.iter().enumerate() {
         let param_ref     = llvm::core::LLVMGetParam(function, i as u32);
-        let param_op_name = CStr::new(param.clone());
-        llvm::core::LLVMSetValueName2(param_ref, param_op_name.value, param_op_name.len);
+        let param_name = CStr::new(param.clone());
+        llvm::core::LLVMSetValueName2(param_ref, param_name.value, param_name.len);
 
         let value = (param_ref, param_types[i]);
         ctx.module_scopes.add_to_current(param, value);
@@ -1106,56 +1149,6 @@ const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 3] = [
     llvm::LLVMTypeKind::LLVMVoidTypeKind,
     llvm::LLVMTypeKind::LLVMStructTypeKind,
 ];
-
-// TODO: shit name
-unsafe fn prime_argument
-(
-    builder: llvm::prelude::LLVMBuilderRef,
-    value: llvm::prelude::LLVMValueRef,
-    source_type: llvm::prelude::LLVMTypeRef,
-    destination_type: llvm::prelude::LLVMTypeRef,
-) -> llvm::prelude::LLVMValueRef
-{
-    let source_type_kind      = llvm::core::LLVMGetTypeKind(source_type);
-    let destination_type_kind = llvm::core::LLVMGetTypeKind(destination_type);
-
-    let is_pointer = is_pointer(value);
-
-    // Handle primitives
-    if PRIMITIVE_TYPES.contains(&source_type_kind) {
-        let is_source_pointer        = PRIMITIVE_TYPES.contains(&source_type_kind) && is_pointer;
-        let is_destination_primitive = PRIMITIVE_TYPES.contains(&destination_type_kind);
-
-        return match (is_source_pointer, is_destination_primitive) {
-            // Deref pointers into a primitive type.
-            (true, true) => llvm
-                ::core
-                ::LLVMBuildLoad2(builder, source_type, value, binary_cstr!("_deref")),
-
-            (true, false) => {
-                // Take address if passing primitive into a pointer.
-                let ptr = llvm
-                    ::core
-                    ::LLVMBuildAlloca(builder, source_type, binary_cstr!("_alloc"));
-                llvm::core::LLVMBuildStore(builder, value, ptr);
-                ptr
-            }
-
-            (false, false) | (false, true) => value
-        }
-    }
-
-    if is_pointer {
-        return value
-    }
-
-    // Take pointer of if passing pointer type as value.
-    let ptr = llvm
-        ::core
-        ::LLVMBuildAlloca(builder, source_type, binary_cstr!("_alloc"));
-    llvm::core::LLVMBuildStore(builder, value, ptr);
-    ptr
-}
 
 // TODO
 unsafe fn deref_if_primitive
