@@ -90,6 +90,8 @@ pub struct Builder
     pub module: llvm::prelude::LLVMModuleRef,
     pub builder: llvm::prelude::LLVMBuilderRef,
     pub basic_block: Option<llvm::prelude::LLVMBasicBlockRef>,
+
+    pub parent_function: Option<llvm::prelude::LLVMValueRef>,
 }
 
 impl Builder
@@ -100,6 +102,7 @@ impl Builder
     (
         llvm_ctx: llvm::prelude::LLVMContextRef,
         module: llvm::prelude::LLVMModuleRef,
+        parent_function: Option<llvm::prelude::LLVMValueRef>,
     ) -> Self
     {
         let builder = llvm::core::LLVMCreateBuilderInContext(llvm_ctx);
@@ -108,6 +111,7 @@ impl Builder
             builder,
             module,
             basic_block: None,
+            parent_function,
         }
     }
 
@@ -417,6 +421,18 @@ impl Context
         *function_ref
     }
 
+    unsafe fn start_function(&mut self, function: llvm::prelude::LLVMValueRef) -> Builder
+    {
+        let parent_function = std::mem::replace(&mut self.function, Some(function));
+        Builder::new(self.llvm_ctx, self.modules[0], parent_function)
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    fn end_function(&mut self, function_builder: Builder)
+    {
+        self.function = function_builder.parent_function;
+    }
+
     fn current_scope(&self) -> usize
     {
         self.module_scopes.current_scope_index
@@ -456,7 +472,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
 
-    let mut builder = Builder::new(ctx.llvm_ctx, module);
+    let mut builder = Builder::new(ctx.llvm_ctx, module, None);
 
     // Adding globals.
     forward_declare(ctx, &mut builder);
@@ -601,9 +617,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
                 panic!();
             };
 
-            ctx.function = Some(function_ref);
-
-            let mut builder = Builder::new(ctx.llvm_ctx, builder.module);
+            let mut builder = ctx.start_function(function_ref);
 
             let entry_block = builder.append_block(function_ref, "_entry");
             builder.set_position(entry_block);
@@ -633,6 +647,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
             llvm::core::LLVMBuildRet(builder.builder, result);
 
             ctx.module_scopes.end_scope();
+            ctx.end_function(builder);
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
@@ -986,24 +1001,26 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
             // LLVM requires the name of the call result to be an empty string
             // when the function return type is 'void'.
-            let call_result_name = if is_void { "" } 
-                                   else       { "_call" };
+            let call_result_name = if is_void { "" } else { "_call" };
 
-            let call_name  = CStr::from_str(call_result_name);
-            let arity: u32 = (if variadic { args.len() } else { arity }).try_into().unwrap();
+            let call_name = CStr::from_str(call_result_name);
+            let call_name = call_name.value;
+
+            let arity      = if variadic { args.len() } else { arity };
+            let arity: u32 = arity.try_into().unwrap();
 
             let result = llvm
                 ::core
-                ::LLVMBuildCall2(builder.builder, function_type, function, args.as_mut_ptr(), arity, call_name.value);
+                ::LLVMBuildCall2(builder.builder, function_type, function, args.as_mut_ptr(), arity, call_name);
 
             if is_void { result } 
             else       { builder.deref_if_primitive(result, function_type) }
         },
 
         ast::Expr::Function { params, body, .. } => {
-            let name = ctx.name.take().unwrap(/*TODO: remove unwrap*/);
+            let name = ctx.name.take().unwrap();
             let body = body.iter().map(|s| *s.clone()).collect::<Vec<ast::Stmt>>();
-            closure(ctx, builder, &name, params, &body)
+            closure(ctx, &name, params, &body)
         }
 
         ast::Expr::Struct { name, values, .. } => {
@@ -1153,7 +1170,6 @@ pub unsafe fn binary_expr
 unsafe fn closure
 (
     ctx: &mut Context,
-    builder: &mut Builder,
     name: &str,
     params: &[scan::Token],
     body: &[ast::Stmt],
@@ -1182,10 +1198,8 @@ unsafe fn closure
     let Definition::Function { function, param_types, return_type, .. } = function_call else {
         panic!()
     };
-
-    ctx.function = Some(function);
      
-    let mut builder = Builder::new(ctx.llvm_ctx, builder.module);
+    let mut builder = ctx.start_function(function);
 
     let entry_block = builder.append_block(function, "_entry");
     builder.set_position(entry_block);
@@ -1220,6 +1234,7 @@ unsafe fn closure
     };
     
     ctx.module_scopes.end_scope();
+    ctx.end_function(builder);
 
     function
 }
