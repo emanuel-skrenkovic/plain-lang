@@ -219,10 +219,10 @@ pub trait Transformer
 }
 
 #[derive(Debug)]
-struct DependencyGraph
+struct DependencyGraph<'a>
 {
-    nodes: Vec<String>,
-    edges: Vec<Vec<String>>,
+    nodes: Vec<&'a str>,
+    edges: Vec<Vec<&'a str>>,
     connections: Vec<usize>,
 }
 
@@ -230,22 +230,22 @@ pub struct GlobalsHoistingTransformer { }
 
 impl GlobalsHoistingTransformer
 {
-    fn build_dependency_graph(source: &source::Source, nodes: &[Node]) -> DependencyGraph
+    fn build_dependency_graph<'a>(source: &'a source::Source, nodes: &[Node]) -> DependencyGraph<'a>
     {
         let nodes_count = nodes.len();
 
-        let mut declarations: Vec<String>      = Vec::with_capacity(nodes_count);
-        let mut dependencies: Vec<Vec<String>> = Vec::with_capacity(nodes_count);
-        let mut degrees: Vec<usize>            = Vec::with_capacity(nodes_count);
+        let mut declarations: Vec<&'a str>      = Vec::with_capacity(nodes_count);
+        let mut dependencies: Vec<Vec<&'a str>> = Vec::with_capacity(nodes_count);
+        let mut degrees: Vec<usize>             = Vec::with_capacity(nodes_count);
 
         for node in nodes {
             match node {
                 Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
-                    declarations.push(source.token_value(name).to_string());
+                    declarations.push(source.token_value(name));
 
-                    let mut deps: Vec<String> = member_types
+                    let mut deps: Vec<&'a str> = member_types
                         .iter()
-                        .map(|t| source.token_value(t).to_string())
+                        .map(|t| source.token_value(t))
                         .collect();
                     deps.dedup();
 
@@ -260,13 +260,13 @@ impl GlobalsHoistingTransformer
                     (
                         &mut param_types
                                 .iter()
-                                .map(|t| source.token_value(t).to_string())
+                                .map(|t| source.token_value(t))
                                 .collect()
                     );
 
                     Self::match_statements(source, body, &mut deps);
 
-                    declarations.push(source.token_value(name).to_string());
+                    declarations.push(source.token_value(name));
                     dependencies.push(deps);
                     degrees.push(0);
                 }
@@ -275,7 +275,7 @@ impl GlobalsHoistingTransformer
                     let mut deps = Vec::with_capacity(1024);
                     Self::match_expression(source, &initializer.value, &mut deps);
 
-                    declarations.push(source.token_value(name).to_string());
+                    declarations.push(source.token_value(name));
                     dependencies.push(deps);
                     degrees.push(0);
                 }
@@ -294,7 +294,7 @@ impl GlobalsHoistingTransformer
     // Topological sort over the dependency graph.
     // There will be "unsolvable" orders because of which we need
     // to forward declare global scope stuff.
-    fn topological_sort(graph: &mut DependencyGraph) -> Vec<String>
+    fn topological_sort<'a>(graph: &'a mut DependencyGraph) -> Vec<&'a str>
     {
         let count = graph.nodes.len();
 
@@ -309,13 +309,13 @@ impl GlobalsHoistingTransformer
             q.push_back(i);
         }
 
-        let mut order: Vec<String> = Vec::with_capacity(count);
+        let mut order: Vec<&str> = Vec::with_capacity(count);
 
         while !q.is_empty() {
             let i = q.pop_front().expect("Expect next in queue.");
 
             let node = &graph.nodes[i];
-            order.push(node.clone());
+            order.push(node);
 
             for (j, deps) in graph.edges.iter().enumerate() {
                 if j == i               { continue }
@@ -325,7 +325,7 @@ impl GlobalsHoistingTransformer
 
                 let dep = &graph.nodes[j];
                 if graph.connections[j] == 0 && !order.contains(dep) {
-                    order.push(dep.clone());
+                    order.push(dep);
                 }
             }
         }
@@ -341,14 +341,14 @@ impl GlobalsHoistingTransformer
         order
     }
 
-    fn match_statements(source: &source::Source, statements: &[Box<Stmt>], deps: &mut Vec<String>)
+    fn match_statements<'a>(source: &'a source::Source, statements: &[Box<Stmt>], deps: &mut Vec<&'a str>)
     {
         for stmt in statements.iter().map(std::convert::AsRef::as_ref) {
             match stmt {
                 Stmt::Struct { member_types, .. } => {
                     let mut type_names = member_types
                         .iter()
-                        .map(|t| source.token_value(t).to_string())
+                        .map(|t| source.token_value(t))
                         .collect();
                     deps.append(&mut type_names);
                 }
@@ -360,7 +360,7 @@ impl GlobalsHoistingTransformer
                     (
                         &mut param_types
                             .iter()
-                            .map(|t| source.token_value(t).to_string())
+                            .map(|t| source.token_value(t))
                             .collect()
                     );
                     Self::match_statements(source, body, &mut nested_deps);
@@ -378,7 +378,7 @@ impl GlobalsHoistingTransformer
         }
     }
 
-    fn match_expression(source: &source::Source, expr: &Expr, deps: &mut Vec<String>)
+    fn match_expression<'a>(source: &'a source::Source, expr: &Expr, deps: &mut Vec<&'a str>)
     {
         match expr {
             Expr::Block { statements, value, .. } => {
@@ -398,7 +398,7 @@ impl GlobalsHoistingTransformer
             },
 
             // TODO: later
-            Expr::Variable { name, .. } => deps.push(source.token_value(name).to_string()),
+            Expr::Variable { name, .. } => deps.push(source.token_value(name)),
 
             Expr::Assignment { value, .. } => Self::match_expression(source, &value.value, deps),
 
@@ -406,13 +406,13 @@ impl GlobalsHoistingTransformer
                 for arg in arguments {
                     Self::match_expression(source, &arg.value, deps);
                 }
-                deps.push(source.token_value(name).to_string());
+                deps.push(source.token_value(name));
             },
 
             Expr::Function { body, .. } => Self::match_statements(source, body, deps),
 
             Expr::Struct { name, values, .. } => {
-                deps.push(source.token_value(name).to_string());
+                deps.push(source.token_value(name));
                 for value in values {
                     Self::match_expression(source, &value.value, deps);
                 }
@@ -451,8 +451,8 @@ impl Transformer for GlobalsHoistingTransformer
                 _ => unreachable!(),
             };
 
-            let a_pos= order.iter().position(|n| n == a_name).expect("Expect defined order.");
-            let b_pos= order.iter().position(|n| n == b_name).expect("Expect defined order.");
+            let a_pos= order.iter().position(|n| n == &a_name).expect("Expect defined order.");
+            let b_pos= order.iter().position(|n| n == &b_name).expect("Expect defined order.");
 
             a_pos.cmp(&b_pos)
         });
