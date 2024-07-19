@@ -32,19 +32,18 @@ pub struct Token
     pub kind: TokenKind,
     pub value: String,
     pub line: usize,
-    pub token_index: usize,
+    pub column: usize,
 }
 
 impl Clone for Token
 {
-
     fn clone(&self) -> Self
     {
         Token {
             kind: self.kind,
             value: self.value.clone(),
             line: self.line,
-            token_index: self.token_index,
+            column: self.column,
         }
     }
 }
@@ -64,7 +63,8 @@ impl Default for Token
         Token { 
             kind: TokenKind::Error, 
             value: String::new(),
-            line: 0, token_index: 0,
+            line: 0, 
+            column: 0,
         }
     }
 }
@@ -358,7 +358,7 @@ impl Scanner
             kind,
             value: self.source[self.start..self.current].to_owned(),
             line: self.line,
-            token_index: self.char_index - (self.current - self.start),
+            column: self.char_index - (self.current - self.start),
         }
     }
 }
