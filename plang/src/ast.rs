@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use crate::{scan, types};
+use crate::{scan, source, types};
 
 
 #[derive(Debug, Clone)]
@@ -215,7 +215,7 @@ pub enum TypeKind
 
 pub trait Transformer
 {
-    fn transform(nodes: Vec<Node>) -> Vec<Node>;
+    fn transform(source: &source::Source, nodes: Vec<Node>) -> Vec<Node>;
 }
 
 #[derive(Debug)]
@@ -230,7 +230,7 @@ pub struct GlobalsHoistingTransformer { }
 
 impl GlobalsHoistingTransformer
 {
-    fn build_dependency_graph(nodes: &[Node]) -> DependencyGraph
+    fn build_dependency_graph(source: &source::Source, nodes: &[Node]) -> DependencyGraph
     {
         let nodes_count = nodes.len();
 
@@ -241,11 +241,11 @@ impl GlobalsHoistingTransformer
         for node in nodes {
             match node {
                 Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
-                    declarations.push(name.value.clone());
+                    declarations.push(source.token_value(name).to_string());
 
                     let mut deps: Vec<String> = member_types
                         .iter()
-                        .map(|t| t.value.clone())
+                        .map(|t| source.token_value(t).to_string())
                         .collect();
                     deps.dedup();
 
@@ -256,20 +256,26 @@ impl GlobalsHoistingTransformer
                 Node::Stmt(Stmt::Function { name, body, param_types, .. }) => {
                     let mut deps = Vec::with_capacity(1024);
                     
-                    deps.append(&mut param_types.iter().map(|t| t.value.clone()).collect());
+                    deps.append
+                    (
+                        &mut param_types
+                                .iter()
+                                .map(|t| source.token_value(t).to_string())
+                                .collect()
+                    );
 
-                    Self::match_statements(body, &mut deps);
+                    Self::match_statements(source, body, &mut deps);
 
-                    declarations.push(name.value.clone());
+                    declarations.push(source.token_value(name).to_string());
                     dependencies.push(deps);
                     degrees.push(0);
                 }
 
                 Node::Stmt(Stmt::Const { name, initializer, .. }) => {
                     let mut deps = Vec::with_capacity(1024);
-                    Self::match_expression(&initializer.value, &mut deps);
+                    Self::match_expression(source, &initializer.value, &mut deps);
 
-                    declarations.push(name.value.clone());
+                    declarations.push(source.token_value(name).to_string());
                     dependencies.push(deps);
                     degrees.push(0);
                 }
@@ -335,14 +341,14 @@ impl GlobalsHoistingTransformer
         order
     }
 
-    fn match_statements(statements: &[Box<Stmt>], deps: &mut Vec<String>)
+    fn match_statements(source: &source::Source, statements: &[Box<Stmt>], deps: &mut Vec<String>)
     {
         for stmt in statements.iter().map(std::convert::AsRef::as_ref) {
             match stmt {
                 Stmt::Struct { member_types, .. } => {
                     let mut type_names = member_types
                         .iter()
-                        .map(|t| t.value.clone())
+                        .map(|t| source.token_value(t).to_string())
                         .collect();
                     deps.append(&mut type_names);
                 }
@@ -350,59 +356,65 @@ impl GlobalsHoistingTransformer
                 Stmt::Function { body, param_types, .. } => {
                     let mut nested_deps = Vec::with_capacity(1024);
 
-                    nested_deps.append(&mut param_types.iter().map(|t| t.value.clone()).collect());
-                    Self::match_statements(body, &mut nested_deps);
+                    nested_deps.append
+                    (
+                        &mut param_types
+                            .iter()
+                            .map(|t| source.token_value(t).to_string())
+                            .collect()
+                    );
+                    Self::match_statements(source, body, &mut nested_deps);
 
                     deps.append(&mut nested_deps);
                 }
 
                 Stmt::Var { initializer, .. } | Stmt::Const { initializer, .. } 
-                    => Self::match_expression(&initializer.value, deps),
+                    => Self::match_expression(source, &initializer.value, deps),
 
-                Stmt::Expr { expr } => Self::match_expression(&expr.value, deps),
+                Stmt::Expr { expr } => Self::match_expression(source, &expr.value, deps),
 
                 _ => ()
             }
         }
     }
 
-    fn match_expression(expr: &Expr, deps: &mut Vec<String>)
+    fn match_expression(source: &source::Source, expr: &Expr, deps: &mut Vec<String>)
     {
         match expr {
             Expr::Block { statements, value, .. } => {
-                Self::match_statements(statements, deps);
-                Self::match_expression(&value.value, deps);
+                Self::match_statements(source, statements, deps);
+                Self::match_expression(source, &value.value, deps);
             },
 
             Expr::If { condition, then_branch, else_branch, .. } => {
-                Self::match_expression(&condition.value, deps);
-                Self::match_statements(then_branch, deps);
-                Self::match_statements(else_branch, deps);
+                Self::match_expression(source, &condition.value, deps);
+                Self::match_statements(source, then_branch, deps);
+                Self::match_statements(source, else_branch, deps);
             },
 
             Expr::Binary { left, right, .. } => {
-                Self::match_expression(&left.value, deps);
-                Self::match_expression(&right.value, deps);
+                Self::match_expression(source, &left.value, deps);
+                Self::match_expression(source, &right.value, deps);
             },
 
             // TODO: later
-            Expr::Variable { name, .. } => deps.push(name.value.clone()),
+            Expr::Variable { name, .. } => deps.push(source.token_value(name).to_string()),
 
-            Expr::Assignment { value, .. } => Self::match_expression(&value.value, deps),
+            Expr::Assignment { value, .. } => Self::match_expression(source, &value.value, deps),
 
             Expr::Call { name, arguments } => {
                 for arg in arguments {
-                    Self::match_expression(&arg.value, deps);
+                    Self::match_expression(source, &arg.value, deps);
                 }
-                deps.push(name.value.clone());
+                deps.push(source.token_value(name).to_string());
             },
 
-            Expr::Function { body, .. } => Self::match_statements(body, deps),
+            Expr::Function { body, .. } => Self::match_statements(source, body, deps),
 
             Expr::Struct { name, values, .. } => {
-                deps.push(name.value.clone());
+                deps.push(source.token_value(name).to_string());
                 for value in values {
-                    Self::match_expression(&value.value, deps);
+                    Self::match_expression(source, &value.value, deps);
                 }
             }
 
@@ -413,10 +425,10 @@ impl GlobalsHoistingTransformer
 
 impl Transformer for GlobalsHoistingTransformer
 {
-    fn transform(nodes: Vec<Node>) -> Vec<Node>
+    fn transform(source: &source::Source, nodes: Vec<Node>) -> Vec<Node>
     {
         // First we build the dependency graph.
-        let mut graph = Self::build_dependency_graph(&nodes);
+        let mut graph = Self::build_dependency_graph(source, &nodes);
 
         // Then we use topological sort to find the correct declaration order.
         let order = Self::topological_sort(&mut graph);
@@ -428,14 +440,14 @@ impl Transformer for GlobalsHoistingTransformer
             let a_name = match a {
                 Node::Stmt(
                     Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
-                ) => &name.value,
+                ) => source.token_value(name),
                 _ => unreachable!(),
             };
 
             let b_name = match b {
                 Node::Stmt(
                     Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
-                ) => &name.value,
+                ) => source.token_value(name),
                 _ => unreachable!(),
             };
 

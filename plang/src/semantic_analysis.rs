@@ -1,4 +1,4 @@
-use crate::{ast, scan, scope};
+use crate::{ast, scan, scope, source};
 
 #[derive(Clone, Debug)]
 pub struct Function
@@ -58,7 +58,7 @@ pub struct SymbolTable
 // TODO: build symbol table to forward-declare
 // all declarations.
 // Walking the AST later is problematic if we don't have this.
-pub fn analyse(program: Vec<ast::Node>) -> Result<(Vec<ast::Node>, SymbolTable), String>
+pub fn analyse(source: &source::Source, program: Vec<ast::Node>) -> Result<(Vec<ast::Node>, SymbolTable), String>
 {
     let mut symbol_table = SymbolTable {
         module: scope::Module::new(),
@@ -67,7 +67,7 @@ pub fn analyse(program: Vec<ast::Node>) -> Result<(Vec<ast::Node>, SymbolTable),
     symbol_table.module.begin_scope();
 
     handle_native_functions(&mut symbol_table);
-    forward_declarations(&program, &mut symbol_table);
+    forward_declarations(source, &program, &mut symbol_table);
 
     symbol_table.module.end_scope();
 
@@ -85,18 +85,18 @@ pub fn handle_native_functions(symbol_table: &mut SymbolTable)
     }
 }
 
-pub fn forward_declarations(program: &[ast::Node], symbol_table: &mut SymbolTable)
+pub fn forward_declarations(source: &source::Source, program: &[ast::Node], symbol_table: &mut SymbolTable)
 {
     for stmt in program {
         let ast::Node::Stmt(stmt) = stmt else {
             continue
         };
 
-        match_statement(symbol_table, stmt);
+        match_statement(source, symbol_table, stmt);
     }
 }
 
-pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
+pub fn match_statement(source: &source::Source, symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
 {
     match stmt {
         ast::Stmt::Function { name, params, body, .. } => {
@@ -107,30 +107,30 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
                 },
             };
             let declaration = Declaration { kind };
-            symbol_table.module.add_to_current(&name.value.clone(), declaration);
+            symbol_table.module.add_to_current(source.token_value(name), declaration);
 
             symbol_table.module.begin_scope();
 
             for stmt in &body[..body.len()-1] {
-                match_statement(symbol_table, stmt);
+                match_statement(source, symbol_table, stmt);
             }
 
             symbol_table.module.end_scope();
         },
 
         ast::Stmt::Struct { name, members, member_types } => {
-            let member_names = members.iter().map(|m| m.value.clone()).collect();
-            let member_types = member_types.iter().map(|t| t.value.clone()).collect();
+            let member_names = members.iter().map(|m| source.token_value(m).to_string()).collect();
+            let member_types = member_types.iter().map(|t| source.token_value(t).to_string()).collect();
 
             let declaration = Declaration {
                 kind: DeclarationKind::Struct {
-                    name: name.value.clone(),
+                    name: source.token_value(name).to_string(),
                     member_names, 
                     member_types, 
                 }
             };
 
-            symbol_table.module.add_to_current(&name.value, declaration);
+            symbol_table.module.add_to_current(source.token_value(name), declaration);
         }
 
         ast::Stmt::Var { name, initializer, .. } => {
@@ -142,13 +142,13 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
                     },
                 };
                 let declaration = Declaration { kind };
-                symbol_table.module.add_to_current(&name.value, declaration);
+                symbol_table.module.add_to_current(source.token_value(name), declaration);
 
                 symbol_table.module.begin_scope();
 
                 if !body.is_empty() {
                     for stmt in &body[..body.len()-1] {
-                        match_statement(symbol_table, stmt);
+                        match_statement(source, symbol_table, stmt);
                     }
                 }
 
@@ -160,7 +160,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
 
                 symbol_table
                     .module
-                    .add_to_current(&name.value.clone(), declaration);
+                    .add_to_current(source.token_value(name), declaration);
             }
         }
 
@@ -182,13 +182,13 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
                     },
                 };
 
-                symbol_table.module.add_to_current(&name.value, declaration);
+                symbol_table.module.add_to_current(source.token_value(name), declaration);
 
                 symbol_table.module.begin_scope();
 
                 if !body.is_empty() {
                     for stmt in &body[..body.len()-1] {
-                        match_statement(symbol_table, stmt);
+                        match_statement(source, symbol_table, stmt);
                     }
                 }
 
@@ -198,7 +198,7 @@ pub fn match_statement(symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
                     kind: DeclarationKind::Const { initializer: initializer.clone() },
                 };
 
-                symbol_table.module.add_to_current(&name.value, declaration);
+                symbol_table.module.add_to_current(source.token_value(name), declaration);
             }
         }
 

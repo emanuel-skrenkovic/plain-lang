@@ -1,4 +1,3 @@
-use std::fmt;
 use std::mem;
 
 #[derive(Debug, Clone, Copy)]
@@ -26,28 +25,16 @@ impl TokenKind
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Token
 {
     pub kind: TokenKind,
-    pub value: String,
+    pub starts_at: usize,
     pub line: usize,
     pub column: usize,
 }
 
-impl Clone for Token
-{
-    fn clone(&self) -> Self
-    {
-        Token {
-            kind: self.kind,
-            value: self.value.clone(),
-            line: self.line,
-            column: self.column,
-        }
-    }
-}
-
+/*
 impl fmt::Display for Token
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
@@ -55,6 +42,7 @@ impl fmt::Display for Token
         write!(f, "Kind {:?}\nValue {}\nLine {}\n", self.kind, self.value, self.line)
     }
 }
+*/
 
 impl Default for Token
 {
@@ -62,7 +50,7 @@ impl Default for Token
     {
         Token { 
             kind: TokenKind::Error, 
-            value: String::new(),
+            starts_at: 0,
             line: 0, 
             column: 0,
         }
@@ -356,7 +344,7 @@ impl Scanner
     {
         Token {
             kind,
-            value: self.source[self.start..self.current].to_owned(),
+            starts_at: self.start,
             line: self.line,
             column: self.char_index - (self.current - self.start),
         }

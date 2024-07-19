@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 use macros::binary_cstr;
 
-use crate::{ast, scope, scan, semantic_analysis, types};
+use crate::{ast, scope, scan, semantic_analysis, source, types};
 
 
 const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 3] = [
@@ -456,7 +456,7 @@ impl Drop for Context
     {
         unsafe {
             for module in self.modules.drain(..) {
-                llvm::core::LLVMDumpModule(module);
+                // llvm::core::LLVMDumpModule(module);
                 llvm::core::LLVMDisposeModule(module);
             }
 
@@ -467,7 +467,7 @@ impl Drop for Context
 
 /// # Safety
 /// TODO
-pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
+pub unsafe fn compile(source: &source::Source, ctx: &mut Context) -> *mut llvm::LLVMModule
 {
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
     ctx.modules.push(module);
@@ -485,7 +485,7 @@ pub unsafe fn compile(ctx: &mut Context) -> *mut llvm::LLVMModule
             continue
         };
 
-        match_statement(ctx, &mut builder, stmt);
+        match_statement(source, ctx, &mut builder, stmt);
     }
 
     ctx.module_scopes.end_scope();
@@ -606,13 +606,13 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
 /// # Safety
 /// TODO
-pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &ast::Stmt)
+pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builder: &mut Builder, stmt: &ast::Stmt)
 {
     match stmt {
         ast::Stmt::Function { name, params, body, .. } => {
             ctx.module_scopes.begin_scope();
 
-            let function_call = ctx.get_definition(&name.value).unwrap().clone();
+            let function_call = ctx.get_definition(source.token_value(name)).unwrap().clone();
             let Definition::Function { function: function_ref, return_type, param_types, .. } = function_call else {
                 panic!();
             };
@@ -624,21 +624,21 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
 
             for (i, param) in params.iter().enumerate() {
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i.try_into().unwrap());
-                let param_name = CStr::from_str(&param.value);
+                let param_name = CStr::from_str(source.token_value(param));
                 llvm::core::LLVMSetValueName2(param_ref, param_name.value, param_name.len);
 
                 let value = (param_ref, param_types[i]);
-                ctx.module_scopes.add_to_current(&param.value, value);
+                ctx.module_scopes.add_to_current(source.token_value(param), value);
             }
 
             for stmt in &body[..body.len()-1] {
-                match_statement(ctx, &mut builder, stmt);
+                match_statement(source, ctx, &mut builder, stmt);
             }
 
             // TODO: looks horrible.
             let result = match body.last().map(std::convert::AsRef::as_ref) {
                 Some(ast::Stmt::Expr { expr }) 
-                    => match_expression(ctx, &mut builder, expr),
+                    => match_expression(source, ctx, &mut builder, expr),
 
                 _   => llvm::core::LLVMConstNull(return_type),
             };
@@ -651,35 +651,35 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
-            ctx.name = Some(name.value.clone());
+            ctx.name = Some(source.token_value(name).to_string());
 
-            let value    = match_expression(ctx, builder, initializer);
+            let value    = match_expression(source, ctx, builder, initializer);
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);
-            let variable = builder.assign_to_address(value, type_ref, &name.value);
+            let variable = builder.assign_to_address(value, type_ref, source.token_value(name));
 
-            ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
+            ctx.module_scopes.add_to_current(source.token_value(name), (variable, type_ref));
         },
 
         ast::Stmt::Const { name, initializer, .. } => {
-            ctx.name = Some(name.value.clone());
+            ctx.name = Some(source.token_value(name).to_string());
 
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);
 
             // Global scoped variables work differently.
             let variable = if ctx.is_global() {
-                let value  = match_expression(ctx, builder, initializer);
+                let value  = match_expression(source, ctx, builder, initializer);
 
-                let variable_name = CStr::new(name.value.clone());
+                let variable_name = CStr::new(source.token_value(name).to_string());
                 let global        = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.value);
                 llvm::core::LLVMSetInitializer(global, value);
 
                 global
             } else {
-                let value = match_expression(ctx, builder, initializer);
-                builder.assign_to_address(value, type_ref, &name.value)
+                let value = match_expression(source, ctx, builder, initializer);
+                builder.assign_to_address(value, type_ref, source.token_value(name))
             };
 
-            ctx.module_scopes.add_to_current(&name.value, (variable, type_ref));
+            ctx.module_scopes.add_to_current(source.token_value(name), (variable, type_ref));
         },
 
         ast::Stmt::For { initializer, condition, advancement, body, .. } => {
@@ -694,14 +694,14 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
             // initializer
             {
                 builder.set_position(start_branch);
-                match_statement(ctx, builder, initializer);
+                match_statement(source, ctx, builder, initializer);
                 builder.build_break(body_branch);
             }
 
             // condition
             {
                 builder.set_position(condition_branch);
-                let condition_expr = match_expression(ctx, builder, condition);
+                let condition_expr = match_expression(source, ctx, builder, condition);
                 builder.build_condition(condition_expr, body_branch, end_branch);
             }
 
@@ -709,7 +709,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
             {
                 builder.set_position(body_branch);
                 for stmt in body {
-                    match_statement(ctx, builder, stmt);
+                    match_statement(source, ctx, builder, stmt);
                 }
                 builder.build_break(advancement_branch);
             }
@@ -717,7 +717,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
             // advancement
             {
                 builder.set_position(advancement_branch);
-                match_statement(ctx, builder, advancement);
+                match_statement(source, ctx, builder, advancement);
                 builder.build_break(condition_branch);
             }
 
@@ -734,7 +734,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
             // condition
             {
                 builder.set_position(start_branch);
-                let condition_expr = match_expression(ctx, builder, condition);
+                let condition_expr = match_expression(source, ctx, builder, condition);
                 builder.build_condition(condition_expr, body_branch, end_branch);
             }
 
@@ -742,7 +742,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
             {
                 builder.set_position(body_branch);
                 for stmt in body {
-                    match_statement(ctx, builder, stmt);
+                    match_statement(source, ctx, builder, stmt);
                 }
                 builder.build_break(start_branch);
             }
@@ -751,7 +751,7 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
 
         },
 
-        ast::Stmt::Expr { expr } => { match_expression(ctx, builder, expr); },
+        ast::Stmt::Expr { expr } => { match_expression(source, ctx, builder, expr); },
 
         _ => ()
     }
@@ -759,7 +759,13 @@ pub unsafe fn match_statement(ctx: &mut Context, builder: &mut Builder, stmt: &a
 
 /// # Safety
 /// TODO
-pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &ast::ExprInfo) -> llvm::prelude::LLVMValueRef
+pub unsafe fn match_expression
+(
+    source: &source::Source,
+    ctx: &mut Context, 
+    builder: &mut Builder, 
+    expr: &ast::ExprInfo,
+) -> llvm::prelude::LLVMValueRef
 {
     match &expr.value {
         ast::Expr::Bad { .. } => todo!(),
@@ -768,10 +774,10 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             ctx.module_scopes.begin_scope();
 
             for stmt in statements {
-                match_statement(ctx, builder, stmt);
+                match_statement(source, ctx, builder, stmt);
             }
 
-            let value = match_expression(ctx, builder, value);
+            let value = match_expression(source, ctx, builder, value);
 
             ctx.module_scopes.end_scope();
 
@@ -784,7 +790,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             builder.build_break(branch_entry_block);
             builder.set_position(branch_entry_block);
 
-            let condition_expr = match_expression(ctx, builder, condition);
+            let condition_expr = match_expression(source, ctx, builder, condition);
 
             let mut incoming_values = Vec::with_capacity(2);
             let mut incoming_blocks = Vec::with_capacity(2);
@@ -794,10 +800,10 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
             let (then_result, then_exit_block) = {
                 for stmt in then_branch {
-                    match_statement(ctx, builder, stmt);
+                    match_statement(source, ctx, builder, stmt);
                 }
 
-                let then_result = match_expression(ctx, builder, then_value);
+                let then_result = match_expression(source, ctx, builder, then_value);
 
                 (then_result, builder.basic_block.unwrap())
             };
@@ -810,10 +816,10 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
             let (else_result, else_exit_block) = {
                 for stmt in else_branch {
-                    match_statement(ctx, builder, stmt);
+                    match_statement(source, ctx, builder, stmt);
                 }
 
-                let else_result = match_expression(ctx, builder, else_value);
+                let else_result = match_expression(source, ctx, builder, else_value);
 
                 (else_result, builder.basic_block.unwrap())
             };
@@ -846,7 +852,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
             phi_node
         },
 
-        ast::Expr::Binary { left, right, operator } => binary_expr(ctx, builder, left, right, operator),
+        ast::Expr::Binary { left, right, operator } => binary_expr(source, ctx, builder, left, right, operator),
 
         ast::Expr::Literal { value } => {
             match expr.type_kind {
@@ -858,17 +864,17 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 types::TypeKind::Bool =>
                     llvm
                         ::core
-                        ::LLVMConstInt(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), u64::from(value.value == "true"), 0),
+                        ::LLVMConstInt(llvm::core::LLVMInt8TypeInContext(ctx.llvm_ctx), u64::from(source.token_value(value) == "true"), 0),
 
                 types::TypeKind::I32 => {
-                    let val = value.value.parse::<u64>().unwrap(/*TODO: remove unwrap*/);
+                    let val = source.token_value(value).parse::<u64>().unwrap(/*TODO: remove unwrap*/);
                     llvm
                         ::core
                         ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), val, 1)
                 }
 
                 types::TypeKind::String { .. } => {
-                    let value   = &value.value;
+                    let value   = source.token_value(value);
                     let trimmed = value[1..value.len()-1].to_string(); // Strip away '"' from start and end.
                     let val     = CStr::new(trimmed);
                     llvm
@@ -881,35 +887,35 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
         }
 
         ast::Expr::Variable { name } => {
-            let (variable, _) = ctx.module_scopes.get(&name.value).unwrap();
+            let (variable, _) = ctx.module_scopes.get(source.token_value(name)).unwrap();
             *variable
         }
 
         ast::Expr::Assignment { name, value } => {
-            let value_expr        = match_expression(ctx, builder, value);
-            let (variable_ref, _) = ctx.module_scopes.get(&name.value).unwrap();
+            let value_expr        = match_expression(source, ctx, builder, value);
+            let (variable_ref, _) = ctx.module_scopes.get(source.token_value(name)).unwrap();
 
             let value = builder.deref_if_primitive(value_expr, to_llvm_type(ctx, &value.type_kind));
             llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
         },
 
         ast::Expr::MemberAssignment { instance_name, member_name, value } => {
-            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), &instance_name.value);
+            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), source.token_value(instance_name));
             let Some(types::TypeKind::Struct { member_names, .. }) = instance_type else {
                 panic!("Expect 'struct' instance type.");
             };
 
             let member_index = member_names
                 .iter()
-                .position(|f| f == &member_name.value)
+                .position(|f| f == source.token_value(member_name))
                 .unwrap();
 
-            let value_expr = match_expression(ctx, builder, value);
+            let value_expr = match_expression(source, ctx, builder, value);
             let value_type = to_llvm_type(ctx, &value.type_kind);
 
             let (struct_value, struct_type_ref) = *ctx
                 .module_scopes
-                .get_from_scope(ctx.current_scope(), &instance_name.value)
+                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
                 .unwrap();
 
             let struct_pointer = if is_pointer(struct_value) {
@@ -925,19 +931,19 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
         },
 
         ast::Expr::MemberAccess { instance_name, member_name } => {
-            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), &instance_name.value);
+            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), source.token_value(instance_name));
             let Some(types::TypeKind::Struct { member_names, .. }) = instance_type else {
                 panic!("Expect 'struct' instance type.");
             };
 
             let member_index = member_names
                 .iter()
-                .position(|f| f == &member_name.value)
+                .position(|f| f == source.token_value(member_name))
                 .unwrap();
 
             let (struct_value, struct_type_ref) = *ctx
                 .module_scopes
-                .get_from_scope(ctx.current_scope(), &instance_name.value)
+                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
                 .unwrap();
 
             let struct_pointer = if is_pointer(struct_value) {
@@ -956,18 +962,18 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 
         ast::Expr::Call { name, arguments } => {
             let function = ctx
-                .get_definition(&name.value)
-                .unwrap_or_else(|| panic!("Expect variable '{}'.", &name.value))
+                .get_definition(source.token_value(name))
+                .unwrap_or_else(|| panic!("Expect variable '{}'.", source.token_value(name)))
                 .clone();
 
             let Definition::Function { function, function_type, param_types, closure, arity, return_type, variadic, .. } = function else {
-                panic!("{} is not an instance of a callable.", &name.value)
+                panic!("{} is not an instance of a callable.", source.token_value(name))
             };
 
             let mut closed_variables = if closure {
                 captured_variables(ctx)
                     .iter()
-                    .filter(|(key, _)| key != &name.value)
+                    .filter(|(key, _)| key != &source.token_value(name))
                     .map(|(_, var)| *var)
                     .collect()
             } else { 
@@ -980,7 +986,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 .iter()
                 .enumerate()
                 .map(|(i, a)| {
-                    let arg         = match_expression(ctx, builder, a);
+                    let arg         = match_expression(source, ctx, builder, a);
                     let source_type = to_llvm_type(ctx, &a.type_kind);
 
                     // gosh darn varargs.
@@ -1020,13 +1026,13 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
         ast::Expr::Function { params, body, .. } => {
             let name = ctx.name.take().unwrap();
             let body = body.iter().map(|s| *s.clone()).collect::<Vec<ast::Stmt>>();
-            closure(ctx, &name, params, &body)
+            closure(source, ctx, &name, params, &body)
         }
 
         ast::Expr::Struct { name, values, .. } => {
             let type_kind = ctx
                 .type_info
-                .get_from_scope(ctx.current_scope(), &name.value)
+                .get_from_scope(ctx.current_scope(), source.token_value(name))
                 .unwrap(/*TODO: remove unwrap*/);
 
             let types::TypeKind::Struct { name: struct_type_name, .. } = type_kind else {
@@ -1049,7 +1055,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
                 let initializer_type = to_llvm_type(ctx, &member_initializer.type_kind);
                 let member_ref       = builder.struct_member_access(ctx, struct_pointer, i, initializer_type);
 
-                let value = match_expression(ctx, builder, member_initializer);
+                let value = match_expression(source, ctx, builder, member_initializer);
                 let value = builder.deref_if_primitive(value, initializer_type);
 
                 llvm::core::LLVMBuildStore(builder.builder, value, member_ref);
@@ -1066,6 +1072,7 @@ pub unsafe fn match_expression(ctx: &mut Context, builder: &mut Builder, expr: &
 /// TODO
 pub unsafe fn binary_expr
 (
+    source: &source::Source,
     ctx: &mut Context,
     builder: &mut Builder,
     left: &ast::ExprInfo,
@@ -1073,8 +1080,8 @@ pub unsafe fn binary_expr
     operator: &scan::Token,
 ) -> llvm::prelude::LLVMValueRef
 {
-    let lhs = match_expression(ctx, builder, left);
-    let rhs = match_expression(ctx, builder, right);
+    let lhs = match_expression(source, ctx, builder, left);
+    let rhs = match_expression(source, ctx, builder, right);
 
     let expected_operand_type = to_llvm_type(ctx, &left.type_kind);
 
@@ -1169,6 +1176,7 @@ pub unsafe fn binary_expr
 
 unsafe fn closure
 (
+    source: &source::Source,
     ctx: &mut Context,
     name: &str,
     params: &[scan::Token],
@@ -1185,7 +1193,7 @@ unsafe fn closure
 
     let mut params: Vec<String> = params
         .iter()
-        .map(|p| p.value.clone())
+        .map(|p| source.token_value(p).to_string())
         .collect();
 
     let total_values_count = params.len() + closed_variables.len();
@@ -1216,17 +1224,17 @@ unsafe fn closure
     // #horribleways
     if is_void(return_type) {
         for stmt in &body[..body.len()] {
-            match_statement(ctx, &mut builder, stmt);
+            match_statement(source, ctx, &mut builder, stmt);
         }
         llvm::core::LLVMBuildRetVoid(builder.builder);
     } else {
         for stmt in &body[..body.len() - 1] {
-            match_statement(ctx, &mut builder, stmt);
+            match_statement(source, ctx, &mut builder, stmt);
         }
 
         let result = match body.last() {
             Some(ast::Stmt::Expr { expr }) 
-                => match_expression(ctx, &mut builder, expr),
+                => match_expression(source, ctx, &mut builder, expr),
 
             _   => llvm::core::LLVMConstNull(return_type),
         };

@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::scan;
+use crate::{scan, source};
 
 #[derive(Clone, Debug)]
 pub enum Kind
@@ -55,23 +55,29 @@ impl fmt::Display for Error
 #[derive(Clone)]
 pub struct Reporter
 {
-    pub source: String,
+    pub code: String,
     pub lines: Vec<String>,
     pub errors: Vec<Error>,
     pub error: bool,
+    pub source: source::Source,
 }
 
 impl Reporter
 {
     #[must_use]
-    pub fn new(source: String) -> Self
+    pub fn new(code: String) -> Self
     {
-        let lines: Vec<String> = source
+        let lines: Vec<String> = code
             .lines()
             .map(String::from)
             .collect();
 
+        let source = source::Source {
+            source: code.clone()
+        };
+
         Self {
+            code,
             source,        
             lines,
             errors: Vec::with_capacity(1024),
@@ -88,7 +94,7 @@ impl Reporter
             line: token.line,
             column: token.column,
             source_line: self.lines[token.line - 1].clone(),
-            token: token.value.clone(),
+            token: self.source.token_value(token).to_string(),
             kind,
         };
         self.errors.push(error.clone());
