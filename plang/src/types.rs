@@ -12,27 +12,34 @@ pub enum TypeKind
 
     I32,
 
-    String { len: usize },
+    String 
+    { 
+        len: usize 
+    },
 
-    Function {
+    Function 
+    {
         parameter_kinds: Vec<Box<TypeKind>>,
         return_kind: Box<TypeKind>,
         variadic: bool,
     },
 
-    Closure {
+    Closure 
+    {
         captured_kinds: Vec<Box<TypeKind>>,
         parameter_kinds: Vec<Box<TypeKind>>,
         return_kind: Box<TypeKind>,
     },
 
-    Struct {
+    Struct 
+    {
         name: String,
         member_names: Vec<String>,
         member_types: Vec<Box<TypeKind>>,
     },
 
-    Reference {
+    Reference 
+    {
         underlying: Box<TypeKind>,
     },
 }
@@ -57,10 +64,6 @@ impl <'a> Typer<'a>
 
     pub fn infer_types(mut self, mut program: Vec<ast::Node>) -> (Vec<ast::Node>, scope::Module<TypeKind>)
     {
-        let mut typed_program = Vec::with_capacity(program.len());
-
-        // TODO: think about moving program to struct scope. In either case,
-        // the execution of Typer is per Typer instance.
         self.type_info.begin_scope();
 
         self.handle_native_functions();
@@ -71,17 +74,12 @@ impl <'a> Typer<'a>
                 continue
             };
 
-            let Ok(stmt) = self.match_statement(stmt) else {
-                continue
-            };
-
-            let node = ast::Node::Stmt(stmt);
-            typed_program.push(node);
+            let _ = self.match_statement(stmt);
         }
 
         self.type_info.end_scope();
 
-        (typed_program, self.type_info)
+        (program, self.type_info)
     }
 
     pub fn infer_global_types(&mut self, program: &mut [ast::Node]) -> Result<(), error::Error>
@@ -138,11 +136,11 @@ impl <'a> Typer<'a>
 
                     let member_names = members
                         .iter()
-                        .map(|m| self.source.token_value(m).to_string())
+                        .map(|m| self.source.token_value(m).to_owned())
                         .collect();
 
                     let kind = TypeKind::Struct {
-                        name: self.source.token_value(name).to_string(),
+                        name: self.source.token_value(name).to_owned(),
                         member_names,
                         member_types,
                     };
@@ -279,11 +277,11 @@ impl <'a> Typer<'a>
 
                 let member_names = members
                     .iter()
-                    .map(|m| self.source.token_value(m).to_string())
+                    .map(|m| self.source.token_value(m).to_owned())
                     .collect();
 
                 let kind = TypeKind::Struct {
-                    name: self.source.token_value(name).to_string(),
+                    name: self.source.token_value(name).to_owned(),
                     member_names,
                     member_types,
                 };
@@ -666,20 +664,21 @@ impl <'a> Typer<'a>
         match token.kind {
             scan::TokenKind::True | scan::TokenKind::False  => TypeKind::Bool,
             _ => {
-                if self.source.token_value(token).starts_with('\"') {
-                    TypeKind::String { len: self.source.token_value(token).len() }
-                } else if let Some(first) = self.source.token_value(token).chars().next() {
+                let token = self.source.token_value(token);
+
+                if token.starts_with('\"') {
+                    TypeKind::String { len: token.len() }
+                } else {
+                    let first = token.as_bytes()[0] as char;
                     if !char::is_numeric(first) {
                         return TypeKind::Unknown
                     }
 
-                    let Ok(_) = self.source.token_value(token).parse::<i32>() else {
+                    let Ok(_) = token.parse::<i32>() else {
                         return TypeKind::Unknown
                     };
 
                     TypeKind::I32
-                } else {
-                    TypeKind::Unknown
                 }
             }
         }

@@ -119,12 +119,12 @@ pub fn match_statement(source: &source::Source, symbol_table: &mut SymbolTable, 
         },
 
         ast::Stmt::Struct { name, members, member_types } => {
-            let member_names = members.iter().map(|m| source.token_value(m).to_string()).collect();
-            let member_types = member_types.iter().map(|t| source.token_value(t).to_string()).collect();
+            let member_names = members.iter().map(|m| source.token_value(m).to_owned()).collect();
+            let member_types = member_types.iter().map(|t| source.token_value(t).to_owned()).collect();
 
             let declaration = Declaration {
                 kind: DeclarationKind::Struct {
-                    name: source.token_value(name).to_string(),
+                    name: source.token_value(name).to_owned(),
                     member_names, 
                     member_types, 
                 }

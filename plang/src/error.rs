@@ -55,7 +55,6 @@ impl fmt::Display for Error
 #[derive(Clone)]
 pub struct Reporter
 {
-    pub code: String,
     pub lines: Vec<String>,
     pub errors: Vec<Error>,
     pub error: bool,
@@ -65,7 +64,7 @@ pub struct Reporter
 impl Reporter
 {
     #[must_use]
-    pub fn new(code: String) -> Self
+    pub fn new(code: &str) -> Self
     {
         let lines: Vec<String> = code
             .lines()
@@ -73,14 +72,13 @@ impl Reporter
             .collect();
 
         let source = source::Source {
-            source: code.clone()
+            source: code.to_owned()
         };
 
         Self {
-            code,
             source,        
             lines,
-            errors: Vec::with_capacity(1024),
+            errors: Vec::with_capacity(64),
             error: false,
         }
     }
@@ -94,7 +92,7 @@ impl Reporter
             line: token.line,
             column: token.column,
             source_line: self.lines[token.line - 1].clone(),
-            token: self.source.token_value(token).to_string(),
+            token: self.source.token_value(token).to_owned(),
             kind,
         };
         self.errors.push(error.clone());

@@ -244,7 +244,7 @@ impl Parser
         Self {
             reader: TokenReader::new(reporter, tokens),
             scope_depth: 0,
-            stack: Vec::with_capacity(1024),
+            stack: Vec::with_capacity(8),
         }
     }
 
@@ -254,7 +254,7 @@ impl Parser
 
         // TODO: should probably enclose program itself.
 
-        let mut nodes: Vec<ast::Node> = Vec::with_capacity(1024 * 8);
+        let mut nodes: Vec<ast::Node> = Vec::with_capacity(512 * 8);
 
         loop {
             if let scan::TokenKind::End = self.reader.current.kind {
@@ -609,8 +609,8 @@ impl Parser
 
         let left_paren = self.reader.previous.clone();
 
-        let mut param_types = Vec::with_capacity(512);
-        let mut params      = Vec::with_capacity(512);
+        let mut param_types = Vec::with_capacity(64);
+        let mut params      = Vec::with_capacity(64);
 
         if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -670,7 +670,7 @@ impl Parser
 
         self.begin_scope();
 
-        let mut statements = Vec::with_capacity(1024);
+        let mut statements = Vec::with_capacity(512);
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
@@ -756,7 +756,7 @@ impl Parser
         // Body
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body = Vec::with_capacity(1024);
+        let mut body = Vec::with_capacity(512);
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let stmt = self.declaration();
@@ -797,7 +797,7 @@ impl Parser
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body: Vec<Box<ast::Stmt>> = Vec::with_capacity(1024);
+        let mut body: Vec<Box<ast::Stmt>> = Vec::with_capacity(512);
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
@@ -858,8 +858,8 @@ impl Parser
 
         let name = token.clone();
 
-        let mut members = Vec::with_capacity(1024);
-        let mut values  = Vec::with_capacity(1024);
+        let mut members = Vec::with_capacity(64);
+        let mut values  = Vec::with_capacity(64);
 
         if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
@@ -911,8 +911,8 @@ impl Parser
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' on struct definition.");
 
-        let mut members      = Vec::with_capacity(1024);
-        let mut member_types = Vec::with_capacity(1024);
+        let mut members      = Vec::with_capacity(64);
+        let mut member_types = Vec::with_capacity(64);
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             self.consume(scan::TokenKind::Identifier, "Expect identifier.");

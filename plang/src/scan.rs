@@ -34,16 +34,6 @@ pub struct Token
     pub column: usize,
 }
 
-/*
-impl fmt::Display for Token
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
-    {
-        write!(f, "Kind {:?}\nValue {}\nLine {}\n", self.kind, self.value, self.line)
-    }
-}
-*/
-
 impl Default for Token
 {
     fn default() -> Self

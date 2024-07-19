@@ -192,7 +192,7 @@ impl Builder
         );
 
         Definition::Struct {
-            name: name.to_string(),
+            name: name.to_owned(),
             member_names: member_names.clone(),
             member_types: member_types.clone(),
             type_ref: struct_type,
@@ -224,7 +224,7 @@ impl Builder
             ::core
             ::LLVMAddFunction(self.module, function_name.value, function_type);
 
-        let name = name.to_string();
+        let name = name.to_owned();
 
         Definition::Function {
             name,
@@ -402,8 +402,8 @@ impl Context
             program,
             module_scopes: scope::Module::new(),
 
-            definition_names: Vec::with_capacity(1024),
-            definitions: Vec::with_capacity(1024),
+            definition_names: Vec::with_capacity(128),
+            definitions: Vec::with_capacity(128),
 
             symbol_table,
             type_info,
@@ -524,7 +524,7 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
                         .build_function(name, param_types, return_type, vec![], false, *variadic);
 
                     let name = *name;
-                    ctx.definition_names.push(name.to_string());
+                    ctx.definition_names.push(name.to_owned());
                     ctx.definitions.push(function_call);
                 }
 
@@ -651,7 +651,7 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
-            ctx.name = Some(source.token_value(name).to_string());
+            ctx.name = Some(source.token_value(name).to_owned());
 
             let value    = match_expression(source, ctx, builder, initializer);
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);
@@ -661,7 +661,7 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
         },
 
         ast::Stmt::Const { name, initializer, .. } => {
-            ctx.name = Some(source.token_value(name).to_string());
+            ctx.name = Some(source.token_value(name).to_owned());
 
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);
 
@@ -669,7 +669,7 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
             let variable = if ctx.is_global() {
                 let value  = match_expression(source, ctx, builder, initializer);
 
-                let variable_name = CStr::new(source.token_value(name).to_string());
+                let variable_name = CStr::new(source.token_value(name).to_owned());
                 let global        = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.value);
                 llvm::core::LLVMSetInitializer(global, value);
 
@@ -875,7 +875,7 @@ pub unsafe fn match_expression
 
                 types::TypeKind::String { .. } => {
                     let value   = source.token_value(value);
-                    let trimmed = value[1..value.len()-1].to_string(); // Strip away '"' from start and end.
+                    let trimmed = value[1..value.len()-1].to_owned(); // Strip away '"' from start and end.
                     let val     = CStr::new(trimmed);
                     llvm
                         ::core
@@ -1188,12 +1188,12 @@ unsafe fn closure
     let mut closed_variables: Vec<String> = captured_variables(ctx)
         .into_iter()
         .filter(|(n, _)| n != &name)
-        .map(|(name, _)| name.to_string())
+        .map(|(name, _)| name.to_owned())
         .collect();
 
     let mut params: Vec<String> = params
         .iter()
-        .map(|p| source.token_value(p).to_string())
+        .map(|p| source.token_value(p).to_owned())
         .collect();
 
     let total_values_count = params.len() + closed_variables.len();

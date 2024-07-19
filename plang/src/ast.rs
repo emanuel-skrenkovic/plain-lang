@@ -254,7 +254,7 @@ impl GlobalsHoistingTransformer
                 }
 
                 Node::Stmt(Stmt::Function { name, body, param_types, .. }) => {
-                    let mut deps = Vec::with_capacity(1024);
+                    let mut deps = Vec::with_capacity(64);
                     
                     deps.append
                     (
@@ -272,7 +272,7 @@ impl GlobalsHoistingTransformer
                 }
 
                 Node::Stmt(Stmt::Const { name, initializer, .. }) => {
-                    let mut deps = Vec::with_capacity(1024);
+                    let mut deps = Vec::with_capacity(64);
                     Self::match_expression(source, &initializer.value, &mut deps);
 
                     declarations.push(source.token_value(name));
@@ -333,7 +333,7 @@ impl GlobalsHoistingTransformer
         let mut rest = graph.nodes
             .iter()
             .filter(|name| !order.contains(name))
-            .cloned()
+            .copied()
             .collect();
 
         order.append(&mut rest);
@@ -354,7 +354,7 @@ impl GlobalsHoistingTransformer
                 }
 
                 Stmt::Function { body, param_types, .. } => {
-                    let mut nested_deps = Vec::with_capacity(1024);
+                    let mut nested_deps = Vec::with_capacity(64);
 
                     nested_deps.append
                     (

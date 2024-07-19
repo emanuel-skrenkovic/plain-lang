@@ -30,7 +30,7 @@ impl <T> Module<T>
     pub fn new() -> Self
     {
         Self {
-            scopes: Vec::with_capacity(1024),
+            scopes: Vec::with_capacity(128),
             current_scope_index: 0,
         }
     }
@@ -59,11 +59,11 @@ impl <T> Module<T>
                 new_scope_path.push(parent_scope.index);
                 new_scope_path
             }
-            _ => Vec::with_capacity(512)
+            _ => Vec::with_capacity(128)
         };
 
-        let mut new_scope_names  = Vec::with_capacity(512);
-        let mut new_scope_values = Vec::with_capacity(512);
+        let mut new_scope_names  = Vec::with_capacity(128);
+        let mut new_scope_values = Vec::with_capacity(128);
 
         if let Some(parent_scope) = parent_scope {
             let parent_scope       = &self.scopes[parent_scope.index];
@@ -111,7 +111,7 @@ impl <T> Module<T>
     pub fn add_to_current(&mut self, name: &str, value: T) -> usize
     {
         let scope = self.current_scope_mut();
-        scope.names.push(name.to_string());
+        scope.names.push(name.to_owned());
         scope.values.push(value);
         scope.values.len() - 1
     }

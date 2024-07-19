@@ -20,7 +20,7 @@ fn main()
     let mut scanner = scan::Scanner::new(source.clone());
 
     let s = source::Source { source: source.clone() }; 
-    let mut reporter = error::Reporter::new(source);
+    let mut reporter = error::Reporter::new(&source);
 
     let now = std::time::Instant::now();
 
