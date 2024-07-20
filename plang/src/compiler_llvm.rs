@@ -615,12 +615,14 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
             builder.set_position(entry_block);
 
             for (i, param) in params.iter().enumerate() {
+                let param = source.token_value(param);
+
                 let param_ref  = llvm::core::LLVMGetParam(function_ref, i.try_into().unwrap());
-                let param_name = CStr::from_str(source.token_value(param));
+                let param_name = CStr::from_str(param);
                 llvm::core::LLVMSetValueName2(param_ref, param_name.value, param_name.len);
 
                 let value = (param_ref, param_types[i]);
-                ctx.module_scopes.add_to_current(source.token_value(param), value);
+                ctx.module_scopes.add_to_current(param, value);
             }
 
             for stmt in &body[..body.len()-1] {
@@ -643,17 +645,19 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
-            ctx.name = Some(source.token_value(name).to_owned());
+            let name = source.token_value(name);
+            ctx.name = Some(name.to_owned());
 
             let value    = match_expression(source, ctx, builder, initializer);
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);
-            let variable = builder.assign_to_address(value, type_ref, source.token_value(name));
+            let variable = builder.assign_to_address(value, type_ref, name);
 
-            ctx.module_scopes.add_to_current(source.token_value(name), (variable, type_ref));
+            ctx.module_scopes.add_to_current(name, (variable, type_ref));
         },
 
         ast::Stmt::Const { name, initializer, .. } => {
-            ctx.name = Some(source.token_value(name).to_owned());
+            let name = source.token_value(name);
+            ctx.name = Some(name.to_owned());
 
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);
 
@@ -661,17 +665,17 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
             let variable = if ctx.is_global() {
                 let value  = match_expression(source, ctx, builder, initializer);
 
-                let variable_name = CStr::new(source.token_value(name).to_owned());
+                let variable_name = CStr::new(name.to_owned());
                 let global        = llvm::core::LLVMAddGlobal(builder.module, type_ref, variable_name.value);
                 llvm::core::LLVMSetInitializer(global, value);
 
                 global
             } else {
                 let value = match_expression(source, ctx, builder, initializer);
-                builder.assign_to_address(value, type_ref, source.token_value(name))
+                builder.assign_to_address(value, type_ref, name)
             };
 
-            ctx.module_scopes.add_to_current(source.token_value(name), (variable, type_ref));
+            ctx.module_scopes.add_to_current(name, (variable, type_ref));
         },
 
         ast::Stmt::For { initializer, condition, advancement, body, .. } => {
@@ -892,9 +896,10 @@ pub unsafe fn match_expression
         },
 
         ast::Expr::MemberAssignment { instance_name, member_name, value } => {
+            let instance_name = source.token_value(instance_name);
             let instance_type = ctx
                 .type_info
-                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
+                .get_from_scope(ctx.current_scope(), instance_name)
                 .expect("Expect instance type.");
 
             let struct_type = to_llvm_type(ctx, instance_type);
@@ -903,9 +908,10 @@ pub unsafe fn match_expression
                 panic!("Expect 'struct' instance type.");
             };
 
+            let member       = source.token_value(member_name);
             let member_index = member_names
                 .iter()
-                .position(|f| f == source.token_value(member_name))
+                .position(|f| f == member)
                 .unwrap();
 
             let value_expr = match_expression(source, ctx, builder, value);
@@ -913,7 +919,7 @@ pub unsafe fn match_expression
 
             let (struct_val, _) = *ctx
                 .module_scopes
-                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
+                .get_from_scope(ctx.current_scope(), instance_name)
                 .unwrap();
 
             let struct_pointer = if is_pointer(struct_val) { struct_val } 
@@ -926,9 +932,10 @@ pub unsafe fn match_expression
         },
 
         ast::Expr::MemberAccess { instance_name, member_name } => {
+            let instance_name = source.token_value(instance_name);
             let instance_type = ctx
                 .type_info
-                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
+                .get_from_scope(ctx.current_scope(), instance_name)
                 .expect("Expect instance type.");
 
             let struct_type = to_llvm_type(ctx, instance_type);
@@ -937,14 +944,15 @@ pub unsafe fn match_expression
                 panic!("Expect 'struct' instance type.");
             };
 
+            let member       = source.token_value(member_name);
             let member_index = member_names
                 .iter()
-                .position(|f| f == source.token_value(member_name))
+                .position(|f| f == member)
                 .unwrap();
 
             let (struct_val, _) = *ctx
                 .module_scopes
-                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
+                .get_from_scope(ctx.current_scope(), instance_name)
                 .unwrap();
 
             let struct_pointer = if is_pointer(struct_val) { struct_val } 
@@ -959,19 +967,21 @@ pub unsafe fn match_expression
         ast::Expr::Logical => todo!(),
 
         ast::Expr::Call { name, arguments } => {
+            let name = source.token_value(name);
+
             let function = ctx
-                .get_definition(source.token_value(name))
-                .unwrap_or_else(|| panic!("Expect variable '{}'.", source.token_value(name)))
+                .get_definition(name)
+                .unwrap_or_else(|| panic!("Expect variable '{name}'."))
                 .clone();
 
             let Definition::Function { function, function_type, param_types, closure, arity, return_type, variadic, .. } = function else {
-                panic!("{} is not an instance of a callable.", source.token_value(name))
+                panic!("{name} is not an instance of a callable.")
             };
 
             let mut closed_variables = if closure {
                 captured_variables(ctx)
                     .iter()
-                    .filter(|(key, _)| key != &source.token_value(name))
+                    .filter(|(key, _)| key != &name)
                     .map(|(_, var)| *var)
                     .collect()
             } else { 

@@ -139,13 +139,15 @@ impl <'a> Typer<'a>
                         .map(|m| self.source.token_value(m).to_owned())
                         .collect();
 
+                    let struct_type_name = self.source.token_value(name);
+
                     let kind = TypeKind::Struct {
-                        name: self.source.token_value(name).to_owned(),
+                        name: struct_type_name.to_owned(),
                         member_names,
                         member_types,
                     };
 
-                    self.type_info.add_to_current(self.source.token_value(name), kind);
+                    self.type_info.add_to_current(struct_type_name, kind);
                 }
 
                 _ => ()
@@ -182,13 +184,14 @@ impl <'a> Typer<'a>
                     let param      = &params[i];
                     let param_type = &param_types[i];
                     let kind       = self.type_from_identifier(param_type);
+                    let param_name = self.source.token_value(param);
 
                     if let Ok(kind) = kind {
-                        self.type_info.add_to_current(self.source.token_value(param), kind);
+                        self.type_info.add_to_current(param_name, kind);
                         continue
                     };
 
-                    let message = format!("Failed to get type for {}", self.source.token_value(param));
+                    let message = format!("Failed to get type for {param_name}");
                     let _ = self.reporter.error_at(&message, error::Kind::TypeError, param);
                 }
 
@@ -233,13 +236,12 @@ impl <'a> Typer<'a>
                     None              => TypeKind::Unit,
                 };
 
+                let function_name = self.source.token_value(name);
+
                 if return_kind != specified_return_kind {
                     let message = format!
                     (
-                        "Returned value does not match function definition.Function: {} Value type: {:?} Return type: {:?}", 
-                        self.source.token_value(name),
-                        return_kind, 
-                        return_type,
+                        "Returned value does not match function definition. Function: {function_name} Value type: {return_kind:?} Return type: {return_type:?}", 
                     );
                     self.reporter.error_at
                     (
@@ -264,7 +266,7 @@ impl <'a> Typer<'a>
                     variadic: false,
                 };
 
-                self.type_info.add_to_current(self.source.token_value(name), kind);
+                self.type_info.add_to_current(function_name, kind);
             },
 
             ast::Stmt::Struct { name, members, member_types } => {
@@ -280,13 +282,15 @@ impl <'a> Typer<'a>
                     .map(|m| self.source.token_value(m).to_owned())
                     .collect();
 
+                let struct_type_name = self.source.token_value(name);
+
                 let kind = TypeKind::Struct {
-                    name: self.source.token_value(name).to_owned(),
+                    name: struct_type_name.to_owned(),
                     member_names,
                     member_types,
                 };
 
-                self.type_info.add_to_current(self.source.token_value(name), kind);
+                self.type_info.add_to_current(struct_type_name, kind);
             }
 
             ast::Stmt::Declaration { initializer, .. } => {
@@ -450,8 +454,10 @@ impl <'a> Typer<'a>
 
             ast::Expr::Variable { name } 
                 => {
-                let Some(kind) = self.type_info.get(self.source.token_value(name)) else {
-                    let message = format!("Failed to get type info for {}", self.source.token_value(name));
+                let variable_name = self.source.token_value(name);
+
+                let Some(kind) = self.type_info.get(variable_name) else {
+                    let message = format!("Failed to get type info for {variable_name}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
                 };
 
@@ -469,8 +475,9 @@ impl <'a> Typer<'a>
                 let kind = self.match_expression(&mut value.value)?;
                 value.type_kind = kind.clone();
 
-                let Some(instance_type) = self.type_info.get(self.source.token_value(instance_name)) else {
-                    let message = format!("Failed to find type name of {}.", self.source.token_value(instance_name));
+                let instance = self.source.token_value(instance_name);
+                let Some(instance_type) = self.type_info.get(instance) else {
+                    let message = format!("Failed to find type name of {instance}.");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
@@ -479,8 +486,9 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
 
-                let Some(index) = member_names.iter().position(|n| n == self.source.token_value(member_name)) else {
-                    let message = format!("{} is not a member of {}", self.source.token_value(member_name), name);
+                let member = self.source.token_value(member_name);
+                let Some(index) = member_names.iter().position(|n| n == member) else {
+                    let message = format!("{member} is not a member of {name}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
@@ -497,8 +505,9 @@ impl <'a> Typer<'a>
             }
 
             ast::Expr::MemberAccess { instance_name, member_name } => {
-                let Some(instance_type) = self.type_info.get(self.source.token_value(instance_name)) else {
-                    let message = format!("Failed to get type info for {}", self.source.token_value(instance_name));
+                let instance = self.source.token_value(instance_name);
+                let Some(instance_type) = self.type_info.get(instance) else {
+                    let message = format!("Failed to get type info for {instance}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name))
                 };
 
@@ -507,9 +516,10 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
 
-                let index = member_names.iter().position(|n| n == self.source.token_value(member_name));
+                let member      = self.source.token_value(member_name);
+                let index       = member_names.iter().position(|n| n == member);
                 let Some(index) = index else {
-                    let message = format!("{} is not a member of {}", self.source.token_value(member_name), name);
+                    let message = format!("{member} is not a member of {name}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
@@ -525,8 +535,9 @@ impl <'a> Typer<'a>
                     arg.type_kind = kind; 
                 }
 
-                let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(self.source.token_value(name)) else {
-                    let message = format!("'{}' is not a function.", self.source.token_value(name));
+                let function_name = self.source.token_value(name);
+                let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(function_name) else {
+                    let message = format!("'{function_name}' is not a function.");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
 
@@ -588,8 +599,9 @@ impl <'a> Typer<'a>
             },
 
             ast::Expr::Struct { name, values, members } => {
-                let Some(instance_type) = self.type_info.get(self.source.token_value(name)) else {
-                    let message = format!("Failed to find type {}.", self.source.token_value(name));
+                let instance = self.source.token_value(name);
+                let Some(instance_type) = self.type_info.get(instance) else {
+                    let message = format!("Failed to find type {instance}.");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
 
@@ -606,8 +618,9 @@ impl <'a> Typer<'a>
 
                     let member_name = &members[i];
 
-                    let Some(index) = member_names.iter().position(|n| n == self.source.token_value(member_name)) else {
-                        let message = format!("{} is not a member of {:?}", self.source.token_value(member_name), name);
+                    let member = self.source.token_value(member_name);
+                    let Some(index) = member_names.iter().position(|n| n == member) else {
+                        let message = format!("{member} is not a member of {name:?}");
                         self.reporter.error_at(&message, error::Kind::TypeError, member_name);
 
                         continue
@@ -627,8 +640,9 @@ impl <'a> Typer<'a>
                     value.type_kind = kind;
                 }
 
-                let Some(kind) = self.type_info.get(self.source.token_value(name)) else {
-                    let message = format!("Failed to get type for '{}'", self.source.token_value(name));
+                let struct_name = self.source.token_value(name);
+                let Some(kind) = self.type_info.get(struct_name) else {
+                    let message = format!("Failed to get type for '{struct_name}'");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
                 };
 
@@ -641,14 +655,16 @@ impl <'a> Typer<'a>
 
     fn type_from_identifier(&mut self, token: &scan::Token) -> Result<TypeKind, error::Error>
     {
-        let kind = match self.source.token_value(token) {
+        let token_value = self.source.token_value(token);
+
+        let kind = match token_value {
             "i32"    => TypeKind::I32,
-            "string" => TypeKind::String { len: self.source.token_value(token).len() },
+            "string" => TypeKind::String { len: token_value.len() },
             "bool"   => TypeKind::Bool,
             _        => {
-                let kind = self.type_info.get(self.source.token_value(token));
+                let kind = self.type_info.get(token_value);
                 let Some(kind) = kind else {
-                    let message = format!("Failed to find type of {}.", self.source.token_value(token));
+                    let message = format!("Failed to find type of {token_value}.");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, token))
                };
 

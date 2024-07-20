@@ -2,12 +2,13 @@ use std::io::{stderr, Write};
 
 use plang::ast;
 use plang::ast::Transformer;
-use plang::compiler_llvm;
-use plang::parse;
+
 use plang::scan;
+use plang::parse;
 use plang::types;
 use plang::error;
 use plang::source;
+use plang::compiler_llvm;
 use plang::semantic_analysis;
 
 
