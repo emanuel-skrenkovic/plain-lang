@@ -65,7 +65,7 @@ fn main()
         (program, type_info, after_type_analysis)
     };
     
-    // println!("{program:#?}");
+    println!("{program:#?}");
 
     if reporter.error {
         for err in reporter.errors {

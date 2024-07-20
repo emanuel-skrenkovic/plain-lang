@@ -244,26 +244,18 @@ impl Builder
     pub unsafe fn struct_member_access
     (
         &self, 
-        ctx: &Context,
         struct_pointer: llvm::prelude::LLVMValueRef,
+        struct_type: llvm::prelude::LLVMTypeRef,
         member_index: usize,
-        member_type: llvm::prelude::LLVMTypeRef,
     ) -> llvm::prelude::LLVMValueRef
     {
-        let index_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
-        let indices = 
-        [
-            llvm::core::LLVMConstInt(index_type, member_index as u64, 0)
-        ].as_mut_ptr();
-
         let member_ref_name = CStr::from_str("_member_access");
-        llvm::core::LLVMBuildInBoundsGEP2
+        llvm::core::LLVMBuildStructGEP2
         (
             self.builder, 
-            member_type, 
+            struct_type, 
             struct_pointer,
-            indices,
-            1,
+            u32::try_from(member_index).unwrap(),
             member_ref_name.value
         )
     }
@@ -456,7 +448,7 @@ impl Drop for Context
     {
         unsafe {
             for module in self.modules.drain(..) {
-                // llvm::core::LLVMDumpModule(module);
+                llvm::core::LLVMDumpModule(module);
                 llvm::core::LLVMDisposeModule(module);
             }
 
@@ -900,8 +892,14 @@ pub unsafe fn match_expression
         },
 
         ast::Expr::MemberAssignment { instance_name, member_name, value } => {
-            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), source.token_value(instance_name));
-            let Some(types::TypeKind::Struct { member_names, .. }) = instance_type else {
+            let instance_type = ctx
+                .type_info
+                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
+                .expect("Expect instance type.");
+
+            let struct_type = to_llvm_type(ctx, instance_type);
+
+            let types::TypeKind::Struct { member_names, .. } = instance_type else {
                 panic!("Expect 'struct' instance type.");
             };
 
@@ -913,26 +911,29 @@ pub unsafe fn match_expression
             let value_expr = match_expression(source, ctx, builder, value);
             let value_type = to_llvm_type(ctx, &value.type_kind);
 
-            let (struct_value, struct_type_ref) = *ctx
+            let (struct_val, _) = *ctx
                 .module_scopes
                 .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
                 .unwrap();
 
-            let struct_pointer = if is_pointer(struct_value) {
-                struct_value
-            } else {
-                builder.assign_to_address(struct_value, struct_type_ref, "_alloca")
-            };
+            let struct_pointer = if is_pointer(struct_val) { struct_val } 
+                                 else                      { builder.assign_to_address(struct_val, struct_type, "_alloca") };
 
-            let member_ref = builder.struct_member_access(ctx, struct_pointer, member_index, value_type);
+            let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index);
             let value      = builder.deref_if_primitive(value_expr, value_type);
 
             llvm::core::LLVMBuildStore(builder.builder, value, member_ref)
         },
 
         ast::Expr::MemberAccess { instance_name, member_name } => {
-            let instance_type = ctx.type_info.get_from_scope(ctx.current_scope(), source.token_value(instance_name));
-            let Some(types::TypeKind::Struct { member_names, .. }) = instance_type else {
+            let instance_type = ctx
+                .type_info
+                .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
+                .expect("Expect instance type.");
+
+            let struct_type = to_llvm_type(ctx, instance_type);
+
+            let types::TypeKind::Struct { member_names, .. } = instance_type else {
                 panic!("Expect 'struct' instance type.");
             };
 
@@ -941,21 +942,18 @@ pub unsafe fn match_expression
                 .position(|f| f == source.token_value(member_name))
                 .unwrap();
 
-            let (struct_value, struct_type_ref) = *ctx
+            let (struct_val, _) = *ctx
                 .module_scopes
                 .get_from_scope(ctx.current_scope(), source.token_value(instance_name))
                 .unwrap();
 
-            let struct_pointer = if is_pointer(struct_value) {
-                struct_value
-            } else {
-                builder.assign_to_address(struct_value, struct_type_ref, "_alloca")
-            };
+            let struct_pointer = if is_pointer(struct_val) { struct_val } 
+                                 else                      { builder.assign_to_address(struct_val, struct_type, "_alloca") };
 
-            let elem_type  = to_llvm_type(ctx, &expr.type_kind);
-            let member_ref = builder.struct_member_access(ctx, struct_pointer, member_index, elem_type);
+            let member_type  = to_llvm_type(ctx, &expr.type_kind);
+            let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index);
 
-            builder.deref_if_primitive(member_ref, elem_type)
+            builder.deref_if_primitive(member_ref, member_type)
         }
 
         ast::Expr::Logical => todo!(),
@@ -1040,7 +1038,7 @@ pub unsafe fn match_expression
             };
 
             let struct_definition = ctx.get_definition(struct_type_name).unwrap().clone();
-            let Definition::Struct { type_ref, .. } = struct_definition else {
+            let Definition::Struct { type_ref, member_types, .. } = struct_definition else {
                 panic!();
             };
 
@@ -1052,11 +1050,11 @@ pub unsafe fn match_expression
 
             // Struct members initialisation.
             for (i, member_initializer) in values.iter().enumerate() {
-                let initializer_type = to_llvm_type(ctx, &member_initializer.type_kind);
-                let member_ref       = builder.struct_member_access(ctx, struct_pointer, i, initializer_type);
+                let member_type = member_types[i];
+                let member_ref  = builder.struct_member_access(struct_pointer, type_ref, i);
 
                 let value = match_expression(source, ctx, builder, member_initializer);
-                let value = builder.deref_if_primitive(value, initializer_type);
+                let value = builder.deref_if_primitive(value, member_type);
 
                 llvm::core::LLVMBuildStore(builder.builder, value, member_ref);
             }
@@ -1198,6 +1196,9 @@ unsafe fn closure
 
     let total_values_count = params.len() + closed_variables.len();
     let mut closed_params  = Vec::with_capacity(total_values_count);
+
+    // Maybe keep original TypeKind next to type somewhere. LLVM representation 
+    // could be different from our semantics.
 
     closed_params.append(&mut params);
     closed_params.append(&mut closed_variables);
