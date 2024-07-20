@@ -302,14 +302,17 @@ impl GlobalsHoistingTransformer
             graph.connections[i] += graph.edges[i].len();
         }
 
-        let mut q: VecDeque<usize> = VecDeque::with_capacity(count);
+        let mut q: Vec<(usize, usize)> = Vec::with_capacity(count);
 
         for i in 0..count {
-            if graph.connections[i] != 0 { continue }
-            q.push_back(i);
+            q.push((i, graph.connections[i]));
         }
 
-        let mut order: Vec<&str> = Vec::with_capacity(count);
+        // Sort by number of connections, from least to most.
+        q.sort_by(|a, b| a.1.cmp(&b.1)); 
+
+        let mut q: VecDeque<usize> = q.into_iter().map(|(x, _)| x).collect();
+        let mut order: Vec<&str>   = Vec::with_capacity(count);
 
         while !q.is_empty() {
             let i = q.pop_front().expect("Expect next in queue.");

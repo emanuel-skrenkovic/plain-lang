@@ -467,7 +467,8 @@ pub unsafe fn compile(source: &source::Source, ctx: &mut Context) -> *mut llvm::
     let mut builder = Builder::new(ctx.llvm_ctx, module, None);
 
     // Adding globals.
-    forward_declare(ctx, &mut builder);
+    // forward_declare(ctx, &mut builder);
+    declare_native_functions(ctx, &mut builder);
 
     // Compile the rest of the program
     ctx.module_scopes.begin_scope();
@@ -486,7 +487,7 @@ pub unsafe fn compile(source: &source::Source, ctx: &mut Context) -> *mut llvm::
     module
 }
 
-unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
+unsafe fn declare_native_functions(ctx: &mut Context, builder: &mut Builder)
 {
     for scope in &ctx.symbol_table.module.scopes {
         for i in 0..scope.values.len() {
@@ -495,103 +496,31 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 
             let declaration = &scope.values[i];
 
-            match &declaration.kind {
-                semantic_analysis::DeclarationKind::NativeFunction { name } => {
-                    let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
-                        panic!("Expected type kind.");
-                    };
+            let semantic_analysis::DeclarationKind::NativeFunction { name } = &declaration.kind else {
+                continue
+            };
 
-                    let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
-                        panic!("Expected function type kind.");
-                    };
+            let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
+                panic!("Expected type kind.");
+            };
 
-                    let param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
-                        .iter()
-                        .map(|p| to_llvm_type(ctx, p))
-                        .collect();
+            let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
+                panic!("Expected function type kind.");
+            };
 
-                    let return_type = to_llvm_type(ctx, return_kind);
+            let param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
+                .iter()
+                .map(|p| to_llvm_type(ctx, p))
+                .collect();
 
-                    let function_call = builder
-                        .build_function(name, param_types, return_type, vec![], false, *variadic);
+            let return_type = to_llvm_type(ctx, return_kind);
 
-                    let name = *name;
-                    ctx.definition_names.push(name.to_owned());
-                    ctx.definitions.push(function_call);
-                }
+            let function_call = builder
+                .build_function(name, param_types, return_type, vec![], false, *variadic);
 
-                semantic_analysis::DeclarationKind::Function {
-                    function: semantic_analysis::Function { body, .. }
-                } => {
-                    let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
-                        panic!("Expected type kind.");
-                    };
-
-                    let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
-                        panic!("Expected function type kind.");
-                    };
-
-                    let param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
-                        .iter()
-                        .map(|p| to_llvm_type(ctx, p))
-                        .collect();
-
-                    let return_type = to_llvm_type(ctx, return_kind);
-                    let body        = body.iter().map(|s| *s.clone()).collect();
-
-                    let function_call = builder
-                        .build_function(name, param_types, return_type, body, false, *variadic);
-
-                    ctx.definition_names.push(name.to_owned());
-                    ctx.definitions.push(function_call);
-                }
-
-                semantic_analysis::DeclarationKind::Closure {
-                    captures,
-                    function: semantic_analysis::Function { body, .. }
-                } => {
-                    let Some(kind) = &ctx.type_info.get_from_scope(scope.index, name) else {
-                        panic!("Expected type kind.");
-                    };
-
-                    let mut capture_kinds = vec![
-                        llvm::core::LLVMPointerTypeInContext(ctx.llvm_ctx, 0); 
-                        captures.len()
-                    ];
-
-                    let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
-                        panic!("Expected function type kind, found {kind:?}.");
-                    };
-
-                    let mut parameter_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
-                        .iter()
-                        .map(|p| to_llvm_type(ctx, p.as_ref()))
-                        .collect();
-
-                    let mut param_types = Vec::with_capacity(capture_kinds.len() + parameter_types.len());
-
-                    param_types.append(&mut capture_kinds);
-                    param_types.append(&mut parameter_types);
-
-                    let return_type = to_llvm_type(ctx, return_kind);
-                    let body        = body.iter().map(|s| *s.clone()).collect();
-
-                    let function_call = builder
-                        .build_function(name, param_types, return_type, body, true, *variadic);
-
-                    ctx.definition_names.push(name.to_owned());
-                    ctx.definitions.push(function_call);
-                }
-
-                semantic_analysis::DeclarationKind::Struct { name, .. } => {
-                    let definition = builder.build_struct_definition(ctx, name);
-
-                    ctx.definition_names.push(name.to_owned());
-                    ctx.definitions.push(definition);
-                }
-
-                _ => (),
-            }
+            let name = *name;
+            ctx.definition_names.push(name.to_owned());
+            ctx.definitions.push(function_call);
         }
     }
 }
@@ -601,10 +530,46 @@ unsafe fn forward_declare(ctx: &mut Context, builder: &mut Builder)
 pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builder: &mut Builder, stmt: &ast::Stmt)
 {
     match stmt {
-        ast::Stmt::Function { name, params, body, .. } => {
-            ctx.module_scopes.begin_scope();
+        ast::Stmt::Struct { name, .. } => {
+            let name = source.token_value(name);
 
-            let function_call = ctx.get_definition(source.token_value(name)).unwrap().clone();
+            let definition = builder.build_struct_definition(ctx, name);
+
+            ctx.definition_names.push(name.to_owned());
+            ctx.definitions.push(definition);
+        }
+
+        ast::Stmt::Function { name, params, body, .. } => {
+            let function_name = source.token_value(name);
+
+            let function_call = if let Some(function_call) = ctx.get_definition(function_name) { 
+                function_call.clone() 
+            } else {
+                let Some(kind) = &ctx.type_info.get_from_scope(ctx.current_scope(), function_name) else {
+                    panic!("Expected type kind.");
+                };
+
+                let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
+                    panic!("Expected function type kind.");
+                };
+
+                let param_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
+                    .iter()
+                    .map(|p| to_llvm_type(ctx, p))
+                    .collect();
+
+                let return_type = to_llvm_type(ctx, return_kind);
+                let body        = body.iter().map(|s| *s.clone()).collect();
+
+                let function_call = builder
+                    .build_function(function_name, param_types, return_type, body, false, *variadic);
+
+                ctx.definition_names.push(function_name.to_owned());
+                ctx.definitions.push(function_call.clone());
+
+                function_call
+            };
+
             let Definition::Function { function: function_ref, return_type, param_types, .. } = function_call else {
                 panic!();
             };
@@ -613,6 +578,8 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
 
             let entry_block = builder.append_block(function_ref, "_entry");
             builder.set_position(entry_block);
+
+            ctx.module_scopes.begin_scope();
 
             for (i, param) in params.iter().enumerate() {
                 let param = source.token_value(param);
@@ -1034,7 +1001,7 @@ pub unsafe fn match_expression
         ast::Expr::Function { params, body, .. } => {
             let name = ctx.name.take().unwrap();
             let body = body.iter().map(|s| *s.clone()).collect::<Vec<ast::Stmt>>();
-            closure(source, ctx, &name, params, &body)
+            closure(source, ctx, builder, &name, params, &body)
         }
 
         ast::Expr::Struct { name, values, .. } => {
@@ -1046,6 +1013,11 @@ pub unsafe fn match_expression
             let types::TypeKind::Struct { name: struct_type_name, .. } = type_kind else {
                 panic!();
             };
+
+            let definition = builder.build_struct_definition(ctx, &struct_type_name);
+
+            ctx.definition_names.push(struct_type_name.to_owned());
+            ctx.definitions.push(definition);
 
             let struct_definition = ctx.get_definition(struct_type_name).unwrap().clone();
             let Definition::Struct { type_ref, member_types, .. } = struct_definition else {
@@ -1186,13 +1158,12 @@ unsafe fn closure
 (
     source: &source::Source,
     ctx: &mut Context,
+    builder: &mut Builder,
     name: &str,
     params: &[scan::Token],
     body: &[ast::Stmt],
 ) -> llvm::prelude::LLVMValueRef
 {
-    ctx.module_scopes.begin_scope();
-
     let mut closed_variables: Vec<String> = captured_variables(ctx)
         .into_iter()
         .filter(|(n, _)| n != &name)
@@ -1213,7 +1184,44 @@ unsafe fn closure
     closed_params.append(&mut params);
     closed_params.append(&mut closed_variables);
 
-    let function_call = ctx.get_definition(name).unwrap().clone();
+    let function_call = if let Some(function_call) = ctx.get_definition(name) {
+        function_call.clone()
+    } else {
+        let Some(kind) = &ctx.type_info.get_from_scope(ctx.current_scope(), name) else {
+            panic!("Expected type kind.");
+        };
+
+        let mut capture_kinds = vec![
+            llvm::core::LLVMPointerTypeInContext(ctx.llvm_ctx, 0); 
+            closed_params.len()
+        ];
+
+        let types::TypeKind::Function { parameter_kinds, return_kind, variadic } = kind else {
+            panic!("Expected function type kind, found {kind:?}.");
+        };
+
+        let mut parameter_types: Vec<llvm::prelude::LLVMTypeRef> = parameter_kinds
+            .iter()
+            .map(|p| to_llvm_type(ctx, p.as_ref()))
+            .collect();
+
+        let mut param_types = Vec::with_capacity(capture_kinds.len() + parameter_types.len());
+
+        param_types.append(&mut capture_kinds);
+        param_types.append(&mut parameter_types);
+
+        let return_type = to_llvm_type(ctx, return_kind);
+        let body        = body.iter().map(|s| s.clone()).collect();
+
+        let function_call = builder
+            .build_function(name, param_types, return_type, body, true, *variadic);
+
+        ctx.definition_names.push(name.to_owned());
+        ctx.definitions.push(function_call.clone());
+
+        function_call
+    };
+
     let Definition::Function { function, param_types, return_type, .. } = function_call else {
         panic!()
     };
@@ -1222,6 +1230,8 @@ unsafe fn closure
 
     let entry_block = builder.append_block(function, "_entry");
     builder.set_position(entry_block);
+
+    ctx.module_scopes.begin_scope();
 
     for (i, param) in closed_params.iter().enumerate() {
         let param_ref  = llvm::core::LLVMGetParam(function, i.try_into().unwrap());
