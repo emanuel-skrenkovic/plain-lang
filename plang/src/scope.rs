@@ -100,6 +100,18 @@ impl <T> Module<T>
         Some(&scope.values[index])
     }
 
+    pub fn index_of(&self, scope: usize, name: &str) -> Option<usize>
+    {
+        let scope = self.scopes.get(scope)?;
+        scope.names.iter().rposition(|n| n == name)
+    }
+
+    pub fn get_at(&self, scope: usize, index: usize) -> &T
+    {
+        let scope = self.scopes.get(scope).unwrap();
+        &scope.values[index]
+    }
+
     pub fn get_from_scope(&self, scope: usize, name: &str) -> Option<&T>
     {
         let scope = self.scopes.get(scope)?;

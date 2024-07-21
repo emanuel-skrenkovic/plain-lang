@@ -67,7 +67,6 @@ impl <'a> Typer<'a>
         self.type_info.begin_scope();
 
         self.handle_native_functions();
-        let _ = self.infer_global_types(&mut program);
 
         for stmt in &mut program {
             let ast::Node::Stmt(stmt) = stmt else {
@@ -80,81 +79,6 @@ impl <'a> Typer<'a>
         self.type_info.end_scope();
 
         (program, self.type_info)
-    }
-
-    pub fn infer_global_types(&mut self, program: &mut [ast::Node]) -> Result<(), error::Error>
-    {
-        for node in program.iter_mut() {
-            let ast::Node::Stmt(stmt) = node else {
-                continue
-            };
-
-            match stmt {
-                ast::Stmt::Function { name, return_type, param_types, .. } => {
-                    let parameter_kinds: Vec<Box<TypeKind>> = param_types
-                        .iter()
-                        .map(|t| self.type_from_identifier(t))
-                        .map_while(std::result::Result::ok)
-                        .map(Box::new)
-                        .collect();
-
-                    let return_kind = match return_type {
-                        Some(return_type) => self.type_from_identifier(return_type)?,
-                        None              => TypeKind::Unit,
-                    };
-                    let kind = TypeKind::Function {
-                        parameter_kinds,
-                        return_kind: Box::new(return_kind),
-                        variadic: false,
-                    };
-
-                    self.type_info.add_to_current(self.source.token_value(name), kind);
-                }
-
-                ast::Stmt::Const { name, initializer, type_name } => {
-                    let kind = self.match_expression(&mut initializer.value)?;
-
-                    if let Some(type_name) = type_name {
-                        let defined_type = self.type_from_identifier(type_name)?;
-
-                        if defined_type != kind {
-                            let message = format!("Defined type '{defined_type:?}' does not match expression type '{kind:?}'");
-                            self.reporter.error_at(&message, error::Kind::TypeError, name);
-                        }
-                    }
-
-                    self.type_info.add_to_current(self.source.token_value(name), kind);
-                }
-
-                ast::Stmt::Struct { name, members, member_types } => {
-                    let member_types: Vec<Box<TypeKind>> = member_types
-                        .iter()
-                        .map(|t| self.type_from_identifier(t))
-                        .map_while(std::result::Result::ok)
-                        .map(Box::new)
-                        .collect();
-
-                    let member_names = members
-                        .iter()
-                        .map(|m| self.source.token_value(m).to_owned())
-                        .collect();
-
-                    let struct_type_name = self.source.token_value(name);
-
-                    let kind = TypeKind::Struct {
-                        name: struct_type_name.to_owned(),
-                        member_names,
-                        member_types,
-                    };
-
-                    self.type_info.add_to_current(struct_type_name, kind);
-                }
-
-                _ => ()
-            }
-        }
-
-        Ok(())
     }
 
     pub fn handle_native_functions(&mut self)
@@ -178,6 +102,9 @@ impl <'a> Typer<'a>
     {
         match stmt {
             ast::Stmt::Function { name, params, return_type, param_types, body } => {
+                let function_name = self.source.token_value(name);
+                let index         = self.type_info.add_to_current(function_name, TypeKind::Unknown);
+
                 self.type_info.begin_scope();
 
                 for i in 0..params.len() {
@@ -231,26 +158,6 @@ impl <'a> Typer<'a>
                     }
                 }?;
 
-                let specified_return_kind = match return_type {
-                    Some(return_type) => self.type_from_identifier(return_type)?,
-                    None              => TypeKind::Unit,
-                };
-
-                let function_name = self.source.token_value(name);
-
-                if return_kind != specified_return_kind {
-                    let message = format!
-                    (
-                        "Returned value does not match function definition. Function: {function_name} Value type: {return_kind:?} Return type: {return_type:?}", 
-                    );
-                    self.reporter.error_at
-                    (
-                        &message, 
-                        error::Kind::TypeError, 
-                        return_type.as_ref().unwrap_or(name),
-                    );
-                }
-
                 self.type_info.end_scope();
 
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
@@ -266,7 +173,7 @@ impl <'a> Typer<'a>
                     variadic: false,
                 };
 
-                self.type_info.add_to_current(function_name, kind);
+                self.type_info.update_in_current(index, kind);
             },
 
             ast::Stmt::Struct { name, members, member_types } => {
