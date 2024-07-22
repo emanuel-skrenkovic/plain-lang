@@ -1,5 +1,6 @@
-use crate::{ast, error, scan, scope, source};
+use std::collections::BTreeSet;
 
+use crate::{ast, error, scan, scope, source};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeKind
@@ -33,15 +34,21 @@ pub enum TypeKind
 
     Struct 
     {
-        name: String,
-        member_names: Vec<String>,
-        member_types: Vec<Box<TypeKind>>,
+        value: Struct,
     },
 
     Reference 
     {
         underlying: Box<TypeKind>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Struct
+{
+    pub name: String,
+    pub member_names: Vec<String>,
+    pub member_types: Vec<Box<TypeKind>>,
 }
 
 pub struct Typer<'a>
@@ -67,7 +74,6 @@ impl <'a> Typer<'a>
         self.type_info.begin_scope();
 
         self.handle_native_functions();
-        let _ = self.infer_global_types(&mut program);
 
         for stmt in &mut program {
             let ast::Node::Stmt(stmt) = stmt else {
@@ -80,81 +86,6 @@ impl <'a> Typer<'a>
         self.type_info.end_scope();
 
         (program, self.type_info)
-    }
-
-    pub fn infer_global_types(&mut self, program: &mut [ast::Node]) -> Result<(), error::Error>
-    {
-        for node in program.iter_mut() {
-            let ast::Node::Stmt(stmt) = node else {
-                continue
-            };
-
-            match stmt {
-                ast::Stmt::Function { name, return_type, param_types, .. } => {
-                    let parameter_kinds: Vec<Box<TypeKind>> = param_types
-                        .iter()
-                        .map(|t| self.type_from_identifier(t))
-                        .map_while(std::result::Result::ok)
-                        .map(Box::new)
-                        .collect();
-
-                    let return_kind = match return_type {
-                        Some(return_type) => self.type_from_identifier(return_type)?,
-                        None              => TypeKind::Unit,
-                    };
-                    let kind = TypeKind::Function {
-                        parameter_kinds,
-                        return_kind: Box::new(return_kind),
-                        variadic: false,
-                    };
-
-                    self.type_info.add_to_current(self.source.token_value(name), kind);
-                }
-
-                ast::Stmt::Const { name, initializer, type_name } => {
-                    let kind = self.match_expression(&mut initializer.value)?;
-
-                    if let Some(type_name) = type_name {
-                        let defined_type = self.type_from_identifier(type_name)?;
-
-                        if defined_type != kind {
-                            let message = format!("Defined type '{defined_type:?}' does not match expression type '{kind:?}'");
-                            self.reporter.error_at(&message, error::Kind::TypeError, name);
-                        }
-                    }
-
-                    self.type_info.add_to_current(self.source.token_value(name), kind);
-                }
-
-                ast::Stmt::Struct { name, members, member_types } => {
-                    let member_types: Vec<Box<TypeKind>> = member_types
-                        .iter()
-                        .map(|t| self.type_from_identifier(t))
-                        .map_while(std::result::Result::ok)
-                        .map(Box::new)
-                        .collect();
-
-                    let member_names = members
-                        .iter()
-                        .map(|m| self.source.token_value(m).to_owned())
-                        .collect();
-
-                    let struct_type_name = self.source.token_value(name);
-
-                    let kind = TypeKind::Struct {
-                        name: struct_type_name.to_owned(),
-                        member_names,
-                        member_types,
-                    };
-
-                    self.type_info.add_to_current(struct_type_name, kind);
-                }
-
-                _ => ()
-            }
-        }
-
-        Ok(())
     }
 
     pub fn handle_native_functions(&mut self)
@@ -178,6 +109,28 @@ impl <'a> Typer<'a>
     {
         match stmt {
             ast::Stmt::Function { name, params, return_type, param_types, body } => {
+                let function_name = self.source.token_value(name);
+
+                let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                    .iter()
+                    .map(|t| self.type_from_identifier(t))
+                    .map_while(std::result::Result::ok)
+                    .map(Box::new)
+                    .collect();
+
+                let defined_kind = match return_type {
+                    Some(return_type) => self.type_from_identifier(return_type),
+                    None              => Ok(TypeKind::Unit)
+                }?;
+
+                let kind = TypeKind::Function {
+                    parameter_kinds,
+                    return_kind: Box::new(defined_kind.clone()),
+                    variadic: false,
+                };
+
+                self.type_info.add_to_current(function_name, kind);
+
                 self.type_info.begin_scope();
 
                 for i in 0..params.len() {
@@ -199,14 +152,9 @@ impl <'a> Typer<'a>
                     let _ = self.match_statement(statement);
                 }
 
-                let defined_kind = match return_type {
-                    Some(return_type) => self.type_from_identifier(return_type),
-                    None              => Ok(TypeKind::Unit)
-                }?;
-
                 let last = body.last_mut().map(std::convert::AsMut::as_mut);
 
-                let return_kind = match (&defined_kind, last) {
+                let _ = match (&defined_kind, last) {
                     // If we find a return value, match its type against the defined type.
                     (_, Some(ast::Stmt::Expr { expr })) => 'expression: {
                         let returned_kind = self.match_expression(&mut expr.value)?;    
@@ -231,42 +179,7 @@ impl <'a> Typer<'a>
                     }
                 }?;
 
-                let specified_return_kind = match return_type {
-                    Some(return_type) => self.type_from_identifier(return_type)?,
-                    None              => TypeKind::Unit,
-                };
-
-                let function_name = self.source.token_value(name);
-
-                if return_kind != specified_return_kind {
-                    let message = format!
-                    (
-                        "Returned value does not match function definition. Function: {function_name} Value type: {return_kind:?} Return type: {return_type:?}", 
-                    );
-                    self.reporter.error_at
-                    (
-                        &message, 
-                        error::Kind::TypeError, 
-                        return_type.as_ref().unwrap_or(name),
-                    );
-                }
-
                 self.type_info.end_scope();
-
-                let parameter_kinds: Vec<Box<TypeKind>> = param_types
-                    .iter()
-                    .map(|t| self.type_from_identifier(t))
-                    .map_while(std::result::Result::ok)
-                    .map(Box::new)
-                    .collect();
-
-                let kind = TypeKind::Function {
-                    parameter_kinds,
-                    return_kind: Box::new(return_kind),
-                    variadic: false,
-                };
-
-                self.type_info.add_to_current(function_name, kind);
             },
 
             ast::Stmt::Struct { name, members, member_types } => {
@@ -284,10 +197,12 @@ impl <'a> Typer<'a>
 
                 let struct_type_name = self.source.token_value(name);
 
-                let kind = TypeKind::Struct {
-                    name: struct_type_name.to_owned(),
-                    member_names,
-                    member_types,
+                let kind = TypeKind::Struct { 
+                    value: Struct {
+                        name: struct_type_name.to_owned(),
+                        member_names,
+                        member_types,
+                    } 
                 };
 
                 self.type_info.add_to_current(struct_type_name, kind);
@@ -372,11 +287,7 @@ impl <'a> Typer<'a>
         Ok(stmt.to_owned())
     }
 
-    pub fn match_expression
-    (
-        &mut self,
-        expr: &mut ast::Expr,
-    ) -> Result<TypeKind, error::Error>
+    pub fn match_expression(&mut self, expr: &mut ast::Expr) -> Result<TypeKind, error::Error>
     {
         let kind = match expr {
             ast::Expr::Bad { .. } => TypeKind::Unknown,
@@ -414,7 +325,7 @@ impl <'a> Typer<'a>
                 let left_type  = self.match_expression(&mut left.value)?;
                 let right_type = self.match_expression(&mut right.value)?;
 
-                if left_type != right_type {
+                if get_primitive(&left_type) != get_primitive(&right_type) {
                     let message = format!
                     (
                         "Binary operation between incompatible types. Left: {left_type:?} Right: {right_type:?}"
@@ -481,18 +392,25 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
+                /*
                 let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
+                    let message = format!("Instance type is not a struct. Found: {instance_type:?}");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
+                };
+                */
+
+                let Some(struct_value) = try_get_struct(instance_type) else {
                     let message = format!("Instance type is not a struct. Found: {instance_type:?}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
 
                 let member = self.source.token_value(member_name);
-                let Some(index) = member_names.iter().position(|n| n == member) else {
-                    let message = format!("{member} is not a member of {name}");
+                let Some(index) = struct_value.member_names.iter().position(|n| n == member) else {
+                    let message = format!("{member} is not a member of {instance}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
-                let member_type = &member_types[index];
+                let member_type = &struct_value.member_types[index];
                 if member_type.as_ref() != &kind {
                     let message = format!
                     (
@@ -511,19 +429,19 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name))
                 };
 
-                let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
+                let Some(struct_value) = try_get_struct(instance_type) else {
                     let message = format!("Instance type is not a struct. Found: {instance_type:?}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
 
                 let member      = self.source.token_value(member_name);
-                let index       = member_names.iter().position(|n| n == member);
+                let index       = struct_value.member_names.iter().position(|n| n == member);
                 let Some(index) = index else {
-                    let message = format!("{member} is not a member of {name}");
+                    let message = format!("{member} is not a member of {instance}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
                 };
 
-                *member_types[index].clone()
+                *struct_value.member_types[index].clone()
             }
             ast::Expr::Logical => todo!(),
 
@@ -544,16 +462,43 @@ impl <'a> Typer<'a>
                 *return_kind.clone()
             },
 
-            ast::Expr::Function { right_paren, param_types, body, return_type, .. } => {
-                // TODO: handle captured variables as well.
+            ast::Expr::Function { right_paren, params, param_types, body, return_type, .. } => {
                 self.type_info.begin_scope();
 
-                let parameter_kinds: Vec<Box<TypeKind>> = param_types
+                let closed_variables     = self.captured_variables();
+                // Remove self (which is the last captured variable).
+                let closed_variables     = closed_variables[..closed_variables.len()-1].to_vec();
+                let mut closed_variables = closed_variables
+                    .into_iter()
+                    .map(|(n, t)| {
+                        let type_kind = TypeKind::Reference { underlying: Box::new(t.clone()) };
+                        (n, type_kind)
+                    })
+                    .collect::<Vec<(String, TypeKind)>>();
+
+                let mut parameter_kinds: Vec<(String, TypeKind)> = param_types
                     .iter()
-                    .map(|t| self.type_from_identifier(t))
-                    .map_while(std::result::Result::ok)
-                    .map(Box::new)
+                    .enumerate()
+                    .map(|(i, t)|  {
+                        let name      = self.source.token_value(&params[i]).to_owned();
+                        let type_kind = self.type_from_identifier(t)?;
+
+                        let result = (name, type_kind);
+
+                        Ok::<(String, TypeKind), error::Error>(result)
+                    })
+                    .map_while(Result::ok)
                     .collect();
+
+                let total_values_count = params.len() + closed_variables.len();
+                let mut closed_params  = Vec::with_capacity(total_values_count);
+
+                closed_params.append(&mut parameter_kinds);
+                closed_params.append(&mut closed_variables);
+
+                for (param, param_type) in &closed_params {
+                    self.type_info.add_to_current(param, param_type.clone());
+                }
 
                 for statement in body.iter_mut() {
                     let _ = self.match_statement(statement);
@@ -595,6 +540,13 @@ impl <'a> Typer<'a>
 
                 self.type_info.end_scope();
 
+                let parameter_kinds = closed_params
+                    .iter()
+                    .map(|(_, t)| t)
+                    .cloned()
+                    .map(Box::new)
+                    .collect();
+
                 TypeKind::Function { parameter_kinds, return_kind, variadic: false }
             },
 
@@ -607,11 +559,11 @@ impl <'a> Typer<'a>
 
                 let instance_type = instance_type.clone();
 
-                let TypeKind::Struct { member_names, member_types, .. } = instance_type else {
+                let Some(struct_value) = try_get_struct(&instance_type) else {
                     let message = format!("Instance type is not a struct. Found: {name:?}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
-
+                
                 for (i, value) in values.iter_mut().enumerate() {
                     let kind     = self.match_expression(&mut value.value);
                     let Ok(kind) = kind else { continue };
@@ -619,14 +571,14 @@ impl <'a> Typer<'a>
                     let member_name = &members[i];
 
                     let member = self.source.token_value(member_name);
-                    let Some(index) = member_names.iter().position(|n| n == member) else {
+                    let Some(index) = struct_value.member_names.iter().position(|n| n == member) else {
                         let message = format!("{member} is not a member of {name:?}");
                         self.reporter.error_at(&message, error::Kind::TypeError, member_name);
 
                         continue
                     };
 
-                    let member_type = &member_types[index];
+                    let member_type = &struct_value.member_types[index];
                     if member_type.as_ref() != &kind {
                         let message = format!
                         (
@@ -699,6 +651,56 @@ impl <'a> Typer<'a>
             }
         }
     }
+
+    pub fn captured_variables(&self) -> Vec<(String, TypeKind)>
+    {
+        let scope = self.type_info.current_scope();
+
+        let global_scope = &self.type_info.scopes[0];
+        let globals      = global_scope.names.iter().map(std::string::String::as_str).collect::<Vec<&str>>();
+        let to_remove    = BTreeSet::<&str>::from_iter(globals);
+
+        let capacity = scope.names.len() - global_scope.names.len();
+
+        let mut vars: Vec<(String, TypeKind)> = Vec::with_capacity(capacity);
+
+        for i in 0..scope.names.len() {
+            let name = &scope.names[i];
+            if to_remove.contains(name.as_str()) { continue }
+
+            let value = &scope.values[i];
+
+            vars.push((name.clone(), value.clone()));
+        }
+
+        vars
+    }
+}
+
+pub fn try_get_struct(kind: &TypeKind) -> Option<&Struct>
+{
+    match kind {
+        TypeKind::Struct { value } => Some(value),
+
+        TypeKind::Reference { underlying } => {
+            let TypeKind::Struct { value } = underlying.as_ref() else {
+                return None
+            };
+
+            Some(value)
+        }
+
+        _ => None
+    }
+}
+
+pub fn get_primitive(kind: &TypeKind) -> &TypeKind
+{
+    if let TypeKind::Reference { underlying } = kind {
+        return get_primitive(underlying)
+    }
+
+    kind
 }
 
 
