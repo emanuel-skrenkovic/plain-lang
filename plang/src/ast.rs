@@ -51,12 +51,6 @@ pub enum Stmt
         body: Vec<Box<Stmt>>,
     },
 
-    Declaration
-    {
-        name: scan::Token,
-        initializer: Box<ExprInfo>,
-    },
-
     Var
     {
         name: scan::Token,
@@ -71,7 +65,8 @@ pub enum Stmt
         initializer: Box<ExprInfo>,
     },
 
-    For {
+    For 
+    {
         token: scan::Token,
         initializer: Box<Stmt>,
         condition: Box<ExprInfo>,

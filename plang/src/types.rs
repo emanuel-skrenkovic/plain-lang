@@ -208,11 +208,6 @@ impl <'a> Typer<'a>
                 self.type_info.add_to_current(struct_type_name, kind);
             }
 
-            ast::Stmt::Declaration { initializer, .. } => {
-                let kind = self.match_expression(&mut initializer.value)?;
-                initializer.type_kind = kind;
-            },
-
             ast::Stmt::Var { name, initializer, type_name } => {
                 let index = self.type_info.add_to_current(self.source.token_value(name), TypeKind::Unknown);
                 let kind  = self.match_expression(&mut initializer.value)?;
