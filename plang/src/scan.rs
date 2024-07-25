@@ -13,6 +13,7 @@ pub enum TokenKind
     This, If, Else, Break, Continue,
     Switch, Case, For, While,
     Func, Struct, Interface, Literal,
+    Return,
     Identifier,
     Error, End
 }
@@ -221,6 +222,7 @@ impl Scanner
 
                 self.check_keyword(1, 8, "nterface", TokenKind::If)
             },
+            'r' => self.check_keyword(1, 5, "eturn", TokenKind::Return),
             's' => {
                 if self.source_char_at(self.start + 1) == 't' { // TODO: fix
                     return self.check_keyword(2, 4, "ruct", TokenKind::Struct)

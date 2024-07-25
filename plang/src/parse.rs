@@ -72,7 +72,7 @@ struct ParseRule
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 42] =
+static RULES: [ParseRule; 43] =
 [
     ParseRule { prefix: Some(Parser::function_expression), infix: Some(Parser::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // RightParen
@@ -113,6 +113,7 @@ static RULES: [ParseRule; 42] =
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Struct
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Interface
     ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // Literal
+    ParseRule { prefix: Some(Parser::_return),             infix: None,                              precedence: Precedence::Call }, // Return
     ParseRule { prefix: Some(Parser::variable),            infix: None,                              precedence: Precedence::None }, // Identifier
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Error
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }  // End
@@ -580,6 +581,17 @@ impl Parser
         // Handles variable expression here.
         self.match_token(scan::TokenKind::Semicolon);
         ast::Expr::Variable { name }
+    }
+
+    fn _return(&mut self) -> ast::Expr
+    {
+        let token = self.reader.previous.clone();
+
+        let value = self.expression();
+        let value = ast::ExprInfo::new(value);
+        let value = Box::new(value);
+
+        ast::Expr::Return { token, value }
     }
 
     fn function_expression(&mut self) -> ast::Expr

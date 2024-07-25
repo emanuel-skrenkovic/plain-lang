@@ -83,8 +83,6 @@ pub enum Stmt
 
     Unary { },
 
-    Return { },
-
     Expr
     {
         expr: Box<ExprInfo>,
@@ -151,6 +149,12 @@ pub enum Expr
     },
 
     Logical,
+
+    Return 
+    {
+        token: scan::Token,
+        value: Box<ExprInfo>,
+    },
 
     Call
     {

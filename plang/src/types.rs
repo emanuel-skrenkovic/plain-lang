@@ -451,7 +451,16 @@ impl <'a> Typer<'a>
 
                 *struct_value.member_types[index].clone()
             }
+
             ast::Expr::Logical => todo!(),
+
+            ast::Expr::Return { token, value } => {
+                println!("HELLO {}", self.source.token_value(&token));
+                let value_kind = self.match_expression(&mut value.value)?;
+                value.type_kind = value_kind;
+
+                TypeKind::Unit
+            }
 
             ast::Expr::Call { name, arguments } => {
                 for arg in arguments.iter_mut() {

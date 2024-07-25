@@ -15,43 +15,12 @@ main :: (): i32
 		c: 33,
 	};
 
-	d := if s.a == 3 {
-		0
-	} else {
-		1
-	};
-
-	mutate :: () {
-		s.a = 15;
-		d = d - 5;
+	if s.a < 10 {
+		return 0
 	}
 
-	2 + 2;
-
-	i := 0;	
-
-	mutate();
-
-	for i := 0; i < 15; i = i + 1 {
-		d = d + 1;
-	}
-	
-	result1 := sum(s);
-
-	printf("%d |", result1 + d);
-
-	s.a = 94;
-	s.b = 182;
-	s.c = 138;
-
-	result2 := sum(s);
-
-	printf("| %d", result2 + GLOBAL_VALUE);
+	printf(" %d", s.a);
 
 	0
 }
 
-sum :: (v: Values): i32
-{
-	v.a + v.b + v.c + GLOBAL_VALUE
-}

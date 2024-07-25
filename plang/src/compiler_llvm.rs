@@ -421,7 +421,7 @@ impl Context
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn end_function(&mut self, function_builder: Builder)
+    fn end_function(&mut self, function_builder: &mut Builder)
     {
         self.function = function_builder.parent_function;
     }
@@ -621,7 +621,7 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
             llvm::core::LLVMBuildRet(builder.builder, result);
 
             ctx.module_scopes.end_scope();
-            ctx.end_function(builder);
+            ctx.end_function(&mut builder);
         },
 
         ast::Stmt::Var { name, initializer, .. } => {
@@ -961,7 +961,7 @@ pub unsafe fn match_expression
             let index = ctx
                 .type_info
                 .index_of(ctx.current_scope(), instance_name)
-                .expect("Expect instance_type");
+                .expect(&format!("Expect instance '{instance_name}' type."));
 
             let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
             let struct_type   = to_llvm_type(ctx, instance_type);
@@ -988,6 +988,24 @@ pub unsafe fn match_expression
         }
 
         ast::Expr::Logical => todo!(),
+
+        ast::Expr::Return { value, .. } => {
+            let result = match_expression(source, ctx, builder, value);
+
+            let return_value = match value.type_kind {
+                types::TypeKind::Unit => {
+                    llvm::core::LLVMBuildRetVoid(builder.builder)
+                }
+                _ => {
+                    llvm::core::LLVMBuildRet(builder.builder, result)
+                }
+            };
+
+            // ctx.module_scopes.end_scope();
+            // ctx.end_function(builder);
+
+            return_value
+        },
 
         ast::Expr::Call { name, arguments } => {
             let name = source.token_value(name);
@@ -1307,7 +1325,7 @@ unsafe fn closure
     };
     
     ctx.module_scopes.end_scope();
-    ctx.end_function(builder);
+    ctx.end_function(&mut builder);
 
     function
 }
