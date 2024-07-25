@@ -293,27 +293,40 @@ impl <'a> Typer<'a>
                 kind
             }
 
-            ast::Expr::If { token, condition, then_value, else_value, .. } => {
-                let condition_type   = self.match_expression(&mut condition.value)?;
-                let then_branch_type = self.match_expression(&mut then_value.value)?;
-                let else_branch_type = self.match_expression(&mut else_value.value)?;
+            ast::Expr::If { token, conditions, branches, .. } => {
+                for condition in conditions.iter_mut() {
+                    let condition_type     = self.match_expression(&mut condition.value);
+                    let Ok(condition_type) = condition_type else {
+                        let _ = self.reporter.error_at("Failed to type condition.", error::Kind::TypeError, token);
+                        continue
+                    };
 
-                if then_branch_type != else_branch_type {
-                    self.reporter.error_at("Incompatible types between branches", error::Kind::TypeError, token);
+                    if condition_type != TypeKind::Bool {
+                        let message = format!("'if' condition type must be a boolean. Found type: {condition_type:?}");
+                        let _ = self.reporter.error_at(&message, error::Kind::TypeError, token);
+                        continue
+                    }
+
+                    condition.type_kind = condition_type;
                 }
 
-                if condition_type != TypeKind::Bool {
-                    let message = format!("'if' condition type must be a boolean. Found type: {condition_type:?}");
-                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, token));
+                for branch in branches.iter_mut() {
+                    let branch_type     = self.match_expression(&mut branch.value);
+                    let Ok(branch_type) = branch_type else {
+                        let _ = self.reporter.error_at("Failed to type if branch.", error::Kind::TypeError, token);
+                        continue
+                    };
+
+                   branch.type_kind = branch_type;
                 }
 
-                let kind = then_branch_type.clone();
+                let first = branches[0].type_kind.clone();
+                let same  = branches.iter().map(|b| &b.type_kind).all(|t| t == &first);
+                if !same {
+                    return Err(self.reporter.error_at("If block types diverge.", error::Kind::TypeError, token))
+                }
 
-                condition.type_kind  = condition_type;
-                then_value.type_kind = then_branch_type;
-                else_value.type_kind = else_branch_type;
-
-                kind
+                first
             },
 
             ast::Expr::Binary { left, right, operator } => {
@@ -625,7 +638,10 @@ impl <'a> Typer<'a>
     fn token_type(&self, token: &scan::Token) -> TypeKind
     {
         match token.kind {
+            scan::TokenKind::Semicolon => TypeKind::Unit,
+
             scan::TokenKind::True | scan::TokenKind::False  => TypeKind::Bool,
+
             _ => {
                 let token = self.source.token_value(token);
 

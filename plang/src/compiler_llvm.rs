@@ -773,69 +773,91 @@ pub unsafe fn match_expression
             builder.deref_if_ptr(value, return_type)
         },
 
-        ast::Expr::If { condition, then_branch, then_value, else_branch, else_value, .. } => {
-            let branch_entry_block = builder.append_block(ctx.function_ref(), "_entry_branch");
-            builder.build_break(branch_entry_block);
-            builder.set_position(branch_entry_block);
+        ast::Expr::If { conditions, branches, .. } => {
+            let start_block = builder.basic_block.unwrap();
 
-            let condition_expr = match_expression(source, ctx, builder, condition);
+            // Appends the cascading blocks for if, else-if conditions.
+            let condition_blocks = {
+                let mut condition_blocks = Vec::with_capacity(conditions.len());
+                condition_blocks.push(start_block);
 
-            let mut incoming_values = Vec::with_capacity(2);
-            let mut incoming_blocks = Vec::with_capacity(2);
-
-            let then_block = builder.append_block(ctx.function_ref(), "_then_branch");
-            builder.set_position(then_block);
-
-            let (then_result, then_exit_block) = {
-                for stmt in then_branch {
-                    match_statement(source, ctx, builder, stmt);
+                for _ in 0..conditions.len() {
+                    let else_block = builder.append_block(ctx.function_ref(), "_if_condition");
+                    condition_blocks.push(else_block);
                 }
 
-                let then_result = match_expression(source, ctx, builder, then_value);
-
-                (then_result, builder.basic_block.unwrap())
+                condition_blocks
             };
 
-            incoming_values.push(then_result);
-            incoming_blocks.push(then_exit_block);
+            let mut branch_blocks = Vec::with_capacity(branches.len());
+            let mut branch_values = Vec::with_capacity(branches.len());
 
-            let else_block = builder.append_block(ctx.function_ref(), "_else_branch");
-            builder.set_position(else_block);
-
-            let (else_result, else_exit_block) = {
-                for stmt in else_branch {
-                    match_statement(source, ctx, builder, stmt);
-                }
-
-                let else_result = match_expression(source, ctx, builder, else_value);
-
-                (else_result, builder.basic_block.unwrap())
-            };
-
-            incoming_values.push(else_result);
-            incoming_blocks.push(else_exit_block);
-
+            // Appends all the code blocks.
+            for _ in 0..branches.len() {
+                let branch_block = builder.append_block(ctx.function_ref(), "_branch_branch");
+                branch_blocks.push(branch_block);
+            }
+            
             let end_block = builder.append_block(ctx.function_ref(), "_end_branch");
 
-            for block in &incoming_blocks {
-                builder.set_position(*block);
+            // Writes the code for each of the code blocks.
+            for (i, branch) in branches.iter().enumerate() {
+                let ast::Expr::Block { statements, value, .. } = &branch.value else {
+                    panic!()
+                };               
+
+                let block = branch_blocks[i];
+                builder.set_position(block);
+
+                for statement in statements {
+                    let _ = match_statement(source, ctx, builder, statement);
+                }
+
+                let block_result = match_expression(source, ctx, builder, value);
+                branch_values.push(block_result);
+
                 builder.build_break(end_block);
             }
 
-            builder.set_position(branch_entry_block);
+            // Back to the beginning  to start writing the conditions.
+            builder.set_position(start_block);
 
-            builder.build_condition(condition_expr, then_block, else_block);
+            // Since we use cascading if-else if, if we have an else at the end,
+            // we need to jump to it instead of after the whole if-else construct.
+            let has_else = conditions.len() < branches.len();
 
-            let count: u32      = incoming_values.len().try_into().unwrap();
-            let incoming_values = incoming_values.as_mut_ptr();
-            let incoming_blocks = incoming_blocks.as_mut_ptr();
+            for (i, condition_block) in condition_blocks.iter().enumerate() {
+                builder.set_position(*condition_block);
+
+                if let Some(condition) = conditions.get(i) {
+                    let condition = match_expression(source, ctx, builder, condition);
+
+                    let then_block = branch_blocks[i];
+                    let else_block = condition_blocks[i + 1] ;
+
+                    builder.build_condition(condition, then_block, else_block);
+                } else {
+                    let else_block = if has_else { *branch_blocks.last().unwrap() } 
+                                     else        { end_block };
+
+                    builder.build_break(else_block);
+                };
+            }
 
             builder.set_position(end_block);
 
             let branch_value_type = to_llvm_type(ctx, &expr.type_kind);
-            let phi_node          = llvm::core::LLVMBuildPhi(builder.builder, branch_value_type, binary_cstr!("_branchphi"));
+            let phi_node          = llvm
+                ::core
+                ::LLVMBuildPhi(builder.builder, branch_value_type, binary_cstr!("_branchphi"));
 
-            llvm::core::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, count);
+            let incoming_values_count = u32::try_from(branch_blocks.len()).unwrap() - 1;
+            let incoming_values = branch_values.as_mut_ptr();
+            let incoming_blocks = branch_blocks.as_mut_ptr();
+
+            llvm
+                ::core
+                ::LLVMAddIncoming(phi_node, incoming_values, incoming_blocks, incoming_values_count);
 
             phi_node
         },

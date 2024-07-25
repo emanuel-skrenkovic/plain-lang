@@ -110,11 +110,8 @@ pub enum Expr
     If
     {
         token: scan::Token,
-        condition: Box<ExprInfo>,
-        then_branch: Vec<Box<Stmt>>,
-        then_value: Box<ExprInfo>,
-        else_branch: Vec<Box<Stmt>>,
-        else_value: Box<ExprInfo>,
+        conditions: Vec<Box<ExprInfo>>,
+        branches: Vec<Box<ExprInfo>>,
     },
 
     Binary
@@ -384,10 +381,19 @@ impl GlobalsHoistingTransformer
                 Self::match_expression(source, &value.value, deps);
             },
 
-            Expr::If { condition, then_branch, else_branch, .. } => {
-                Self::match_expression(source, &condition.value, deps);
-                Self::match_statements(source, then_branch, deps);
-                Self::match_statements(source, else_branch, deps);
+            Expr::If { conditions, branches, .. } => {
+                for condition in conditions {
+                    Self::match_expression(source, &condition.value, deps);
+                }
+                
+                for branch in branches {
+                    let Expr::Block { statements, value, .. } = &branch.value else {
+                        panic!()
+                    };
+
+                    Self::match_statements(source, statements, deps);
+                    Self::match_expression(source, &value.value, deps);
+                }
             },
 
             Expr::Binary { left, right, .. } => {

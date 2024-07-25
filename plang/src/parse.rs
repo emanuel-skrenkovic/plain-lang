@@ -678,32 +678,19 @@ impl Parser
             statements.push(statement);
         }
 
-        // Blocks are expressions - this captures if the block contains a value,
-        // or returns 'Unit'.
-        // If the final statement in the block is a semicolon, then treat it
-        // like a value-less block, else, return the last value in the block.
-        let has_value = !matches!(self.reader.previous.kind, scan::TokenKind::Semicolon)
-                        && !statements.is_empty();
+        let expr: ast::Expr = if let Some(last) = statements.pop() {
+            match last {
+                ast::Stmt::Expr { expr } => expr.value.clone(),
+                _                        => ast::Expr::Literal { value: self.reader.previous.clone() },
+            }
+        } else {
+            ast::Expr::Literal { value: self.reader.previous.clone() }
+        };
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
         let right_bracket = self.reader.previous.clone();
 
         self.match_token(scan::TokenKind::Semicolon);
-
-        // TODO: need to take tokens into account here:
-        // if the last expression in the block ends with a semicolon,
-        // it is of Unit value;
-        let expr = if has_value {
-            let binding                  = statements.pop().unwrap();
-            let ast::Stmt::Expr { expr } = binding else {
-                // TODO: I don't like this panic here.
-                panic!();
-            };
-
-            expr.clone().value
-        } else {
-            ast::Expr::Literal { value: scan::Token::default() }
-        };
 
         self.end_scope();
         (left_bracket, right_bracket, statements, expr)
@@ -717,34 +704,44 @@ impl Parser
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
-        let (_, _, then_branch, then_value) = self.block();
+        let branch = self.block_expression();
 
-        // This looks ugly. :(
-        let (else_branch, else_value) = if self.match_token(scan::TokenKind::Else) {
-            self.consume(scan::TokenKind::LeftBracket, "Expect '{");
+        let mut conditions: Vec<ast::ExprInfo> = Vec::with_capacity(32);
+        let mut branches: Vec<ast::ExprInfo>   = Vec::with_capacity(32);
 
-            let (_, _, branch, value) = self.block();
-            (branch, value)
-        } else {
-            (vec![], ast::Expr::Literal { value: scan::Token::default() })
-        };
+        conditions.push(ast::ExprInfo::new(condition));
+        branches.push(ast::ExprInfo::new(branch));
 
-        let condition = ast::ExprInfo::new(condition);
-        let condition = Box::new(condition);
+        loop {
+            if !self.match_token(scan::TokenKind::Else) {
+                break
+            }
 
-        let then_value = Box::new(ast::ExprInfo::new(then_value));
-        let else_value = Box::new(ast::ExprInfo::new(else_value));
+            let has_condition = self.match_token(scan::TokenKind::If);
+            if !has_condition && !self.match_token(scan::TokenKind::LeftBracket) {
+                panic!("TODO: FIX ME")
+            }
 
-        let then_branch = then_branch.into_iter().map(Box::new).collect();
-        let else_branch = else_branch.into_iter().map(Box::new).collect();
+            if has_condition {
+                let condition = self.expression();
+                let condition = ast::ExprInfo::new(condition);
+                conditions.push(condition);
+            }
+
+            self.consume(scan::TokenKind::LeftBracket, "Expect '{.");
+            
+            let branch = self.block_expression();
+            let branch = ast::ExprInfo::new(branch);
+            branches.push(branch);
+        }
+
+        let conditions = conditions.into_iter().map(Box::new).collect();
+        let branches   = branches.into_iter().map(Box::new).collect();
 
         ast::Expr::If {
             token,
-            condition,
-            then_branch,
-            then_value,
-            else_branch,
-            else_value,
+            conditions,
+            branches,
         }
     }
 
