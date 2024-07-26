@@ -153,6 +153,10 @@ pub enum Expr
     Return 
     {
         token: scan::Token,
+
+        // TODO: this should be Option<T> because return; is viable
+        // in functions returning nothing.
+        // Time to decide on Unit vs Void.
         value: Box<ExprInfo>,
     },
 
@@ -298,16 +302,14 @@ impl GlobalsHoistingTransformer
             graph.connections[i] += graph.edges[i].len();
         }
 
-        let mut q: Vec<(usize, usize)> = Vec::with_capacity(count);
+        // TODO: Fix this. It doesn't really work for hoisting.
+        let mut q: Vec<usize> = Vec::with_capacity(count);
 
         for i in 0..count {
-            q.push((i, graph.connections[i]));
+            q.push(i);
         }
 
-        // Sort by number of connections, from least to most.
-        q.sort_by(|a, b| a.1.cmp(&b.1)); 
-
-        let mut q: VecDeque<usize> = q.into_iter().map(|(x, _)| x).collect();
+        let mut q: VecDeque<usize> = VecDeque::from(q);
         let mut order: Vec<&str>   = Vec::with_capacity(count);
 
         while !q.is_empty() {
@@ -438,8 +440,12 @@ impl Transformer for GlobalsHoistingTransformer
         // First we build the dependency graph.
         let mut graph = Self::build_dependency_graph(source, &nodes);
 
+        println!("GRAPH :{graph:#?}");
+
         // Then we use topological sort to find the correct declaration order.
         let order = Self::topological_sort(&mut graph);
+
+        println!("ORDER: {order:#?}");
 
         // After we get the order we can sort the root AST nodes accordingly.
         let mut nodes = nodes.clone();
