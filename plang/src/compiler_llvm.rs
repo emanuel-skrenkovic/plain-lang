@@ -938,14 +938,13 @@ pub unsafe fn match_expression
                 panic!("Instance type is not a struct. Found: {instance_type:?}")
             };
             
-            let struct_index = ctx.definition_names.iter().position(|n| n == &struct_value.name).unwrap();
-            let struct_type  = &ctx.definitions[struct_index];
+            let struct_type = ctx.get_definition(&struct_value.name).unwrap();
 
-            let Definition::Struct{ type_ref, .. } = struct_type else {
+            let Definition::Struct{ type_ref: struct_type, .. } = struct_type else {
                 panic!()
             };
 
-            let struct_type = *type_ref;
+            let struct_type = *struct_type;
 
             let member       = source.token_value(member_name);
             let member_index = struct_value
@@ -979,11 +978,19 @@ pub unsafe fn match_expression
                 .unwrap_or_else(|| panic!("Expect instance '{instance_name}' type."));
 
             let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
-            let struct_type   = to_llvm_type(ctx, instance_type);
 
             let Some(struct_value) = types::try_get_struct(instance_type) else {
                 panic!("Expect 'struct' instance type.");
             };
+
+            let struct_type_kind_index = ctx.definition_names.iter().position(|n| n == &struct_value.name).unwrap();
+            let Definition::Struct { type_ref: struct_type, .. } = ctx.definitions[struct_type_kind_index] else {
+                panic!()
+            };
+
+            let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
+            let struct_pointer  = if is_pointer(*struct_val) { *struct_val } 
+                                  else                       { builder.assign_to_address(*struct_val, struct_type, "_alloca") };
 
             let member       = source.token_value(member_name);
             let member_index = struct_value
@@ -991,10 +998,6 @@ pub unsafe fn match_expression
                 .iter()
                 .position(|f| f == member)
                 .unwrap();
-
-            let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
-            let struct_pointer  = if is_pointer(*struct_val) { *struct_val } 
-                                  else                       { builder.assign_to_address(*struct_val, struct_type, "_alloca") };
 
             let member_type  = to_llvm_type(ctx, &expr.type_kind);
             let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
@@ -1045,10 +1048,21 @@ pub unsafe fn match_expression
             };
 
             let mut closed_variables = if closure {
-                captured_variables(ctx)
+                captured_variables(ctx, name)
                     .iter()
-                    .filter(|(key, _)| key != &name)
-                    .map(|(_, var)| *var)
+                    .map(|(_, var)| {
+                        let var_type  = llvm::core::LLVMTypeOf(*var);
+                        let type_kind = llvm::core::LLVMGetTypeKind(var_type);
+
+                        // Take the address of all the captured variables.
+                        // The capture should refer to the actual variable, not copy
+                        // all the values.
+                        if PRIMITIVE_TYPES.contains(&type_kind) {
+                            builder.assign_to_address(*var, var_type, "_address_of")
+                        } else {
+                            *var
+                        }
+                    })
                     .collect()
             } else { 
                 vec![] 
@@ -1081,10 +1095,9 @@ pub unsafe fn match_expression
             args.append(&mut initial_args);
             args.append(&mut closed_variables);
 
-            let is_void = is_void(return_type);
-
             // LLVM requires the name of the call result to be an empty string
             // when the function return type is 'void'.
+            let is_void = is_void(return_type);
             let call_result_name = if is_void { "" } else { "_call" };
 
             let call_name = CStr::from_str(call_result_name);
@@ -1269,9 +1282,8 @@ unsafe fn closure
     body: &[ast::Stmt],
 ) -> llvm::prelude::LLVMValueRef
 {
-    let mut closed_variables: Vec<String> = captured_variables(ctx)
+    let mut closed_variables: Vec<String> = captured_variables(ctx, name)
         .into_iter()
-        .filter(|(n, _)| n != &name)
         .map(|(name, _)| name.to_owned())
         .collect();
 
@@ -1385,7 +1397,11 @@ pub unsafe fn is_void(type_ref: llvm::prelude::LLVMTypeRef) -> bool
 
 /// # Safety
 /// TODO
-pub unsafe fn captured_variables(ctx: &Context) -> Vec<(&str, llvm::prelude::LLVMValueRef)>
+pub unsafe fn captured_variables<'a>
+(
+    ctx: &'a Context, 
+    self_name: &str,
+) -> Vec<(&'a str, llvm::prelude::LLVMValueRef)>
 {
     let scope = ctx.module_scopes.current_scope();
 
@@ -1397,8 +1413,16 @@ pub unsafe fn captured_variables(ctx: &Context) -> Vec<(&str, llvm::prelude::LLV
 
     let mut vars: Vec<(&str, llvm::prelude::LLVMValueRef)> = Vec::with_capacity(capacity);
 
+    // Walk front to back in the scope until the closure.
     for i in 0..scope.names.len() {
         let name = &scope.names[i];
+
+        // Once the scope reaches self, exit early. Everything in the 
+        // loop after that is going to be out of scope for our closure.
+        if name == self_name { 
+            break 
+        }
+
         if to_remove.contains(name.as_str()) { continue }
 
         let (value, _) = scope.values[i];
