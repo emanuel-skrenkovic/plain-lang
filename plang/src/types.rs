@@ -276,7 +276,7 @@ impl <'a> Typer<'a>
 
             ast::Stmt::Expr { expr } => expr.type_kind = self.match_expression(&mut expr.value)?,
 
-            _ => ()
+            ast::Stmt::Unary { } => ()
         }
 
         Ok(stmt.to_owned())

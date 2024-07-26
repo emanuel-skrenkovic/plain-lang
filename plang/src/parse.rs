@@ -731,7 +731,7 @@ impl Parser
 
             let has_condition = self.match_token(scan::TokenKind::If);
             if !has_condition && !self.match_token(scan::TokenKind::LeftBracket) {
-                panic!("TODO: FIX ME")
+                return self.error_at("Expect '{'.", &self.reader.current.clone())
             }
 
             if has_condition {

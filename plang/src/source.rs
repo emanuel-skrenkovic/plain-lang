@@ -60,11 +60,11 @@ impl Source
             | scan::TokenKind::Break 
             | scan::TokenKind::While => 5,
 
-            scan::TokenKind::Return => 6,
+            scan::TokenKind::Switch 
+            | scan::TokenKind::Struct 
+            | scan::TokenKind::Return => 6, 
 
             scan::TokenKind::Continue => 8,
-
-            scan::TokenKind::Switch | scan::TokenKind::Struct => 6, 
 
             scan::TokenKind::For => 3, 
 
