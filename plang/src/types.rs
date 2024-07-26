@@ -454,8 +454,7 @@ impl <'a> Typer<'a>
 
             ast::Expr::Logical => todo!(),
 
-            ast::Expr::Return { token, value } => {
-                println!("HELLO {}", self.source.token_value(&token));
+            ast::Expr::Return { value, .. } => {
                 let value_kind = self.match_expression(&mut value.value)?;
                 value.type_kind = value_kind;
 
