@@ -152,7 +152,7 @@ impl <'a> Typer<'a>
                     let _ = self.match_statement(statement);
                 }
 
-                let return_kinds         = self.return_type_analysis(body)?;
+                let return_kinds         = return_type_analysis(body)?;
                 let returns_defined_type = return_kinds.iter().all(|k| k == &defined_kind);
 
                 if !returns_defined_type {
@@ -469,7 +469,7 @@ impl <'a> Typer<'a>
                     None              => Ok(TypeKind::Unit)
                 }?;
 
-                let return_kinds         = self.return_type_analysis(body)?;
+                let return_kinds         = return_type_analysis(body)?;
                 let returns_defined_type = return_kinds.iter().all(|k| k == &defined_kind);
 
                 if !returns_defined_type {
@@ -619,35 +619,41 @@ impl <'a> Typer<'a>
 
         vars
     }
+}
 
-    pub fn return_type_analysis(&mut self, function_body: &[Box<ast::Stmt>]) -> Result<Vec<TypeKind>, error::Error>
-    {
-        let mut return_kinds = Vec::with_capacity(128);
+pub fn return_type_analysis
+(
+    function_body: &[Box<ast::Stmt>],
+) -> Result<Vec<TypeKind>, error::Error>
+{
+    let mut return_kinds = Vec::with_capacity(128);
 
-        for statement in function_body {
-            return_kinds.push(return_type_kind(statement));            
-        }
-
-        let last = function_body.last().map(|s| s.as_ref().clone());
-        let last = match last {
-            Some(ast::Stmt::Expr { expr }) => {
-                if let ast::Expr::Return { value, .. } = &expr.value {
-                    Some(value.type_kind.clone())
-                } else {
-                    Some(expr.type_kind.clone())
-                }
-            }
-
-            _ => None
-        };
-
-        return_kinds.push(last);
-
-        let return_kinds = return_kinds.into_iter().flatten().collect();
-        Ok(return_kinds)
+    for statement in function_body {
+        let kind = return_type_kind(statement);
+        return_kinds.push(kind);
     }
 
+    let last = function_body.last().map(|s| s.as_ref().clone());
+    let last = match last {
+        Some(ast::Stmt::Expr { expr }) => {
+            let value = if let ast::Expr::Return { value, .. } = &expr.value {
+                value.type_kind.clone()
+            } else {
+                expr.type_kind.clone()
+            };
 
+            Some(value)
+        }
+
+        _ => None
+    };
+
+    return_kinds.push(last);
+
+    Ok
+    (
+        return_kinds.into_iter().flatten().collect()
+    )
 }
 
 fn return_type_kind(statement: &ast::Stmt) -> Option<TypeKind>
