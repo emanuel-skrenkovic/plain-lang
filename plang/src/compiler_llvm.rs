@@ -916,57 +916,65 @@ pub unsafe fn match_expression
             *variable
         }
 
-        ast::Expr::Assignment { name, value } => {
-            let value_expr        = match_expression(source, ctx, builder, value)?;
-            let (variable_ref, _) = ctx.module_scopes.get(source.token_value(name)).unwrap();
+        ast::Expr::Assignment { left, right } => {
+            let value_expr        = match_expression(source, ctx, builder, right)?;
 
-            let value = builder.deref_if_primitive(value_expr, to_llvm_type(ctx, &value.type_kind));
-            llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
-        },
+            let value = match &left.value {
+                ast::Expr::Variable { name } =>  {
+                    let (variable_ref, _) = ctx.module_scopes.get(source.token_value(name)).unwrap();
 
-        ast::Expr::MemberAssignment { instance_name, member_name, value } => {
-            let instance_name = source.token_value(instance_name);
+                    let value = builder.deref_if_primitive(value_expr, to_llvm_type(ctx, &right.type_kind));
+                    llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
+                },
 
-            let index = ctx
-                .type_info
-                .index_of(ctx.current_scope(), instance_name)
-                .expect("Expect instance_type");
+                ast::Expr::MemberAccess { instance_name, member_name } => {
+                    let instance_name = source.token_value(instance_name);
 
-            let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
+                    let index = ctx
+                        .type_info
+                        .index_of(ctx.current_scope(), instance_name)
+                        .expect("Expect instance_type");
 
-            let Some(struct_value) = types::try_get_struct(instance_type) else {
-                panic!("Instance type is not a struct. Found: {instance_type:?}")
+                    let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
+
+                    let Some(struct_value) = types::try_get_struct(instance_type) else {
+                        panic!("Instance type is not a struct. Found: {instance_type:?}")
+                    };
+                    
+                    let struct_type = ctx.get_definition(&struct_value.name).unwrap();
+
+                    let Definition::Struct{ type_ref: struct_type, .. } = struct_type else {
+                        panic!()
+                    };
+
+                    let struct_type = *struct_type;
+
+                    let member       = source.token_value(member_name);
+                    let member_index = struct_value
+                        .member_names
+                        .iter()
+                        .position(|f| f == member)
+                        .unwrap();
+
+                    let value_type = to_llvm_type(ctx, &right.type_kind);
+
+                    let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
+                    let struct_pointer  = if is_pointer(*struct_val) { 
+                        *struct_val 
+                    } else { 
+                        builder.assign_to_address(*struct_val, struct_type, "_alloca") 
+                    };
+
+                    let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
+                    let value      = builder.deref_if_primitive(value_expr, value_type);
+
+                    llvm::core::LLVMBuildStore(builder.builder, value, member_ref)
+                }
+
+                _ => panic!()
             };
-            
-            let struct_type = ctx.get_definition(&struct_value.name).unwrap();
 
-            let Definition::Struct{ type_ref: struct_type, .. } = struct_type else {
-                panic!()
-            };
-
-            let struct_type = *struct_type;
-
-            let member       = source.token_value(member_name);
-            let member_index = struct_value
-                .member_names
-                .iter()
-                .position(|f| f == member)
-                .unwrap();
-
-            let value_expr = match_expression(source, ctx, builder, value)?;
-            let value_type = to_llvm_type(ctx, &value.type_kind);
-
-            let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
-            let struct_pointer  = if is_pointer(*struct_val) { 
-                *struct_val 
-            } else { 
-                builder.assign_to_address(*struct_val, struct_type, "_alloca") 
-            };
-
-            let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
-            let value      = builder.deref_if_primitive(value_expr, value_type);
-
-            llvm::core::LLVMBuildStore(builder.builder, value, member_ref)
+            value
         },
 
         ast::Expr::MemberAccess { instance_name, member_name } => {
