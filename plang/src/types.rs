@@ -152,32 +152,13 @@ impl <'a> Typer<'a>
                     let _ = self.match_statement(statement);
                 }
 
-                let last = body.last_mut().map(std::convert::AsMut::as_mut);
+                let return_kinds         = self.return_type_analysis(body)?;
+                let returns_defined_type = return_kinds.iter().all(|k| k == &defined_kind);
 
-                let _ = match (&defined_kind, last) {
-                    // If we find a return value, match its type against the defined type.
-                    (_, Some(ast::Stmt::Expr { expr })) => 'expression: {
-                        let returned_kind = self.match_expression(&mut expr.value)?;    
-                        
-                        if returned_kind != defined_kind {
-                            let message = format!("Expected return value of {defined_kind:?} found {returned_kind:?}");
-                            let error   = self.reporter.error_at(&message, error::Kind::TypeError, name);
-                            break 'expression Err(error)
-                        }
-
-                        Ok(defined_kind)    
-                    }
-
-                    // If we find no value, and the return type is Unit, then it is correct.
-                    (TypeKind::Unit, _) => Ok(TypeKind::Unit),
-
-                    // If we find expect a return value other than Unit, and we find no value, then
-                    // it is an error.
-                    (_, _) => {
-                        let message = format!("Expected return value matching defined type: {defined_kind:?}. Found no value.");
-                        Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
-                    }
-                }?;
+                if !returns_defined_type {
+                    let message = format!("Expected return value matching defined type: {defined_kind:?}. Found no value.");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name))
+                }
 
                 self.type_info.end_scope();
             },
@@ -383,52 +364,15 @@ impl <'a> Typer<'a>
                 kind.clone()
             }
 
-            ast::Expr::Assignment { value, .. } => {
-                let kind        = self.match_expression(&mut value.value)?;
-                value.type_kind = kind.clone();
+            ast::Expr::Assignment { left, right } => {
+                let right_kind  = self.match_expression(&mut right.value)?;
+                right.type_kind = right_kind.clone();
+
+                let left_kind = self.match_expression(&mut left.value)?;
+                left.type_kind = left_kind.clone();
 
                 TypeKind::Unit
             },
-
-            ast::Expr::MemberAssignment { instance_name, member_name, value } => {
-                let kind = self.match_expression(&mut value.value)?;
-                value.type_kind = kind.clone();
-
-                let instance = self.source.token_value(instance_name);
-                let Some(instance_type) = self.type_info.get(instance) else {
-                    let message = format!("Failed to find type name of {instance}.");
-                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
-                };
-
-                /*
-                let TypeKind::Struct { name, member_names, member_types, .. } = instance_type else {
-                    let message = format!("Instance type is not a struct. Found: {instance_type:?}");
-                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
-                };
-                */
-
-                let Some(struct_value) = try_get_struct(instance_type) else {
-                    let message = format!("Instance type is not a struct. Found: {instance_type:?}");
-                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
-                };
-
-                let member = self.source.token_value(member_name);
-                let Some(index) = struct_value.member_names.iter().position(|n| n == member) else {
-                    let message = format!("{member} is not a member of {instance}");
-                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name));
-                };
-
-                let member_type = &struct_value.member_types[index];
-                if member_type.as_ref() != &kind {
-                    let message = format!
-                    (
-                        "Value of assignment does not match member type. Found {kind:?}. Expected {member_type:?}"
-                    );
-                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, member_name))
-                }
-
-                TypeKind::Unit
-            }
 
             ast::Expr::MemberAccess { instance_name, member_name } => {
                 let instance = self.source.token_value(instance_name);
@@ -525,34 +469,15 @@ impl <'a> Typer<'a>
                     None              => Ok(TypeKind::Unit)
                 }?;
 
-                let last = body.last_mut().map(std::convert::AsMut::as_mut);
+                let return_kinds         = self.return_type_analysis(body)?;
+                let returns_defined_type = return_kinds.iter().all(|k| k == &defined_kind);
 
-                let return_kind = match (&defined_kind, last) {
-                    // If we find a return value, match its type against the defined type.
-                    (_, Some(ast::Stmt::Expr { expr })) => 'expression: {
-                        let returned_kind = self.match_expression(&mut expr.value)?;    
-                        
-                        if returned_kind != defined_kind {
-                            let message = format!("Expected return value of {defined_kind:?} found {returned_kind:?}");
-                            let error   = self.reporter.error_at(&message, error::Kind::TypeError, right_paren);
-                            break 'expression Err(error)
-                        }
-
-                        Ok(defined_kind)    
-                    }
-
-                    // If we find no value, and the return type is Unit, then it is correct.
-                    (TypeKind::Unit, _) => Ok(TypeKind::Unit),
-
-                    // If we find expect a return value other than Unit, and we find no value, then
-                    // it is an error.
-                    (_, _) => {
-                        let message = format!("Expected return value matching defined type: {defined_kind:?}. Found no value.");
-                        Err(self.reporter.error_at(&message, error::Kind::TypeError, right_paren))
-                    }
-                }?;
-
-                let return_kind = Box::new(return_kind);
+                if !returns_defined_type {
+                    let message = format!("Expected return value matching defined type: {defined_kind:?}. Found no value.");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, right_paren))
+                }
+                
+                let return_kind = Box::new(defined_kind);
 
                 self.type_info.end_scope();
 
@@ -694,6 +619,48 @@ impl <'a> Typer<'a>
 
         vars
     }
+
+    pub fn return_type_analysis(&mut self, function_body: &[Box<ast::Stmt>]) -> Result<Vec<TypeKind>, error::Error>
+    {
+        let mut return_kinds = Vec::with_capacity(128);
+
+        for statement in function_body {
+            return_kinds.push(return_type_kind(statement));            
+        }
+
+        let last = function_body.last().map(|s| s.as_ref().clone());
+        let last = match last {
+            Some(ast::Stmt::Expr { expr }) => {
+                if let ast::Expr::Return { value, .. } = &expr.value {
+                    Some(value.type_kind.clone())
+                } else {
+                    Some(expr.type_kind.clone())
+                }
+            }
+
+            _ => None
+        };
+
+        return_kinds.push(last);
+
+        let return_kinds = return_kinds.into_iter().flatten().collect();
+        Ok(return_kinds)
+    }
+
+
+}
+
+fn return_type_kind(statement: &ast::Stmt) -> Option<TypeKind>
+{
+    let ast::Stmt::Expr { expr } = statement else {
+        return None
+    };
+
+    let ast::Expr::Return { value, .. } = &expr.value else {
+        return None
+    };
+
+    Some(value.type_kind.clone())
 }
 
 pub fn try_get_struct(kind: &TypeKind) -> Option<&Struct>

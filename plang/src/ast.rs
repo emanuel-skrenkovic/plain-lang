@@ -131,15 +131,8 @@ pub enum Expr
 
     Assignment
     {
-        name: scan::Token,
-        value: Box<ExprInfo>,
-    },
-
-    MemberAssignment
-    {
-        instance_name: scan::Token,
-        member_name: scan::Token,
-        value: Box<ExprInfo>,
+        left: Box<ExprInfo>,
+        right: Box<ExprInfo>,
     },
 
     MemberAccess
@@ -410,7 +403,10 @@ impl GlobalsHoistingTransformer
             // TODO: later
             Expr::Variable { name, .. } => deps.push(source.token_value(name)),
 
-            Expr::Assignment { value, .. } => Self::match_expression(source, &value.value, deps),
+            Expr::Assignment { left, right } => {
+                Self::match_expression(source, &right.value, deps);
+                Self::match_expression(source, &left.value, deps);
+            }
 
             Expr::Call { name, arguments } => {
                 for arg in arguments {

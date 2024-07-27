@@ -19,6 +19,7 @@ pub struct Function
 enum Precedence
 {
     None,
+    Return,
     Assignment,
     Or,
     And,
@@ -81,7 +82,7 @@ static RULES: [ParseRule; 43] =
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LeftAngle
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // RightAngle
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Questionmark
-    ParseRule { prefix: Some(Parser::semicolon),           infix: None,                              precedence: Precedence::None }, // Semicolon
+    ParseRule { prefix: Some(Parser::semicolon),           infix: Some(Parser::semicolon),           precedence: Precedence::Call }, // Semicolon
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Colon
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // ColonColon
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // ColonEquals
@@ -97,7 +98,7 @@ static RULES: [ParseRule; 43] =
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Equality }, // EqualEqual
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // GreaterEqual
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // LessEqual
-    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Equal
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Assignment }, // Equal
     ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // True
     ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // False
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // This
@@ -113,7 +114,7 @@ static RULES: [ParseRule; 43] =
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Struct
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Interface
     ParseRule { prefix: Some(Parser::literal),             infix: None,                              precedence: Precedence::None }, // Literal
-    ParseRule { prefix: Some(Parser::_return),             infix: None,                              precedence: Precedence::Call }, // Return
+    ParseRule { prefix: Some(Parser::_return),             infix: None,                              precedence: Precedence::Return }, // Return
     ParseRule { prefix: Some(Parser::variable),            infix: None,                              precedence: Precedence::None }, // Identifier
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Error
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }  // End
@@ -289,7 +290,15 @@ impl Parser
 
         if let Some(prefix) = get_rule(self.reader.previous.kind).prefix {
             let prefix_expr = prefix(self);
-            self.stack.push(prefix_expr);
+
+            match prefix_expr {
+                ast::Expr::Literal { 
+                    value: scan::Token { kind: scan::TokenKind::Semicolon, .. } 
+                } => (),
+                _ => self.stack.push(prefix_expr)
+            }
+
+            
         } else {
             if self.is_at_end() { return }
             panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
@@ -304,15 +313,21 @@ impl Parser
             };
 
             let infix_rule = infix_rule(self);
+
+            if let ast::Expr::Literal { value: scan::Token{ kind: scan::TokenKind::Semicolon, .. } } = infix_rule {
+                continue
+            } 
             self.stack.push(infix_rule);
         }
     }
 
     fn expression_statement(&mut self) -> ast::Stmt
     {
-        ast::Stmt::Expr {
-            expr: Box::new(ast::ExprInfo::new(self.expression())),
-        }
+        let expr = self.expression();
+        let expr = ast::ExprInfo::new(expr);
+        let expr = Box::new(expr);
+
+        ast::Stmt::Expr { expr }
     }
 
     fn expression(&mut self) -> ast::Expr
@@ -356,6 +371,16 @@ impl Parser
         let left  = ast::ExprInfo::new(left);
         let right = ast::ExprInfo::new(right);
 
+        // Assignment is a special case
+        if operator.kind.discriminant() == scan::TokenKind::Equal.discriminant() {
+            self.consume(scan::TokenKind::Semicolon, "Expect semicolon.");
+
+            return ast::Expr::Assignment { 
+                left: Box::new(left),
+                right: Box::new(right),
+            }
+        }
+
         let expr = ast::Expr::Binary {
             left: Box::new(left),
             right: Box::new(right),
@@ -378,11 +403,9 @@ impl Parser
 
     fn literal(&mut self) -> ast::Expr
     {
-        let expr = ast::Expr::Literal { value: self.reader.previous.clone() };
-
-        // Eat the semicolon only if present;
-        self.match_token(scan::TokenKind::Semicolon);
-        expr
+        ast::Expr::Literal { 
+            value: self.reader.previous.clone() 
+        }
     }
 
     fn declaration(&mut self) -> ast::Stmt
@@ -545,35 +568,12 @@ impl Parser
     {
         let name = self.reader.previous.clone();
 
-        // If the next token is equal, handle assignment expression.
-        if self.match_token(scan::TokenKind::Equal) {
-            let value_expr = self.expression();
-            let value_expr = ast::ExprInfo::new(value_expr);
-
-            return ast::Expr::Assignment {
-                name,
-                value: Box::new(value_expr),
-            }
-        } else if self.match_token(scan::TokenKind::LeftBracket) {
+        if self.match_token(scan::TokenKind::LeftBracket) {
             return self.struct_expression()
         } else if self.match_token(scan::TokenKind::Dot) {
             self.consume(scan::TokenKind::Identifier, "Expect identifier.");
 
             let member_name = self.reader.previous.clone();
-
-            if self.match_token(scan::TokenKind::Equal) {
-                let value = self.expression();
-                let value = ast::ExprInfo::new(value);
-                let value = Box::new(value);
-
-                self.match_token(scan::TokenKind::Semicolon);
-
-                return ast::Expr::MemberAssignment { 
-                    instance_name: name,
-                    member_name,
-                    value,
-                }
-            } 
 
             return ast::Expr::MemberAccess { instance_name: name, member_name };
         }
@@ -953,7 +953,7 @@ impl Parser
     fn semicolon(&mut self) -> ast::Expr
     {
         self.match_token(scan::TokenKind::Semicolon);
-        ast::Expr::Literal { value: scan::Token::default() }
+        ast::Expr::Literal { value: self.reader.previous.clone() }
     }
 
     fn begin_scope(&mut self)
