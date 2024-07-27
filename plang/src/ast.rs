@@ -440,12 +440,8 @@ impl Transformer for GlobalsHoistingTransformer
         // First we build the dependency graph.
         let mut graph = Self::build_dependency_graph(source, &nodes);
 
-        println!("GRAPH :{graph:#?}");
-
         // Then we use topological sort to find the correct declaration order.
         let order = Self::topological_sort(&mut graph);
-
-        println!("ORDER: {order:#?}");
 
         // After we get the order we can sort the root AST nodes accordingly.
         let mut nodes = nodes.clone();
