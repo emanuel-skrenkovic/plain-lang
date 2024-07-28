@@ -1244,6 +1244,10 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMConstShl(lhs, rhs),
 
+            scan::TokenKind::Caret => llvm
+                ::core
+                ::LLVMConstXor(lhs, rhs),
+
             _ => panic!()
         }
     } else {
@@ -1306,6 +1310,10 @@ pub unsafe fn binary_expr
             scan::TokenKind::LeftAngleLeftAngle => llvm
                 ::core
                 ::LLVMBuildShl(builder.builder, lhs, rhs, binary_cstr!("_ashr_result")),
+
+            scan::TokenKind::Caret => llvm
+                ::core
+                ::LLVMBuildXor(builder.builder, lhs, rhs, binary_cstr!("_xor_result")),
 
             _ => panic!()
         }

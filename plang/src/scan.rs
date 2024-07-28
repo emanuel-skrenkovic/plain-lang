@@ -5,6 +5,7 @@ pub enum TokenKind
 {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
+    Caret,
     Ampersand, Pipe,
     AmpersandAmpersand, PipePipe,
     RightAngleRightAngle, LeftAngleLeftAngle,
@@ -196,6 +197,7 @@ impl Scanner
 
                 self.emit(TokenKind::Ampersand)
             }
+            '^' => self.emit(TokenKind::Caret),
             '\0' => self.emit(TokenKind::End),
             _    => self.identifier()
         }

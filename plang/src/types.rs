@@ -331,6 +331,7 @@ impl <'a> Typer<'a>
                     | scan::TokenKind::Pipe
                     | scan::TokenKind::RightAngleRightAngle
                     | scan::TokenKind::LeftAngleLeftAngle
+                    | scan::TokenKind::Caret
                         => left_type.clone(),
 
                     scan::TokenKind::EqualEqual

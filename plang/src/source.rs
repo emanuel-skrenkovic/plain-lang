@@ -41,7 +41,8 @@ impl Source
             | scan::TokenKind::Bang 
             | scan::TokenKind::Equal
             | scan::TokenKind::Ampersand
-            | scan::TokenKind::Pipe => 1, 
+            | scan::TokenKind::Pipe
+            | scan::TokenKind::Caret => 1, 
 
             scan::TokenKind::ColonColon 
             | scan::TokenKind::ColonEquals 
