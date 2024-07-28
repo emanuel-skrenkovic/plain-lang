@@ -10,21 +10,18 @@ GLOBAL_VALUE :: 3;
 mul :: (values: Values): i32
 {
 	test :: (): i32 {
-		if values.a == 0 {
-			if values.b == 0 {
-				return 420
-			}
-		}	
+		if values.a == 0 && values.b == 0 {
+			return 420;
+		}
 
+		return 0;
+	}
+
+	if test() == 420 {
 		return 0
 	}
 
-	test_result := test();
-	if test_result == 420 {
-		return 0
-	}
-
-	return values.a * values.b * values.c
+	return values.a * values.b * values.c;
 }
 
 main :: (): i32
@@ -38,6 +35,8 @@ main :: (): i32
 	if s.a < 10 {
 		return 0;
 	}
+
+	printf("%d |", mul(s));
 
 	s.a = 0;
 	s.b = 0;

@@ -5,6 +5,7 @@ pub enum TokenKind
 {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
+    AmpersandAmpersand, PipePipe,
     Dot,
     Pipe,
     Comma,
@@ -148,7 +149,11 @@ impl Scanner
                     return self.emit(TokenKind::Pipe)
                 }
 
-               self.identifier()
+                if self.match_char('|') {
+                    return self.emit(TokenKind::PipePipe)
+                }
+
+                self.identifier()
             },
             ',' => self.emit(TokenKind::Comma),
             '!' => {
@@ -174,6 +179,13 @@ impl Scanner
 
                 self.emit(TokenKind::Equal)
             },
+            '&' => {
+                if self.match_char('&') {
+                    return self.emit(TokenKind::AmpersandAmpersand)
+                }
+
+                self.identifier()
+            }
             '\0' => self.emit(TokenKind::End),
             _    => self.identifier()
         }

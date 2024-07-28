@@ -1007,8 +1007,8 @@ pub unsafe fn match_expression
                 .position(|f| f == member)
                 .unwrap();
 
-            let member_type  = to_llvm_type(ctx, &expr.type_kind);
-            let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
+            let member_type = to_llvm_type(ctx, &expr.type_kind);
+            let member_ref  = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
 
             builder.deref_if_primitive(member_ref, member_type)
         }
@@ -1228,6 +1228,14 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs),
 
+            scan::TokenKind::AmpersandAmpersand => llvm
+                ::core
+                ::LLVMConstAnd(lhs, rhs),
+
+            scan::TokenKind::PipePipe => llvm
+                ::core
+                ::LLVMConstOr(lhs, rhs),
+
             _ => panic!()
         }
     } else {
@@ -1274,6 +1282,14 @@ pub unsafe fn binary_expr
             scan::TokenKind::LessEqual => llvm
                 ::core
                 ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp")),
+
+            scan::TokenKind::AmpersandAmpersand => llvm
+                ::core
+                ::LLVMBuildAnd(builder.builder, lhs, rhs, binary_cstr!("_and_result")),
+
+            scan::TokenKind::PipePipe => llvm
+                ::core
+                ::LLVMBuildOr(builder.builder, lhs, rhs, binary_cstr!("_or_result")),
 
             _ => panic!()
         }

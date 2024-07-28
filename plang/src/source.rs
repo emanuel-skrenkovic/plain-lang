@@ -48,7 +48,9 @@ impl Source
             | scan::TokenKind::EqualEqual 
             | scan::TokenKind::GreaterEqual 
             | scan::TokenKind::LessEqual 
-            | scan::TokenKind::If => 2,
+            | scan::TokenKind::If 
+            | scan::TokenKind::AmpersandAmpersand
+            | scan::TokenKind::PipePipe => 2,
 
             scan::TokenKind::True 
             | scan::TokenKind::This 

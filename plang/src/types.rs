@@ -335,6 +335,8 @@ impl <'a> Typer<'a>
                     | scan::TokenKind::LessEqual
                     | scan::TokenKind::LeftAngle
                     | scan::TokenKind::RightAngle
+                    | scan::TokenKind::AmpersandAmpersand
+                    | scan::TokenKind::PipePipe
                         => TypeKind::Bool,
 
                     _ => {
