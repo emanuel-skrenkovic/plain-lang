@@ -1236,6 +1236,14 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMConstOr(lhs, rhs),
 
+            scan::TokenKind::RightAngleRightAngle => llvm
+                ::core
+                ::LLVMConstAShr(lhs, rhs),
+
+            scan::TokenKind::LeftAngleLeftAngle => llvm
+                ::core
+                ::LLVMConstShl(lhs, rhs),
+
             _ => panic!()
         }
     } else {
@@ -1290,6 +1298,14 @@ pub unsafe fn binary_expr
             scan::TokenKind::Pipe | scan::TokenKind::PipePipe => llvm
                 ::core
                 ::LLVMBuildOr(builder.builder, lhs, rhs, binary_cstr!("_or_result")),
+
+            scan::TokenKind::RightAngleRightAngle => llvm
+                ::core
+                ::LLVMBuildAShr(builder.builder, lhs, rhs, binary_cstr!("_lsh_result")),
+
+            scan::TokenKind::LeftAngleLeftAngle => llvm
+                ::core
+                ::LLVMBuildShl(builder.builder, lhs, rhs, binary_cstr!("_ashr_result")),
 
             _ => panic!()
         }

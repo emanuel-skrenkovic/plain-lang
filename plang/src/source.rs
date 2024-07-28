@@ -52,7 +52,9 @@ impl Source
             | scan::TokenKind::If 
             | scan::TokenKind::AmpersandAmpersand
             | scan::TokenKind::PipePipe 
-            | scan::TokenKind::PipeRightAngle => 2,
+            | scan::TokenKind::PipeRightAngle
+            | scan::TokenKind::RightAngleRightAngle
+            | scan::TokenKind::LeftAngleLeftAngle => 2,
 
             scan::TokenKind::True 
             | scan::TokenKind::This 

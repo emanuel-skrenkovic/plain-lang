@@ -7,6 +7,7 @@ pub enum TokenKind
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
     Ampersand, Pipe,
     AmpersandAmpersand, PipePipe,
+    RightAngleRightAngle, LeftAngleLeftAngle,
     Dot,
     PipeRightAngle,
     Comma,
@@ -120,11 +121,19 @@ impl Scanner
                     return self.emit(TokenKind::LessEqual)
                 }
 
+                if self.match_char('<') {
+                    return self.emit(TokenKind::LeftAngleLeftAngle)
+                }
+
                 self.emit(TokenKind::LeftAngle)
             },
             '>' => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::GreaterEqual)
+                }
+
+                if self.match_char('>') {
+                    return self.emit(TokenKind::RightAngleRightAngle)
                 }
 
                 self.emit(TokenKind::RightAngle)

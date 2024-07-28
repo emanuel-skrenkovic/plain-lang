@@ -329,6 +329,8 @@ impl <'a> Typer<'a>
                     | scan::TokenKind::Slash
                     | scan::TokenKind::Ampersand
                     | scan::TokenKind::Pipe
+                    | scan::TokenKind::RightAngleRightAngle
+                    | scan::TokenKind::LeftAngleLeftAngle
                         => left_type.clone(),
 
                     scan::TokenKind::EqualEqual
