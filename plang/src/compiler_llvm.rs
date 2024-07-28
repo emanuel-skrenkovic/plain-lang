@@ -1228,11 +1228,11 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs),
 
-            scan::TokenKind::AmpersandAmpersand => llvm
+            scan::TokenKind::Ampersand | scan::TokenKind::AmpersandAmpersand => llvm
                 ::core
                 ::LLVMConstAnd(lhs, rhs),
 
-            scan::TokenKind::PipePipe => llvm
+            scan::TokenKind::Pipe | scan::TokenKind::PipePipe => llvm
                 ::core
                 ::LLVMConstOr(lhs, rhs),
 
@@ -1283,11 +1283,11 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp")),
 
-            scan::TokenKind::AmpersandAmpersand => llvm
+            scan::TokenKind::Ampersand | scan::TokenKind::AmpersandAmpersand => llvm
                 ::core
                 ::LLVMBuildAnd(builder.builder, lhs, rhs, binary_cstr!("_and_result")),
 
-            scan::TokenKind::PipePipe => llvm
+            scan::TokenKind::Pipe | scan::TokenKind::PipePipe => llvm
                 ::core
                 ::LLVMBuildOr(builder.builder, lhs, rhs, binary_cstr!("_or_result")),
 

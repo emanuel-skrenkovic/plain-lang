@@ -37,10 +37,11 @@ impl Source
             | scan::TokenKind::Star 
             | scan::TokenKind::Slash
             | scan::TokenKind::Dot
-            | scan::TokenKind::Pipe
             | scan::TokenKind::Comma
             | scan::TokenKind::Bang 
-            | scan::TokenKind::Equal => 1, 
+            | scan::TokenKind::Equal
+            | scan::TokenKind::Ampersand
+            | scan::TokenKind::Pipe => 1, 
 
             scan::TokenKind::ColonColon 
             | scan::TokenKind::ColonEquals 
@@ -50,7 +51,8 @@ impl Source
             | scan::TokenKind::LessEqual 
             | scan::TokenKind::If 
             | scan::TokenKind::AmpersandAmpersand
-            | scan::TokenKind::PipePipe => 2,
+            | scan::TokenKind::PipePipe 
+            | scan::TokenKind::PipeRightAngle => 2,
 
             scan::TokenKind::True 
             | scan::TokenKind::This 
