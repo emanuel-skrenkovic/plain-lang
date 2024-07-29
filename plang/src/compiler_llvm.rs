@@ -861,12 +861,6 @@ pub unsafe fn match_expression
                     // TODO: think about semantics
                     let condition = builder.deref_if_ptr(condition, condition_type);
 
-                    let trunc_op_name  = CStr::from_str("_trunc_result");
-                    let condition_type = llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx);
-                    let condition      = llvm
-                        ::core
-                        ::LLVMBuildTrunc(builder.builder, condition, condition_type, trunc_op_name.value);
-
                     let then_block = branch_blocks[i];
                     let else_block = condition_blocks[i + 1] ;
 
@@ -1331,13 +1325,9 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp")),
 
-            scan::TokenKind::EqualEqual => {
-                let lhs = builder.llvm_condition(lhs);
-                let rhs = builder.llvm_condition(rhs);
-                llvm
-                    ::core
-                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp"))
-            }
+            scan::TokenKind::EqualEqual => llvm
+                ::core
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp")),
 
             scan::TokenKind::BangEqual => llvm
                 ::core
