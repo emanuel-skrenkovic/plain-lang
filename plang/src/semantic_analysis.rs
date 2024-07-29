@@ -23,7 +23,8 @@ pub enum DeclarationKind
 
     Function 
     {
-        function: Function
+        function: Function // Function
+        // function Function FuNcTiOn
     },
 
     Closure 

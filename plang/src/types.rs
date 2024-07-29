@@ -20,9 +20,7 @@ pub enum TypeKind
 
     Function 
     {
-        parameter_kinds: Vec<Box<TypeKind>>,
-        return_kind: Box<TypeKind>,
-        variadic: bool,
+        value: Function,
     },
 
     Closure 
@@ -41,6 +39,63 @@ pub enum TypeKind
     {
         underlying: Box<TypeKind>,
     },
+}
+
+#[derive(Debug)]
+pub struct InvalidKindError(());
+
+impl TypeKind 
+{
+    pub fn as_struct(&self) -> Result<&Struct, InvalidKindError>
+    {
+        match self {
+            TypeKind::Struct { value } => Ok(value),
+
+            TypeKind::Reference { underlying } => {
+                let TypeKind::Struct { value } = underlying.as_ref() else {
+                    return Err(InvalidKindError(()))
+                };
+
+                Ok(value)
+            }
+
+            _ => Err(InvalidKindError(()))
+        }
+    }
+
+    pub fn as_primitive(self: &TypeKind) -> &TypeKind
+    {
+        if let TypeKind::Reference { underlying } = self {
+            return underlying.as_primitive()
+        }
+
+        self
+    }
+
+    pub fn as_function(&self) -> Result<&Function, InvalidKindError>
+    {
+        match self {
+            TypeKind::Function { value } => Ok(value),
+
+            TypeKind::Reference { underlying } => {
+                let TypeKind::Function { value } = underlying.as_ref() else {
+                    return Err(InvalidKindError(()))
+                };
+
+                Ok(value)
+            }
+
+            _ => Err(InvalidKindError(()))
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Function
+{
+    pub parameter_kinds: Vec<Box<TypeKind>>,
+    pub return_kind: Box<TypeKind>,
+    pub variadic: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -90,7 +145,7 @@ impl <'a> Typer<'a>
 
     pub fn handle_native_functions(&mut self)
     {
-        let printf = TypeKind::Function {
+        let function = Function {
             parameter_kinds: vec![
                 Box::new
                 (
@@ -101,6 +156,10 @@ impl <'a> Typer<'a>
             ],
             return_kind: Box::new(TypeKind::I32),
             variadic: true,
+        };
+
+        let printf = TypeKind::Function {
+            value: function,
         };
         self.type_info.add_to_current("printf", printf);
     }
@@ -123,10 +182,13 @@ impl <'a> Typer<'a>
                     None              => Ok(TypeKind::Unit)
                 }?;
 
-                let kind = TypeKind::Function {
+                let function = Function {
                     parameter_kinds,
                     return_kind: Box::new(defined_kind.clone()),
                     variadic: false,
+                };
+                let kind = TypeKind::Function {
+                    value: function,
                 };
 
                 self.type_info.add_to_current(function_name, kind);
@@ -316,7 +378,7 @@ impl <'a> Typer<'a>
                 let left_type  = self.match_expression(&mut left.value)?;
                 let right_type = self.match_expression(&mut right.value)?;
 
-                if get_primitive(&left_type) != get_primitive(&right_type) {
+                if left_type.as_primitive() != right_type.as_primitive() {
                     let message = format!
                     (
                         "Binary operation between incompatible types. Left: {left_type:?} Right: {right_type:?}"
@@ -389,8 +451,7 @@ impl <'a> Typer<'a>
             // TODO: fn token_type can return error. Refactor.
             ast::Expr::Literal { value } => self.token_type(value),
 
-            ast::Expr::Variable { name } 
-                => {
+            ast::Expr::Variable { name } => {
                 let variable_name = self.source.token_value(name);
 
                 let Some(kind) = self.type_info.get(variable_name) else {
@@ -418,7 +479,7 @@ impl <'a> Typer<'a>
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name))
                 };
 
-                let Some(struct_value) = try_get_struct(instance_type) else {
+                let Ok(struct_value) = instance_type.as_struct() else {
                     let message = format!("Instance type is not a struct. Found: {instance_type:?}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, instance_name));
                 };
@@ -432,8 +493,6 @@ impl <'a> Typer<'a>
 
                 *struct_value.member_types[index].clone()
             }
-
-            ast::Expr::Logical => todo!(),
 
             ast::Expr::Return { value, .. } => {
                 let value_kind = self.match_expression(&mut value.value)?;
@@ -451,7 +510,8 @@ impl <'a> Typer<'a>
                 }
 
                 let function_name = self.source.token_value(name);
-                let Some(TypeKind::Function { return_kind, .. }) = self.type_info.get(function_name) else {
+
+                let Some(TypeKind::Function { value: Function { return_kind, ..  }}) = self.type_info.get(function_name) else {
                     let message = format!("'{function_name}' is not a function.");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
@@ -525,7 +585,9 @@ impl <'a> Typer<'a>
                     .map(Box::new)
                     .collect();
 
-                TypeKind::Function { parameter_kinds, return_kind, variadic: false }
+                TypeKind::Function { 
+                    value: Function { parameter_kinds, return_kind, variadic: false }
+                }
             },
 
             ast::Expr::Struct { name, values, members } => {
@@ -537,7 +599,7 @@ impl <'a> Typer<'a>
 
                 let instance_type = instance_type.clone();
 
-                let Some(struct_value) = try_get_struct(&instance_type) else {
+                let Ok(struct_value) = instance_type.as_struct() else {
                     let message = format!("Instance type is not a struct. Found: {name:?}");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
                 };
@@ -705,31 +767,4 @@ fn return_type_kind(statement: &ast::Stmt) -> Option<TypeKind>
 
     Some(value.type_kind.clone())
 }
-
-pub fn try_get_struct(kind: &TypeKind) -> Option<&Struct>
-{
-    match kind {
-        TypeKind::Struct { value } => Some(value),
-
-        TypeKind::Reference { underlying } => {
-            let TypeKind::Struct { value } = underlying.as_ref() else {
-                return None
-            };
-
-            Some(value)
-        }
-
-        _ => None
-    }
-}
-
-pub fn get_primitive(kind: &TypeKind) -> &TypeKind
-{
-    if let TypeKind::Reference { underlying } = kind {
-        return get_primitive(underlying)
-    }
-
-    kind
-}
-
 

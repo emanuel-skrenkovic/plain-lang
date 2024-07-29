@@ -145,8 +145,6 @@ pub enum Expr
         member_name: scan::Token,
     },
 
-    Logical,
-
     Return 
     {
         token: scan::Token,

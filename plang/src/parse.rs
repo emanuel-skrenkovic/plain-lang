@@ -340,8 +340,7 @@ impl Parser
     fn expression(&mut self) -> ast::Expr
     {
         self.parse_precedence(Precedence::Assignment);
-        // TODO
-        self.stack.pop().unwrap()
+        self.stack.pop().expect("Expect values in stack.")
     }
 
     fn block_expression(&mut self) -> ast::Expr
@@ -366,14 +365,14 @@ impl Parser
         let operator   = self.reader.previous.clone();
         let parse_rule = get_rule(operator.kind);
 
-        let left = self.stack.pop().unwrap();
+        let left = self.stack.pop().expect("Expect value in stack.");
 
         let prec = Precedence
             ::try_from(parse_rule.precedence.discriminator() + 1)
             .unwrap();
         self.parse_precedence(prec);
 
-        let right = self.stack.pop().unwrap();
+        let right = self.stack.pop().expect("Expect value in stack.");
 
         let left  = ast::ExprInfo::new(left);
         let right = ast::ExprInfo::new(right);
@@ -716,7 +715,9 @@ impl Parser
         let has_value = self.reader.previous.kind.discriminant() != scan::TokenKind::Semicolon.discriminant();
 
         let expr: ast::Expr = if has_value {
-            if let Some(ast::Stmt::Expr { expr: last, .. }) = statements.pop() {
+            let statement = statements.pop().expect("Expect value in stack.");
+
+            if let ast::Stmt::Expr { expr: last, .. } = statement {
                 last.value.clone()
             } else {
                 ast::Expr::Literal { value: self.reader.previous.clone() }
