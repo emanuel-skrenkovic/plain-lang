@@ -55,7 +55,9 @@ impl Source
             | scan::TokenKind::PipePipe 
             | scan::TokenKind::PipeRightAngle
             | scan::TokenKind::RightAngleRightAngle
-            | scan::TokenKind::LeftAngleLeftAngle => 2,
+            | scan::TokenKind::LeftAngleLeftAngle 
+            | scan::TokenKind::PlusEqual 
+            | scan::TokenKind::MinusEqual => 2,
 
             scan::TokenKind::True 
             | scan::TokenKind::This 

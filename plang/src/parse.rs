@@ -73,7 +73,7 @@ struct ParseRule
     precedence: Precedence
 }
 
-static RULES: [ParseRule; 50] =
+static RULES: [ParseRule; 52] =
 [
     ParseRule { prefix: Some(Parser::function_expression), infix: Some(Parser::function_invocation), precedence: Precedence::Call }, // LeftParen
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // RightParen
@@ -95,6 +95,8 @@ static RULES: [ParseRule; 50] =
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Or }, // Pipe,
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::And }, // AmpersandAmpersand
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Or }, // PipePipe
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // PlusEqual
+    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // MinusEqual
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // RightAngleRightAngle
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // LeftAngleLeftAngle
     ParseRule { prefix: None,                              infix: Some(Parser::dot_operator),        precedence: Precedence::Call }, // Dot

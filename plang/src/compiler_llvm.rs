@@ -356,6 +356,18 @@ impl Builder
         value
     }
 
+    unsafe fn deref
+    (
+        &self,
+        value: llvm::prelude::LLVMValueRef,
+        expected_type: llvm::prelude::LLVMTypeRef,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        llvm
+            ::core
+            ::LLVMBuildLoad2(self.builder, expected_type, value, binary_cstr!("_deref"))
+    }
+
     unsafe fn llvm_condition
     (
         &self, 
@@ -1053,10 +1065,7 @@ pub unsafe fn match_expression
                 .position(|f| f == member)
                 .unwrap();
 
-            let member_type = to_llvm_type(ctx, &expr.type_kind);
-            let member_ref  = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
-
-            builder.deref_if_primitive(member_ref, member_type)
+            builder.struct_member_access(struct_pointer, struct_type, member_index, member)
         }
 
         ast::Expr::Logical => todo!(),
@@ -1297,69 +1306,167 @@ pub unsafe fn binary_expr
             _ => panic!()
         }
     } else {
-        let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
-        let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
-
         match operator.kind {
-            scan::TokenKind::Plus => llvm
-                ::core
-                ::LLVMBuildAdd(builder.builder, lhs, rhs, binary_cstr!("_add_result")),
+            scan::TokenKind::Plus => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::Minus => llvm
-                ::core
-                ::LLVMBuildSub(builder.builder, lhs, rhs, binary_cstr!("_sub_result")),
+                llvm
+                    ::core
+                    ::LLVMBuildAdd(builder.builder, lhs, rhs, binary_cstr!("_add_result"))
+            }
 
-            scan::TokenKind::Star => llvm
-                ::core
-                ::LLVMBuildMul(builder.builder, lhs, rhs, binary_cstr!("_mul_result")),
+            scan::TokenKind::Minus => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::Slash => llvm
-                ::core
-                ::LLVMBuildSDiv(builder.builder, lhs, rhs, binary_cstr!("_sub_result")),
+                llvm
+                    ::core
+                    ::LLVMBuildSub(builder.builder, lhs, rhs, binary_cstr!("_sub_result"))
+            }
 
-            scan::TokenKind::LeftAngle => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp")),
+            scan::TokenKind::Star => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::RightAngle => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp")),
+                llvm
+                    ::core
+                    ::LLVMBuildMul(builder.builder, lhs, rhs, binary_cstr!("_mul_result"))
+            }
 
-            scan::TokenKind::EqualEqual => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp")),
+            scan::TokenKind::Slash => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::BangEqual => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_neqcomp")),
+                llvm
+                    ::core
+                    ::LLVMBuildSDiv(builder.builder, lhs, rhs, binary_cstr!("_sub_result"))
+            }
 
-            scan::TokenKind::GreaterEqual => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs, binary_cstr!("_gecomp")),
+            scan::TokenKind::LeftAngle => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::LessEqual => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp")),
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_ltcomp"))
+            }
 
-            scan::TokenKind::Ampersand | scan::TokenKind::AmpersandAmpersand => llvm
-                ::core
-                ::LLVMBuildAnd(builder.builder, lhs, rhs, binary_cstr!("_and_result")),
+            scan::TokenKind::RightAngle => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::Pipe | scan::TokenKind::PipePipe => llvm
-                ::core
-                ::LLVMBuildOr(builder.builder, lhs, rhs, binary_cstr!("_or_result")),
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp"))
+            }
 
-            scan::TokenKind::RightAngleRightAngle => llvm
-                ::core
-                ::LLVMBuildAShr(builder.builder, lhs, rhs, binary_cstr!("_lsh_result")),
+            scan::TokenKind::EqualEqual => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
 
-            scan::TokenKind::LeftAngleLeftAngle => llvm
-                ::core
-                ::LLVMBuildShl(builder.builder, lhs, rhs, binary_cstr!("_ashr_result")),
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp"))
+            }
 
-            scan::TokenKind::Caret => llvm
-                ::core
-                ::LLVMBuildXor(builder.builder, lhs, rhs, binary_cstr!("_xor_result")),
+            scan::TokenKind::BangEqual => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_neqcomp"))
+            }
+
+            scan::TokenKind::GreaterEqual => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs, binary_cstr!("_gecomp"))
+                }
+
+            scan::TokenKind::LessEqual => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_lecomp"))
+            } 
+
+            scan::TokenKind::Ampersand | scan::TokenKind::AmpersandAmpersand => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildAnd(builder.builder, lhs, rhs, binary_cstr!("_and_result"))
+            }
+
+            scan::TokenKind::Pipe | scan::TokenKind::PipePipe => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildOr(builder.builder, lhs, rhs, binary_cstr!("_or_result"))
+            }
+
+            scan::TokenKind::RightAngleRightAngle => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildAShr(builder.builder, lhs, rhs, binary_cstr!("_lsh_result"))
+            }
+
+            scan::TokenKind::LeftAngleLeftAngle => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildShl(builder.builder, lhs, rhs, binary_cstr!("_ashr_result"))
+            }
+
+            scan::TokenKind::Caret => {
+                let lhs = builder.deref_if_ptr(lhs, expected_operand_type);
+                let rhs = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                llvm
+                    ::core
+                    ::LLVMBuildXor(builder.builder, lhs, rhs, binary_cstr!("_xor_result"))
+            }
+
+            scan::TokenKind::PlusEqual => {
+                assert!(is_pointer(lhs), "left operand must be an lvalue");
+
+                let lhs_value = builder.deref(lhs, expected_operand_type);
+                let rhs_value = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                let add_name = CStr::from_str("_add_result");
+                let add_result = llvm::core::LLVMBuildAdd(builder.builder, lhs_value, rhs_value, add_name.value);
+
+                llvm::core::LLVMBuildStore(builder.builder, add_result, lhs);
+                std::ptr::null_mut()
+            }
+
+            scan::TokenKind::MinusEqual => {
+                assert!(is_pointer(lhs), "left operand must be an lvalue");
+
+                let lhs_value = builder.deref(lhs, expected_operand_type);
+                let rhs_value = builder.deref_if_ptr(rhs, expected_operand_type);
+
+                let sub_name = CStr::from_str("_sub_result");
+                let sub_result = llvm::core::LLVMBuildSub(builder.builder, lhs_value, rhs_value, sub_name.value);
+
+                llvm::core::LLVMBuildStore(builder.builder, sub_result, lhs);
+                std::ptr::null_mut()
+            }
 
             _ => panic!()
         }

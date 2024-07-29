@@ -346,6 +346,9 @@ impl <'a> Typer<'a>
                     | scan::TokenKind::PipePipe
                         => TypeKind::Bool,
 
+                    scan::TokenKind::PlusEqual 
+                    | scan::TokenKind::MinusEqual => TypeKind::Unit,
+
                     _ => {
                         let message = format!("Unrecognized binary expression token. {:?}", operator.kind);
                         return Err(self.reporter.error_at(&message, error::Kind::TypeError, operator))
