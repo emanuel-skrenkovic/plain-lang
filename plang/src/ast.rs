@@ -81,8 +81,6 @@ pub enum Stmt
         body: Vec<Box<Stmt>>,
     },
 
-    Unary { },
-
     Expr
     {
         expr: Box<ExprInfo>,
@@ -117,6 +115,12 @@ pub enum Expr
         left: Box<ExprInfo>,
         right: Box<ExprInfo>,
         operator: scan::Token
+    },
+
+    Unary 
+    {
+        operator: scan::Token,
+        expr: Box<ExprInfo>,
     },
 
     Literal

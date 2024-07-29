@@ -87,7 +87,7 @@ static RULES: [ParseRule; 50] =
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // ColonColon
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // ColonEquals
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Term }, // Plus
-    ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Term }, // Minus
+    ParseRule { prefix: Some(Parser::unary),               infix: Some(Parser::binary),              precedence: Precedence::Term }, // Minus
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Star
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Slash
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // Caret
@@ -100,7 +100,7 @@ static RULES: [ParseRule; 50] =
     ParseRule { prefix: None,                              infix: Some(Parser::dot_operator),        precedence: Precedence::Call }, // Dot
     ParseRule { prefix: None,                              infix: Some(Parser::pipe),                precedence: Precedence::Call }, // PipeRightAngle
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Comma
-    ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Bang
+    ParseRule { prefix: Some(Parser::unary),               infix: None,                              precedence: Precedence::None }, // Bang
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Equality }, // BandEqual
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Equality }, // EqualEqual
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Comparison }, // GreaterEqual
@@ -304,8 +304,6 @@ impl Parser
                 } => (),
                 _ => self.stack.push(prefix_expr)
             }
-
-            
         } else {
             if self.is_at_end() { return }
             panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
@@ -368,10 +366,10 @@ impl Parser
 
         let left = self.stack.pop().unwrap();
 
-        self.parse_precedence(
-            Precedence::try_from(parse_rule.precedence.discriminator() + 1)
-                .unwrap()
-        );
+        let prec = Precedence
+            ::try_from(parse_rule.precedence.discriminator() + 1)
+            .unwrap();
+        self.parse_precedence(prec);
 
         let right = self.stack.pop().unwrap();
 
@@ -396,6 +394,20 @@ impl Parser
 
         self.match_token(scan::TokenKind::Semicolon);
         expr
+    }
+
+    fn unary(&mut self) -> ast::Expr
+    {
+        let operator = self.reader.previous.clone();
+
+        let expr = self.expression();
+        let expr = ast::ExprInfo::new(expr);
+        let expr = Box::new(expr);
+
+        ast::Expr::Unary {
+            operator,
+            expr,
+        }
     }
 
     fn dot_operator(&mut self) -> ast::Expr
@@ -682,7 +694,6 @@ impl Parser
         }
     }
 
-    // fn block(&mut self) -> (Vec<Box<ast::Stmt>>, ast::Expr)
     fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, ast::Expr)
     {
         let left_bracket = self.reader.previous.clone();
@@ -697,10 +708,16 @@ impl Parser
             statements.push(statement);
         }
 
-        let expr: ast::Expr = if let Some(last) = statements.pop() {
-            match last {
-                ast::Stmt::Expr { expr } => expr.value.clone(),
-                _                        => ast::Expr::Literal { value: self.reader.previous.clone() },
+        // #horribleways
+        // If the last token in the block is a semicolon, then the block is of Unit type.
+        // This is a horrible way to check for this and I should be shamed. Preferably publicly.
+        let has_value = self.reader.previous.kind.discriminant() != scan::TokenKind::Semicolon.discriminant();
+
+        let expr: ast::Expr = if has_value {
+            if let Some(ast::Stmt::Expr { expr: last, .. }) = statements.pop() {
+                last.value.clone()
+            } else {
+                ast::Expr::Literal { value: self.reader.previous.clone() }
             }
         } else {
             ast::Expr::Literal { value: self.reader.previous.clone() }

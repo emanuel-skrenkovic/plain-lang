@@ -355,6 +355,19 @@ impl Builder
 
         value
     }
+
+    unsafe fn llvm_condition
+    (
+        &self, 
+        condition: llvm::prelude::LLVMValueRef,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        let trunc_op_name  = CStr::from_str("_trunc_result");
+        let condition_type = llvm::core::LLVMInt1TypeInContext(self.ctx);
+        llvm
+            ::core
+            ::LLVMBuildTrunc(self.builder, condition, condition_type, trunc_op_name.value)
+    }
 }
 
 pub struct Context
@@ -738,8 +751,6 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
         },
 
         ast::Stmt::Expr { expr } => { let _ = match_expression(source, ctx, builder, expr); },
-
-        ast::Stmt::Unary { } => ()
     }
 }
 
@@ -839,7 +850,16 @@ pub unsafe fn match_expression
                 builder.set_position(*condition_block);
 
                 if let Some(condition) = conditions.get(i) {
+                    let condition_type = to_llvm_type(ctx, &condition.type_kind);
                     let condition = match_expression(source, ctx, builder, condition)?;
+                    // TODO: think about semantics
+                    let condition = builder.deref_if_ptr(condition, condition_type);
+
+                    let trunc_op_name  = CStr::from_str("_trunc_result");
+                    let condition_type = llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx);
+                    let condition      = llvm
+                        ::core
+                        ::LLVMBuildTrunc(builder.builder, condition, condition_type, trunc_op_name.value);
 
                     let then_block = branch_blocks[i];
                     let else_block = condition_blocks[i + 1] ;
@@ -860,7 +880,6 @@ pub unsafe fn match_expression
                 // TODO: remove null
                 return Ok(std::ptr::null_mut())
             }
-            
 
             let phi_node = llvm
                 ::core
@@ -878,6 +897,33 @@ pub unsafe fn match_expression
         },
 
         ast::Expr::Binary { left, right, operator } => binary_expr(source, ctx, builder, left, right, operator),
+
+        ast::Expr::Unary { operator, expr } => {
+            let value = match_expression(source, ctx, builder, expr)?;
+            let value = builder.deref_if_primitive(value, to_llvm_type(ctx, &expr.type_kind));
+
+            match operator.kind {
+                scan::TokenKind::Minus => {
+                    let name = CStr::from_str("_neg_result");
+                    llvm::core::LLVMBuildNeg(builder.builder, value, name.value)
+                }
+
+                scan::TokenKind::Bang => {
+                    let zero = llvm
+                        ::core
+                        ::LLVMConstInt(llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx), 0.try_into().unwrap(), 0);
+
+                    let value = builder.llvm_condition(value);
+
+                    let name = CStr::from_str("_not_result");
+                    llvm
+                        ::core
+                        ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, value, zero, name.value)
+                }
+
+                _ => todo!()
+            }
+        }
 
         ast::Expr::Literal { value } => {
             match expr.type_kind {
@@ -1279,9 +1325,13 @@ pub unsafe fn binary_expr
                 ::core
                 ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gtcomp")),
 
-            scan::TokenKind::EqualEqual => llvm
-                ::core
-                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp")),
+            scan::TokenKind::EqualEqual => {
+                let lhs = builder.llvm_condition(lhs);
+                let rhs = builder.llvm_condition(rhs);
+                llvm
+                    ::core
+                    ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eqcomp"))
+            }
 
             scan::TokenKind::BangEqual => llvm
                 ::core

@@ -256,8 +256,6 @@ impl <'a> Typer<'a>
             }
 
             ast::Stmt::Expr { expr } => expr.type_kind = self.match_expression(&mut expr.value)?,
-
-            ast::Stmt::Unary { } => ()
         }
 
         Ok(stmt.to_owned())
@@ -268,13 +266,17 @@ impl <'a> Typer<'a>
         let kind = match expr {
             ast::Expr::Bad { .. } => TypeKind::Unknown,
 
-            ast::Expr::Block { value, .. } => {
+            ast::Expr::Block { value, statements, .. } => {
+                for statement in statements {
+                    let _ = self.match_statement(statement);
+                }
+
                 let kind        = self.match_expression(&mut value.value)?;
                 value.type_kind = kind.clone();
                 kind
             }
 
-            ast::Expr::If { token, conditions, branches, .. } => {
+            ast::Expr::If { token, conditions, branches } => {
                 for condition in conditions.iter_mut() {
                     let condition_type     = self.match_expression(&mut condition.value);
                     let Ok(condition_type) = condition_type else {
@@ -355,6 +357,31 @@ impl <'a> Typer<'a>
 
                 kind
             },
+
+            ast::Expr::Unary { operator, expr } => {
+                let kind = self.match_expression(&mut expr.value)?;
+                expr.type_kind = kind;
+
+                match operator.kind {
+                    scan::TokenKind::Minus => {
+                        if expr.type_kind != TypeKind::I32 {
+                            let message = format!("'-' operand type must be a number. Found type: {:?}", expr.type_kind);
+                            self.reporter.error_at(&message, error::Kind::TypeError, operator);
+                        }
+
+                        expr.type_kind.clone()
+                    }
+                    scan::TokenKind::Bang => {
+                        if expr.type_kind != TypeKind::Bool {
+                            let message = format!("Negation operand type must be a boolean. Found type: {:?}", expr.type_kind);
+                            self.reporter.error_at(&message, error::Kind::TypeError, operator);
+                        }
+
+                        TypeKind::Bool
+                    }
+                    _ => TypeKind::Unit
+                }
+            }
 
             // TODO: fn token_type can return error. Refactor.
             ast::Expr::Literal { value } => self.token_type(value),
