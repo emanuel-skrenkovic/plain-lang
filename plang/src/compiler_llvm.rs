@@ -819,7 +819,7 @@ pub unsafe fn match_expression
             for (i, branch) in branches.iter().enumerate() {
                 let ast::Expr::Block { statements, value, .. } = &branch.value else {
                     panic!()
-                };               
+                };
 
                 let block = branch_blocks[i];
                 builder.set_position(block);
@@ -834,6 +834,12 @@ pub unsafe fn match_expression
                     branch_values.push(std::ptr::null_mut());
                     continue
                 };
+
+                if branch.type_kind == types::TypeKind::Unit {
+                    branch_values.push(std::ptr::null_mut());
+                    continue
+                }
+
                 branch_values.push(block_result);
 
                 builder.build_break(end_block);
