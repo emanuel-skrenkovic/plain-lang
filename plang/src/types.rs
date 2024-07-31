@@ -329,12 +329,17 @@ impl <'a> Typer<'a>
             ast::Expr::Bad { .. } => TypeKind::Unknown,
 
             ast::Expr::Block { value, statements, .. } => {
+                self.type_info.begin_scope();
+
                 for statement in statements {
                     let _ = self.match_statement(statement);
                 }
 
                 let kind        = self.match_expression(&mut value.value)?;
                 value.type_kind = kind.clone();
+
+                self.type_info.end_scope();
+
                 kind
             }
 

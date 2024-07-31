@@ -493,8 +493,6 @@ pub unsafe fn compile(source: &source::Source, ctx: &mut Context) -> *mut llvm::
     // Compile the rest of the program
     ctx.module_scopes.begin_scope();
 
-    // Adding globals.
-    // forward_declare(ctx, &mut builder);
     declare_native_functions(ctx, &mut builder);
 
     for stmt in &ctx.program.clone() {
@@ -790,9 +788,12 @@ pub unsafe fn match_expression
                 match_statement(source, ctx, builder, stmt);
             }
 
-            let value = match_expression(source, ctx, builder, value)?;
+            let value = match_expression(source, ctx, builder, value);
 
             ctx.module_scopes.end_scope();
+
+            // Check for error only after end_scope is called.
+            let value = value?;
 
             let return_type = to_llvm_type(ctx, &expr.type_kind);
             builder.deref_if_ptr(value, return_type)
@@ -814,11 +815,12 @@ pub unsafe fn match_expression
                 condition_blocks
             };
 
-            let mut branch_blocks = Vec::with_capacity(branches.len());
-            let mut branch_values = Vec::with_capacity(branches.len());
+            let num_branches = branches.len();
+            let mut branch_blocks = Vec::with_capacity(num_branches);
+            let mut branch_values = Vec::with_capacity(num_branches);
 
             // Appends all the code blocks.
-            for _ in 0..branches.len() {
+            for _ in 0..num_branches {
                 let branch_block = builder.append_block(ctx.function_ref(), "_branch_branch");
                 branch_blocks.push(branch_block);
             }
@@ -827,18 +829,10 @@ pub unsafe fn match_expression
 
             // Writes the code for each of the code blocks.
             for (i, branch) in branches.iter().enumerate() {
-                let ast::Expr::Block { statements, value, .. } = &branch.value else {
-                    panic!("Expect block expression.")
-                };
-
                 let block = branch_blocks[i];
                 builder.set_position(block);
-
-                for statement in statements {
-                    match_statement(source, ctx, builder, statement);
-                }
-
-                let block_result     = match_expression(source, ctx, builder, value);
+                
+                let block_result = match_expression(source, ctx, builder, branch);
                 let Ok(block_result) = block_result else {
                     let empty = llvm
                         ::core
@@ -847,16 +841,15 @@ pub unsafe fn match_expression
                     continue
                 };
 
-                if branch.type_kind == types::TypeKind::Unit {
-                    let empty = llvm
+                let block_result = if branch.type_kind == types::TypeKind::Unit {
+                    llvm
                         ::core
-                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
-                    branch_values.push(empty);
-                    continue
-                }
+                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx))
+                } else {
+                    block_result
+                };
 
                 branch_values.push(block_result);
-
                 builder.build_break(end_block);
             }
 
@@ -876,10 +869,16 @@ pub unsafe fn match_expression
                     // TODO: think about semantics
                     let condition = builder.deref_if_ptr(condition, condition_type);
 
+                    let trunc_name     = CStr::from_str("_trunc_result");
+                    let condition_type = llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx);
+                    let i1_condition   = llvm
+                        ::core
+                        ::LLVMBuildTrunc(builder.builder, condition, condition_type, trunc_name.value);
+
                     let then_block = branch_blocks[i];
                     let else_block = condition_blocks[i + 1] ;
 
-                    builder.build_condition(condition, then_block, else_block);
+                    builder.build_condition(i1_condition, then_block, else_block);
                 } else {
                     let else_block = if has_else { *branch_blocks.last().unwrap() } 
                                      else        { end_block };
@@ -892,7 +891,6 @@ pub unsafe fn match_expression
 
             let branch_value_type = to_llvm_type(ctx, &expr.type_kind);
             if is_void(branch_value_type) {
-                // TODO: remove null
                 return Ok(std::ptr::null_mut())
             }
 
@@ -1045,7 +1043,7 @@ pub unsafe fn match_expression
             let index = ctx
                 .type_info
                 .index_of(ctx.current_scope(), instance_name)
-                .expect("Expect instance '{instance_name}' type.");
+                .expect("Expect instance type.");
 
             let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
 

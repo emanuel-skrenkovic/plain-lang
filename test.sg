@@ -32,7 +32,7 @@ main :: (): i32
 		c: 33,
 	};
 
-	if s.a < 10 {
+	if { cond := s.a < 10; cond } {
 		return 0;
 	}
 
