@@ -758,6 +758,8 @@ impl Parser
     {
         let token = self.reader.previous.clone();
 
+        // TODO: this is a terrible way to implement this.
+        // Would prefer a parameter.
         self.context = ParsingContext::If;
         let condition = self.expression();
         self.context = ParsingContext::Regular;

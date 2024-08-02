@@ -826,7 +826,7 @@ pub unsafe fn match_expression
                 condition_blocks
             };
 
-            let num_branches = branches.len();
+            let num_branches      = branches.len();
             let mut branch_blocks = Vec::with_capacity(num_branches);
             let mut branch_values = Vec::with_capacity(num_branches);
 
@@ -910,8 +910,8 @@ pub unsafe fn match_expression
                 ::LLVMBuildPhi(builder.builder, branch_value_type, phi_name.value);
 
             let incoming_values_count = u32::try_from(branch_values.len()).unwrap();
-            let incoming_values = branch_values.as_mut_ptr();
-            let incoming_blocks = branch_blocks.as_mut_ptr();
+            let incoming_values       = branch_values.as_mut_ptr();
+            let incoming_blocks       = branch_blocks.as_mut_ptr();
 
             llvm
                 ::core
@@ -1071,8 +1071,11 @@ pub unsafe fn match_expression
             };
 
             let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
-            let struct_pointer  = if is_pointer(*struct_val) { *struct_val } 
-                                  else                       { builder.assign_to_address(*struct_val, struct_type, "_alloca") };
+            let struct_pointer  = if is_pointer(*struct_val) { 
+                *struct_val 
+            } else { 
+                builder.assign_to_address(*struct_val, struct_type, "_alloca") 
+            };
 
             let member       = source.token_value(member_name);
             let member_index = struct_value
