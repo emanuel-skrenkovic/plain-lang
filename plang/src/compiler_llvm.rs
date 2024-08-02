@@ -788,15 +788,26 @@ pub unsafe fn match_expression
                 match_statement(source, ctx, builder, stmt);
             }
 
-            let value = match_expression(source, ctx, builder, value);
+            let value = value
+                .as_ref()
+                .map(|value| match_expression(source, ctx, builder, value));
 
             ctx.module_scopes.end_scope();
 
-            // Check for error only after end_scope is called.
-            let value = value?;
+            let return_type = to_llvm_type(ctx, &expr.type_kind); 
 
-            let return_type = to_llvm_type(ctx, &expr.type_kind);
-            builder.deref_if_ptr(value, return_type)
+            // Check for error only after end_scope is called.
+            if let Some(value) = value {
+                // Evaluate Result only after the scope is ended so 
+                // the scope ends properly.
+                // TODO: it is bad that this type of gymnastics is required
+                // FIX IT.
+                let value = value?;
+                builder.deref_if_ptr(value, return_type)
+            } else {
+                // TODO: get rid of null.
+                std::ptr::null_mut()
+            }
         },
 
         ast::Expr::If { conditions, branches, .. } => {
@@ -826,32 +837,6 @@ pub unsafe fn match_expression
             }
             
             let end_block = builder.append_block(ctx.function_ref(), "_end_branch");
-
-            // Writes the code for each of the code blocks.
-            for (i, branch) in branches.iter().enumerate() {
-                let block = branch_blocks[i];
-                builder.set_position(block);
-                
-                let block_result = match_expression(source, ctx, builder, branch);
-                let Ok(block_result) = block_result else {
-                    let empty = llvm
-                        ::core
-                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
-                    branch_values.push(empty);
-                    continue
-                };
-
-                let block_result = if branch.type_kind == types::TypeKind::Unit {
-                    llvm
-                        ::core
-                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx))
-                } else {
-                    block_result
-                };
-
-                branch_values.push(block_result);
-                builder.build_break(end_block);
-            }
 
             // Back to the beginning  to start writing the conditions.
             builder.set_position(start_block);
@@ -887,6 +872,31 @@ pub unsafe fn match_expression
                 };
             }
 
+            // Writes the code for each of the code blocks.
+            for (i, branch) in branches.iter().enumerate() {
+                let block = branch_blocks[i];
+                builder.set_position(block);
+                
+                let block_result = match_expression(source, ctx, builder, branch);
+                let Ok(block_result) = block_result else {
+                    let empty = llvm
+                        ::core
+                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+                    branch_values.push(empty);
+                    continue
+                };
+
+                let branch_type  = to_llvm_type(ctx, &branch.type_kind);
+                let block_result = if branch.type_kind == types::TypeKind::Unit {
+                   std::ptr::null_mut()
+                } else {
+                    builder.deref_if_primitive(block_result, branch_type)
+                };
+
+                branch_values.push(block_result);
+                builder.build_break(end_block);
+            }
+
             builder.set_position(end_block);
 
             let branch_value_type = to_llvm_type(ctx, &expr.type_kind);
@@ -899,7 +909,7 @@ pub unsafe fn match_expression
                 ::core
                 ::LLVMBuildPhi(builder.builder, branch_value_type, phi_name.value);
 
-            let incoming_values_count = u32::try_from(branch_blocks.len()).unwrap() - 1;
+            let incoming_values_count = u32::try_from(branch_values.len()).unwrap();
             let incoming_values = branch_values.as_mut_ptr();
             let incoming_blocks = branch_blocks.as_mut_ptr();
 

@@ -335,8 +335,13 @@ impl <'a> Typer<'a>
                     let _ = self.match_statement(statement);
                 }
 
-                let kind        = self.match_expression(&mut value.value)?;
-                value.type_kind = kind.clone();
+                let kind = if let Some(value) = value {
+                    let kind        = self.match_expression(&mut value.value)?;
+                    value.type_kind = kind.clone();
+                    kind
+                } else {
+                    TypeKind::Unit
+                };
 
                 self.type_info.end_scope();
 

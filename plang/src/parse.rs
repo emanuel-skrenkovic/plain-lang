@@ -358,8 +358,13 @@ impl Parser
 
         let statements = statements.into_iter().map(Box::new).collect();
 
-        let value = ast::ExprInfo::new(value);
-        let value = Box::new(value);
+        let value = if let Some(value)= value {
+            let value = ast::ExprInfo::new(value);
+            let value = Box::new(value);
+            Some(value)
+        } else {
+            None
+        };
         
         ast::Expr::Block { 
             left_bracket, 
@@ -704,7 +709,7 @@ impl Parser
         }
     }
 
-    fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, ast::Expr)
+    fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, Option<ast::Expr>)
     {
         let left_bracket = self.reader.previous.clone();
 
@@ -718,10 +723,26 @@ impl Parser
             statements.push(statement);
         }
 
-        let expr = if let Some(ast::Stmt::Expr { expr: last, .. }) = statements.pop() {
-            last.value.clone()
+        let has_value = if let Some(ast::Stmt::Expr { expr: last, .. }) = statements.last() {
+            // #horribleways
+            // If the last token in the block is a semicolon, then the block is of Unit type.
+            // This is a horrible way to check for this and I should be shamed. Preferably publicly.
+            let previous  = self.reader.previous.kind.discriminant();
+            let has_value = previous != scan::TokenKind::Semicolon.discriminant();
+
+            has_value || matches!(&last.value, ast::Expr::Return { .. })
         } else {
-            ast::Expr::Literal { value: self.reader.previous.clone() }
+            false
+        };
+
+        let expr = if has_value { 
+            let ast::Stmt::Expr { expr } = statements.pop().unwrap() else {
+                panic!("Expect expression statement.")
+            };
+            
+            Some(expr.value) 
+        } else { 
+            None 
         };
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
