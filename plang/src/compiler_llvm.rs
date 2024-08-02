@@ -493,8 +493,6 @@ pub unsafe fn compile(source: &source::Source, ctx: &mut Context) -> *mut llvm::
     // Compile the rest of the program
     ctx.module_scopes.begin_scope();
 
-    // Adding globals.
-    // forward_declare(ctx, &mut builder);
     declare_native_functions(ctx, &mut builder);
 
     for stmt in &ctx.program.clone() {
@@ -790,12 +788,26 @@ pub unsafe fn match_expression
                 match_statement(source, ctx, builder, stmt);
             }
 
-            let value = match_expression(source, ctx, builder, value)?;
+            let value = value
+                .as_ref()
+                .map(|value| match_expression(source, ctx, builder, value));
 
             ctx.module_scopes.end_scope();
 
-            let return_type = to_llvm_type(ctx, &expr.type_kind);
-            builder.deref_if_ptr(value, return_type)
+            let return_type = to_llvm_type(ctx, &expr.type_kind); 
+
+            // Check for error only after end_scope is called.
+            if let Some(value) = value {
+                // Evaluate Result only after the scope is ended so 
+                // the scope ends properly.
+                // TODO: it is bad that this type of gymnastics is required
+                // FIX IT.
+                let value = value?;
+                builder.deref_if_ptr(value, return_type)
+            } else {
+                // TODO: get rid of null.
+                std::ptr::null_mut()
+            }
         },
 
         ast::Expr::If { conditions, branches, .. } => {
@@ -814,51 +826,17 @@ pub unsafe fn match_expression
                 condition_blocks
             };
 
-            let mut branch_blocks = Vec::with_capacity(branches.len());
-            let mut branch_values = Vec::with_capacity(branches.len());
+            let num_branches = branches.len();
+            let mut branch_blocks = Vec::with_capacity(num_branches);
+            let mut branch_values = Vec::with_capacity(num_branches);
 
             // Appends all the code blocks.
-            for _ in 0..branches.len() {
+            for _ in 0..num_branches {
                 let branch_block = builder.append_block(ctx.function_ref(), "_branch_branch");
                 branch_blocks.push(branch_block);
             }
             
             let end_block = builder.append_block(ctx.function_ref(), "_end_branch");
-
-            // Writes the code for each of the code blocks.
-            for (i, branch) in branches.iter().enumerate() {
-                let ast::Expr::Block { statements, value, .. } = &branch.value else {
-                    panic!("Expect block expression.")
-                };
-
-                let block = branch_blocks[i];
-                builder.set_position(block);
-
-                for statement in statements {
-                    match_statement(source, ctx, builder, statement);
-                }
-
-                let block_result     = match_expression(source, ctx, builder, value);
-                let Ok(block_result) = block_result else {
-                    let empty = llvm
-                        ::core
-                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
-                    branch_values.push(empty);
-                    continue
-                };
-
-                if branch.type_kind == types::TypeKind::Unit {
-                    let empty = llvm
-                        ::core
-                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
-                    branch_values.push(empty);
-                    continue
-                }
-
-                branch_values.push(block_result);
-
-                builder.build_break(end_block);
-            }
 
             // Back to the beginning  to start writing the conditions.
             builder.set_position(start_block);
@@ -876,10 +854,16 @@ pub unsafe fn match_expression
                     // TODO: think about semantics
                     let condition = builder.deref_if_ptr(condition, condition_type);
 
+                    let trunc_name     = CStr::from_str("_trunc_result");
+                    let condition_type = llvm::core::LLVMInt1TypeInContext(ctx.llvm_ctx);
+                    let i1_condition   = llvm
+                        ::core
+                        ::LLVMBuildTrunc(builder.builder, condition, condition_type, trunc_name.value);
+
                     let then_block = branch_blocks[i];
                     let else_block = condition_blocks[i + 1] ;
 
-                    builder.build_condition(condition, then_block, else_block);
+                    builder.build_condition(i1_condition, then_block, else_block);
                 } else {
                     let else_block = if has_else { *branch_blocks.last().unwrap() } 
                                      else        { end_block };
@@ -888,11 +872,35 @@ pub unsafe fn match_expression
                 };
             }
 
+            // Writes the code for each of the code blocks.
+            for (i, branch) in branches.iter().enumerate() {
+                let block = branch_blocks[i];
+                builder.set_position(block);
+                
+                let block_result = match_expression(source, ctx, builder, branch);
+                let Ok(block_result) = block_result else {
+                    let empty = llvm
+                        ::core
+                        ::LLVMConstNull(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx));
+                    branch_values.push(empty);
+                    continue
+                };
+
+                let branch_type  = to_llvm_type(ctx, &branch.type_kind);
+                let block_result = if branch.type_kind == types::TypeKind::Unit {
+                   std::ptr::null_mut()
+                } else {
+                    builder.deref_if_primitive(block_result, branch_type)
+                };
+
+                branch_values.push(block_result);
+                builder.build_break(end_block);
+            }
+
             builder.set_position(end_block);
 
             let branch_value_type = to_llvm_type(ctx, &expr.type_kind);
             if is_void(branch_value_type) {
-                // TODO: remove null
                 return Ok(std::ptr::null_mut())
             }
 
@@ -901,7 +909,7 @@ pub unsafe fn match_expression
                 ::core
                 ::LLVMBuildPhi(builder.builder, branch_value_type, phi_name.value);
 
-            let incoming_values_count = u32::try_from(branch_blocks.len()).unwrap() - 1;
+            let incoming_values_count = u32::try_from(branch_values.len()).unwrap();
             let incoming_values = branch_values.as_mut_ptr();
             let incoming_blocks = branch_blocks.as_mut_ptr();
 
@@ -1045,7 +1053,7 @@ pub unsafe fn match_expression
             let index = ctx
                 .type_info
                 .index_of(ctx.current_scope(), instance_name)
-                .expect("Expect instance '{instance_name}' type.");
+                .expect("Expect instance type.");
 
             let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
 

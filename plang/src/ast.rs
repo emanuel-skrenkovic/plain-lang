@@ -100,7 +100,7 @@ pub enum Expr
         left_bracket: scan::Token,
         right_bracket: scan::Token,
         statements: Vec<Box<Stmt>>,
-        value: Box<ExprInfo>,
+        value: Option<Box<ExprInfo>>,
     },
 
     If
@@ -379,7 +379,10 @@ impl GlobalsHoistingTransformer
         match expr {
             Expr::Block { statements, value, .. } => {
                 Self::match_statements(source, statements, deps);
-                Self::match_expression(source, &value.value, deps);
+
+                if let Some(value) = value {
+                    Self::match_expression(source, &value.value, deps);
+                }
             },
 
             Expr::If { conditions, branches, .. } => {
@@ -393,7 +396,10 @@ impl GlobalsHoistingTransformer
                     };
 
                     Self::match_statements(source, statements, deps);
-                    Self::match_expression(source, &value.value, deps);
+
+                    if let Some(value) = value {
+                        Self::match_expression(source, &value.value, deps);
+                    }
                 }
             },
 

@@ -239,12 +239,20 @@ impl TokenReader
     }
 }
 
+pub enum ParsingContext
+{
+    Regular,
+    If,
+}
+
 pub struct Parser
 {
     reader: TokenReader,
 
     scope_depth: usize,
     stack: Vec<ast::Expr>,
+
+    context: ParsingContext,
 }
 
 impl Parser
@@ -256,6 +264,7 @@ impl Parser
             reader: TokenReader::new(reporter, tokens),
             scope_depth: 0,
             stack: Vec::with_capacity(8),
+            context: ParsingContext::Regular,
         }
     }
 
@@ -320,10 +329,10 @@ impl Parser
             };
 
             let infix_rule = infix_rule(self);
-
             if let ast::Expr::Literal { value: scan::Token{ kind: scan::TokenKind::Semicolon, .. } } = infix_rule {
                 continue
             } 
+
             self.stack.push(infix_rule);
         }
     }
@@ -349,8 +358,13 @@ impl Parser
 
         let statements = statements.into_iter().map(Box::new).collect();
 
-        let value = ast::ExprInfo::new(value);
-        let value = Box::new(value);
+        let value = if let Some(value)= value {
+            let value = ast::ExprInfo::new(value);
+            let value = Box::new(value);
+            Some(value)
+        } else {
+            None
+        };
         
         ast::Expr::Block { 
             left_bracket, 
@@ -588,7 +602,7 @@ impl Parser
     {
         let name = self.reader.previous.clone();
 
-        if self.match_token(scan::TokenKind::LeftBracket) {
+        if self.match_token(scan::TokenKind::LeftBracket) && (std::mem::discriminant(&self.context) != std::mem::discriminant(&ParsingContext::If)) {
             return self.struct_expression()
         } else if self.match_token(scan::TokenKind::Dot) {
             self.consume(scan::TokenKind::Identifier, "Expect identifier.");
@@ -695,7 +709,7 @@ impl Parser
         }
     }
 
-    fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, ast::Expr)
+    fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, Option<ast::Expr>)
     {
         let left_bracket = self.reader.previous.clone();
 
@@ -709,21 +723,26 @@ impl Parser
             statements.push(statement);
         }
 
-        // #horribleways
-        // If the last token in the block is a semicolon, then the block is of Unit type.
-        // This is a horrible way to check for this and I should be shamed. Preferably publicly.
-        let has_value = self.reader.previous.kind.discriminant() != scan::TokenKind::Semicolon.discriminant();
+        let has_value = if let Some(ast::Stmt::Expr { expr: last, .. }) = statements.last() {
+            // #horribleways
+            // If the last token in the block is a semicolon, then the block is of Unit type.
+            // This is a horrible way to check for this and I should be shamed. Preferably publicly.
+            let previous  = self.reader.previous.kind.discriminant();
+            let has_value = previous != scan::TokenKind::Semicolon.discriminant();
 
-        let expr: ast::Expr = if has_value {
-            let statement = statements.pop().expect("Expect value in stack.");
-
-            if let ast::Stmt::Expr { expr: last, .. } = statement {
-                last.value.clone()
-            } else {
-                ast::Expr::Literal { value: self.reader.previous.clone() }
-            }
+            has_value || matches!(&last.value, ast::Expr::Return { .. })
         } else {
-            ast::Expr::Literal { value: self.reader.previous.clone() }
+            false
+        };
+
+        let expr = if has_value { 
+            let ast::Stmt::Expr { expr } = statements.pop().unwrap() else {
+                panic!("Expect expression statement.")
+            };
+            
+            Some(expr.value) 
+        } else { 
+            None 
         };
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
@@ -739,7 +758,9 @@ impl Parser
     {
         let token = self.reader.previous.clone();
 
+        self.context = ParsingContext::If;
         let condition = self.expression();
+        self.context = ParsingContext::Regular;
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
