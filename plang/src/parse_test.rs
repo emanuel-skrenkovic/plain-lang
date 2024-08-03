@@ -1,13 +1,13 @@
 use crate::ast;
 use crate::scan;
 use crate::error;
-use crate::parse::*;
+use crate::parse::Parser;
 
 #[allow(dead_code)]
 fn parse_source(source: &str) -> Result<Vec<ast::Node>, Vec<error::Error>>
 {
     let mut scanner = scan::Scanner::new(source.to_string());
-    let reporter    = error::Reporter::new(&source);
+    let reporter    = error::Reporter::new(source);
     let tokens      = scanner.scan_tokens();
 
     let parser = Parser::new(reporter, tokens);
