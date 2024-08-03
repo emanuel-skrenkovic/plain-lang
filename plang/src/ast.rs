@@ -179,40 +179,6 @@ pub enum Expr
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum TypeKind
-{
-    Unknown,
-
-    Unit,
-
-    Bool,
-
-    I32,
-
-    String,
-
-    Function {
-        parameter_kinds: Vec<Box<TypeKind>>,
-        return_kind: Box<TypeKind>,
-    },
-
-    Closure {
-        captured_kinds: Vec<Box<TypeKind>>,
-        parameter_kinds: Vec<Box<TypeKind>>,
-        return_kind: Box<TypeKind>,
-    },
-
-    Reference {
-        underlying: Box<TypeKind>,
-    },
-}
-
-pub trait Transformer
-{
-    fn transform(source: &source::Source, nodes: Vec<Node>) -> Vec<Node>;
-}
-
 #[derive(Debug)]
 struct DependencyGraph<'a>
 {
@@ -225,6 +191,37 @@ pub struct GlobalsHoistingTransformer { }
 
 impl GlobalsHoistingTransformer
 {
+    pub fn transform(source: &source::Source, nodes: &mut [Node])
+    {
+        // First we build the dependency graph.
+        let mut graph = Self::build_dependency_graph(source, nodes);
+
+        // Then we use topological sort to find the correct declaration order.
+        let order = Self::topological_sort(&mut graph);
+
+        // After we get the order we can sort the root AST nodes accordingly.
+        nodes.sort_by(|a, b| {
+            // TODO: for now we assume all root level nodes are functions.
+            let a_name = match a {
+                Node::Stmt(
+                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
+                ) => source.token_value(name),
+                _ => unreachable!(),
+            };
+
+            let b_name = match b {
+                Node::Stmt(
+                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
+                ) => source.token_value(name),
+                _ => unreachable!(),
+            };
+
+            let a_pos= order.iter().position(|n| n == &a_name).expect("Expect defined order.");
+            let b_pos= order.iter().position(|n| n == &b_name).expect("Expect defined order.");
+
+            a_pos.cmp(&b_pos)
+        });
+    }
     fn build_dependency_graph<'a>(source: &'a source::Source, nodes: &[Node]) -> DependencyGraph<'a>
     {
         let nodes_count = nodes.len();
@@ -437,40 +434,3 @@ impl GlobalsHoistingTransformer
     }
 }
 
-impl Transformer for GlobalsHoistingTransformer
-{
-    fn transform(source: &source::Source, nodes: Vec<Node>) -> Vec<Node>
-    {
-        // First we build the dependency graph.
-        let mut graph = Self::build_dependency_graph(source, &nodes);
-
-        // Then we use topological sort to find the correct declaration order.
-        let order = Self::topological_sort(&mut graph);
-
-        // After we get the order we can sort the root AST nodes accordingly.
-        let mut nodes = nodes.clone();
-        nodes.sort_by(|a, b| {
-            // TODO: for now we assume all root level nodes are functions.
-            let a_name = match a {
-                Node::Stmt(
-                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
-                ) => source.token_value(name),
-                _ => unreachable!(),
-            };
-
-            let b_name = match b {
-                Node::Stmt(
-                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
-                ) => source.token_value(name),
-                _ => unreachable!(),
-            };
-
-            let a_pos= order.iter().position(|n| n == &a_name).expect("Expect defined order.");
-            let b_pos= order.iter().position(|n| n == &b_name).expect("Expect defined order.");
-
-            a_pos.cmp(&b_pos)
-        });
-
-        nodes
-    }
-}

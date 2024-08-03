@@ -1,8 +1,6 @@
 use std::io::{stderr, Write};
 
 use plang::ast;
-use plang::ast::Transformer;
-
 use plang::scan;
 use plang::parse;
 use plang::types;
@@ -41,7 +39,7 @@ fn main()
         std::process::exit(1);
     }
 
-    let program = match program {
+    let mut program = match program {
         Ok(program) => program,
         Err(errors) => {
             for err in errors {
@@ -54,7 +52,7 @@ fn main()
 
     let (s, program, after_transformation) = {
         let now_transformation   = std::time::Instant::now();
-        let program              = ast::GlobalsHoistingTransformer::transform(&s, program);
+        ast::GlobalsHoistingTransformer::transform(&s, &mut program);
         let after_transformation = now_transformation.elapsed();
         (s, program, after_transformation)
     };
