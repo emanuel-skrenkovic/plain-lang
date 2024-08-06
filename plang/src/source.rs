@@ -11,8 +11,7 @@ impl Source
 {
     pub fn token_value(&self, token: &scan::Token) -> &str
     {
-        let length = self.token_length(token);
-
+        let length    = self.token_length(token);
         let starts_at = token.starts_at;
 
         &self.source[starts_at..starts_at+length]
@@ -21,8 +20,9 @@ impl Source
     pub fn token_length(&self, token: &scan::Token) -> usize
     {
         match token.kind { 
+            scan::TokenKind::End => 0,
+
             scan::TokenKind::Error
-            |scan::TokenKind::End
             | scan::TokenKind::LeftParen 
             | scan::TokenKind::RightParen 
             | scan::TokenKind::LeftBracket 
@@ -62,8 +62,7 @@ impl Source
             scan::TokenKind::True 
             | scan::TokenKind::This 
             | scan::TokenKind::Else 
-            | scan::TokenKind::Case 
-            | scan::TokenKind::Func => 4,  
+            | scan::TokenKind::Case => 4,  
 
             scan::TokenKind::False 
             | scan::TokenKind::Break 

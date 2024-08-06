@@ -27,12 +27,14 @@ fn main()
     let tokens         = scanner.scan_tokens();
     let after_scanning = now_scan.elapsed();
 
+    let mut parser = parse::Parser::new(reporter.clone(), tokens);
+
     let now_parse     = std::time::Instant::now();
-    let program       = parse::Parser::new(reporter.clone(), tokens).parse();
+    let program       = parser.parse();
     let after_parsing = now_parse.elapsed();
 
-    if reporter.error {
-        for err in reporter.errors {
+    if parser.reader.reporter.error {
+        for err in parser.reader.reporter.errors {
             writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
         }
         stderr().flush().unwrap();

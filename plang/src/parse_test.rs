@@ -6,14 +6,518 @@ use crate::parse::Parser;
 #[allow(dead_code)]
 fn parse_source(source: &str) -> Result<Vec<ast::Node>, Vec<error::Error>>
 {
-    let mut scanner = scan::Scanner::new(source.to_string());
-    let reporter    = error::Reporter::new(source);
-    let tokens      = scanner.scan_tokens();
+    let reporter = error::Reporter::new(source);
+    let tokens   = scan::Scanner::new(source.to_string()).scan_tokens();
 
-    let parser = Parser::new(reporter, tokens);
+    Parser::new(reporter, tokens).parse()
+}
 
-    // Act
-    parser.parse()
+#[cfg(test)]
+mod function_expression
+{
+    use super::*;
+    use crate::ast;
+    use crate::scan;
+
+    #[test]
+    fn function_expression_no_return_type_no_parameters()
+    {
+        let source = "
+            main :: (): i32
+            {
+                a :: () { };
+            }
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Function { body, .. }) = &tree[0] else {
+            panic!("Expect function statement.")
+        };
+
+        let ast::Stmt::Const { initializer, .. } = &body[0].as_ref() else {
+            panic!("Expect const statement.");
+        };
+
+        let ast::Expr::Function { .. } = &initializer.value else {
+            panic!("Expect function expression.")
+        };
+    }
+
+    #[test]
+    fn function_expression_with_return_type()
+    {
+        let source = "
+            main :: (): i32
+            {
+                a :: (): i32 { 0 };
+            }
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Function { body, .. }) = &tree[0] else {
+            panic!("Expect function statement.")
+        };
+
+        let ast::Stmt::Const { initializer, .. } = &body[0].as_ref() else {
+            panic!("Expect const statement.");
+        };
+
+        let ast::Expr::Function { return_type, .. } = &initializer.value else {
+            panic!("Expect function expression.")
+        };
+
+        assert!(return_type.is_some());
+        let return_type = return_type.clone().unwrap();
+        assert_eq!(return_type.kind, scan::TokenKind::Identifier);
+    }
+}
+
+#[cfg(test)]
+mod function 
+{
+    use super::*;
+    use crate::ast;
+    use crate::scan;
+
+    #[test]
+    fn test_function_no_return_type_no_parameters()
+    {
+        let source = "
+            a :: () { }
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Function { name, return_type, .. }) = &tree[0] else {
+            panic!("Expect function statement.");
+        };
+
+        assert_eq!(name.kind, scan::TokenKind::Identifier);
+        assert!(return_type.is_none());
+    }
+
+    #[test]
+    fn test_function_missing_body()
+    {
+        let source = "
+            a :: (): i32
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_err());
+    }
+
+    #[test]
+    fn test_function_with_return_type()
+    {
+        let source = "
+            a :: (): i32 { 0 }
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Function { name, return_type, .. }) = &tree[0] else {
+            panic!("Expect function statement.");
+        };
+
+        assert_eq!(name.kind, scan::TokenKind::Identifier);
+
+        assert!(return_type.is_some());
+        let return_type = return_type.clone().unwrap();
+        assert_eq!(return_type.kind, scan::TokenKind::Identifier);
+    }
+
+    #[test]
+    fn test_function_with_parameters_and_return_type()
+    {
+        let source = "
+            add :: (a: i32, b: i32): i32 
+            { 
+                a + b
+            }
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Function { name, params, param_types, return_type, body }) = &tree[0] else {
+            panic!("Expect function statement.");
+        };
+
+        assert_eq!(name.kind, scan::TokenKind::Identifier);
+
+        assert!(return_type.is_some());
+        let return_type = return_type.clone().unwrap();
+        assert_eq!(return_type.kind, scan::TokenKind::Identifier);
+
+        for param in params {
+            assert_eq!(param.kind, scan::TokenKind::Identifier);
+        }
+
+        for param_type in param_types {
+            assert_eq!(param_type.kind, scan::TokenKind::Identifier);
+        }
+
+        assert!(!body.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod if_expression
+{
+    use super::*;
+    use crate::ast;
+    use crate::scan;
+
+    #[test]
+    fn test_if()
+    {
+        let source = "if 2 < 3 { 2; }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &expr.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 1);
+        assert_eq!(branches.len(), 1);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_else()
+    {
+        let source = "if 2 < 3 { 2; } else { 5; }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &expr.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 1);
+        assert_eq!(branches.len(), 2);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_else_if()
+    {
+        let source = "
+            if 2 < 3 { 
+                2; 
+            } else if 2 > 3 { 
+                44; 
+            }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &expr.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 2);
+        assert_eq!(branches.len(), 2);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_else_if_else()
+    {
+        let source = "
+            if 2 < 3 { 
+                2; 
+            } else if 2 > 3 { 
+                44; 
+            } else { 
+                5; 
+            }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &expr.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 2);
+        assert_eq!(branches.len(), 3);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_block_condition()
+    {
+        let source = "if { 2 < 3 } { 2; }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &expr.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 1);
+        assert_eq!(branches.len(), 1);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_block_condition_with_struct()
+    {
+        let source = "
+        Test :: struct {
+            a: i32;
+        }
+
+        if { s := Test { a: 2 }; s.a < 3 } { 
+            2; 
+        }
+        ";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[1] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &expr.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 1);
+        assert_eq!(branches.len(), 1);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+
+    #[test]
+    fn test_if_value_assignment()
+    {
+        let source = "
+            c :: if 2 < 3 { 
+                2; 
+            } else if 2 > 3 { 
+                44; 
+            } else { 
+                5; 
+            }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+
+        let ast::Node::Stmt(ast::Stmt::Const { initializer, .. }) = &tree[0] else {
+            panic!("Expect const statement.")
+        };
+
+        let ast::Expr::If { token, conditions, branches } = &initializer.value else {
+            panic!("Expect if expression.")
+        };
+
+        assert_eq!(token.kind, scan::TokenKind::If);
+        assert_eq!(conditions.len(), 2);
+        assert_eq!(branches.len(), 3);
+
+        for branch in branches {
+            if !matches!(&branch.value, ast::Expr::Block { .. }) {
+                panic!("Expect block expression")
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod block_expression
+{
+    use super::*;
+    use crate::ast;
+    use crate::scan;
+
+    #[test]
+    fn test_block() 
+    {
+        let source = "{ }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+        assert_eq!(tree.len(), 1);
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::Block { .. } = &expr.value else {
+            panic!("Expect block expression.");
+        };
+    }
+
+    #[test]
+    fn test_block_with_value()
+    {
+        let source = "{ 2 }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+        assert_eq!(tree.len(), 1);
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::Block { value: block_value, .. } = &expr.value else {
+            panic!("Expect block expression.");
+        };
+
+        assert!(block_value.is_some());
+        let block_value = block_value.clone().unwrap();
+
+        let ast::Expr::Literal { value } = &block_value.value else {
+            panic!("Expect literal expression.")
+        };
+
+        assert_eq!(value.kind, scan::TokenKind::Literal);
+    }
+
+    #[test]
+    fn test_block_with_statements()
+    {
+        let source = "
+        { 
+            result := 3 + 3;
+            printf(\"%d\", result);
+        }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+        assert_eq!(tree.len(), 1);
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::Block { statements, value: block_value, .. } = &expr.value else {
+            panic!("Expect block expression.");
+        };
+
+        assert!(block_value.is_none());
+        assert!(!statements.is_empty());
+    }
+
+    #[test]
+    fn test_block_with_statements_and_value()
+    {
+        let source = "
+        { 
+            result := 3 + 3;
+            printf(\"%d\", result);
+            result
+        }";
+        let tree = parse_source(source);
+
+        assert!(tree.is_ok());
+        let tree = tree.unwrap();
+        assert_eq!(tree.len(), 1);
+
+        let ast::Node::Stmt(ast::Stmt::Expr { expr }) = &tree[0] else {
+            panic!("Expect expression statement.")
+        };
+
+        let ast::Expr::Block { statements, value: block_value, .. } = &expr.value else {
+            panic!("Expect block expression.");
+        };
+
+        assert!(block_value.is_some());
+        assert!(!statements.is_empty());
+
+        let block_value = block_value.clone().unwrap();
+
+        let ast::Expr::Variable { name } = &block_value.value else {
+            panic!("Expect literal expression.")
+        };
+
+        assert_eq!(name.kind, scan::TokenKind::Identifier);
+    }
 }
 
 #[cfg(test)]
@@ -42,13 +546,13 @@ mod unary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Minus.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Minus);
 
         let ast::Expr::Literal { value } = &expr.value else {
             panic!("Expect literal, found {:?}", &expr.value);
         };
 
-        assert_eq!(value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(value.kind, scan::TokenKind::Literal);
 
     }
 
@@ -71,13 +575,13 @@ mod unary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Bang.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Bang);
 
         let ast::Expr::Literal { value } = &expr.value else {
             panic!("Expect literal, found {:?}", &expr.value);
         };
 
-        assert_eq!(value.kind.discriminant(), scan::TokenKind::False.discriminant());
+        assert_eq!(value.kind, scan::TokenKind::False);
 
     }
 
@@ -112,19 +616,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::EqualEqual.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::EqualEqual);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -147,19 +651,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Plus.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Plus);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -182,19 +686,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Minus.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Minus);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -217,19 +721,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Star.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Star);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
         #[test]
@@ -252,19 +756,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Slash.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Slash);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -287,19 +791,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::LeftAngle.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::LeftAngle);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -322,19 +826,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::LessEqual.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::LessEqual);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -357,19 +861,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::RightAngle.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::RightAngle);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal)
     }
 
     #[test]
@@ -392,19 +896,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::GreaterEqual.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::GreaterEqual);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -427,19 +931,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::BangEqual.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::BangEqual);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -462,19 +966,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::AmpersandAmpersand.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::AmpersandAmpersand);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::True.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::True);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::False.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::False);
     }
 
     #[test]
@@ -497,19 +1001,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::PipePipe.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::PipePipe);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::True.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::True);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::False.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::False);
     }
 
     #[test]
@@ -532,19 +1036,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Ampersand.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Ampersand);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -567,19 +1071,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Pipe.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Pipe);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -602,19 +1106,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::LeftAngleLeftAngle.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::LeftAngleLeftAngle);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -637,19 +1141,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::RightAngleRightAngle.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::RightAngleRightAngle);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
     #[test]
@@ -672,19 +1176,19 @@ mod binary_expression
             panic!("Expect binary expression, found {:?}.", &expr.value)
         };
 
-        assert_eq!(operator.kind.discriminant(), scan::TokenKind::Caret.discriminant());
+        assert_eq!(operator.kind, scan::TokenKind::Caret);
 
         let ast::Expr::Literal { value: left_value } = &left.value else {
             panic!("Expect literal, found {:?}", &left.value);
         };
 
-        assert_eq!(left_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(left_value.kind, scan::TokenKind::Literal);
 
         let ast::Expr::Literal { value: right_value } = &right.value else {
             panic!("Expect literal, found {:?}", &right.value);
         };
 
-        assert_eq!(right_value.kind.discriminant(), scan::TokenKind::Literal.discriminant());
+        assert_eq!(right_value.kind, scan::TokenKind::Literal);
     }
 
 }

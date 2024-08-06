@@ -87,11 +87,18 @@ impl Reporter
     {
         self.error = true;
 
+        // Clamp to the number of lines of source.
+        // Probably indicative of crappy code elsewhere.
+        let line_number = std::cmp::min(
+            token.line - 1, 
+            self.lines.len() - 1
+        );
+
         let error = Error {
             msg: message.to_owned(),
             line: token.line,
             column: token.column,
-            source_line: self.lines[token.line - 1].clone(),
+            source_line: self.lines[line_number].clone(),
             token: self.source.token_value(token).to_owned(),
             kind,
         };

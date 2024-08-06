@@ -1,6 +1,4 @@
-use std::mem;
-
-#[derive(Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum TokenKind
 {
     LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
@@ -17,18 +15,10 @@ pub enum TokenKind
     True, False,
     This, If, Else, Break, Continue,
     Switch, Case, For, While,
-    Func, Struct, Interface, Literal,
+    Struct, Interface, Literal,
     Return,
     Identifier,
     Error, End
-}
-
-impl TokenKind
-{
-    pub fn discriminant(&self) -> mem::Discriminant<TokenKind>
-    {
-        mem::discriminant(self)
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -88,7 +78,7 @@ impl Scanner
 
         loop {
             let current = self.scan_token();
-            let end     = current.kind.discriminant() == TokenKind::End.discriminant();
+            let end     = current.kind == TokenKind::End;
 
             tokens.push(current);
 
@@ -246,11 +236,7 @@ impl Scanner
                     return self.check_keyword(2, 1, "r", TokenKind::For)
                 }
 
-                if self.source_char_at(self.start + 1) == 'a' { // TODO: fix
-                    return self.check_keyword(2, 3, "lse", TokenKind::False)
-                }
-
-                self.check_keyword(2, 2, "nc", TokenKind::Func)
+                self.check_keyword(2, 3, "lse", TokenKind::False)
             },
             'i' => {
                 if self.source_char_at(self.start + 1) == 'f' { // TODO: fix
