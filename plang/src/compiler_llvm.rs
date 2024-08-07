@@ -572,7 +572,7 @@ pub unsafe fn match_statement(source: &source::Source, ctx: &mut Context, builde
             ctx.module_scopes.add_to_current(name, (std::ptr::null_mut(), type_ref));
         }
 
-        ast::Stmt::Function { name, params, body, .. } => {
+        ast::Stmt::Function { name, params, body, .. } | ast::Stmt::ReceiverFunction { name, params, body, .. } => {
             let function_name = source.token_value(name);
 
             let function_call = if let Some(function_call) = ctx.get_definition(function_name) { 
@@ -1172,6 +1172,100 @@ pub unsafe fn match_expression
             let total_args_count = initial_args.len() + closed_variables.len();
 
             let mut args: Vec<llvm::prelude::LLVMValueRef> = Vec::with_capacity(total_args_count);
+            args.append(&mut initial_args);
+            args.append(&mut closed_variables);
+
+            // LLVM requires the name of the call result to be an empty string
+            // when the function return type is 'void'.
+            let is_void = is_void(return_type);
+            let call_result_name = if is_void { "" } else { "_call" };
+
+            let call_name = CStr::from_str(call_result_name);
+            let call_name = call_name.value;
+
+            let arity      = if variadic { args.len() } else { arity };
+            let arity: u32 = arity.try_into().unwrap();
+
+            let result = llvm
+                ::core
+                ::LLVMBuildCall2(builder.builder, function_type, function, args.as_mut_ptr(), arity, call_name);
+
+            if is_void { result } 
+            else       { builder.deref_if_primitive(result, function_type) }
+        },
+
+        ast::Expr::ReceiverCall { receiver_name, name, arguments } => {
+            let name = source.token_value(name);
+
+            let function = ctx
+                .get_definition(name)
+                .expect("Expect variable '{name}'.")
+                .clone();
+
+            let Definition::Function { 
+                function, 
+                function_type, 
+                param_types, 
+                closure, 
+                arity, 
+                return_type, 
+                variadic, 
+                .. 
+            } = function else {
+                panic!("{name} is not an instance of a callable.")
+            };
+
+            let mut closed_variables = if closure {
+                captured_variables(ctx, name)
+                    .iter()
+                    .map(|(_, var)| {
+                        let var_type  = llvm::core::LLVMTypeOf(*var);
+                        let type_kind = llvm::core::LLVMGetTypeKind(var_type);
+
+                        // Take the address of all the captured variables.
+                        // The capture should refer to the actual variable, not copy
+                        // all the values.
+                        if PRIMITIVE_TYPES.contains(&type_kind) {
+                            builder.assign_to_address(*var, var_type, "_address_of")
+                        } else {
+                            *var
+                        }
+                    })
+                    .collect()
+            } else { 
+                vec![] 
+            };
+
+            // TODO: I'm not sure of the semantics of arguments.
+            // I'm thinking copy by default and take the reference explicitly.  
+            let mut initial_args: Vec<llvm::prelude::LLVMValueRef> = arguments
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    let arg         = match_expression(source, ctx, builder, a)?;
+                    let source_type = to_llvm_type(ctx, &a.type_kind);
+
+                    // gosh darn varargs.
+                    let destination_type = if i >= param_types.len() { source_type } 
+                                           else                      { param_types[i] };
+
+                    Ok::<llvm::prelude::LLVMValueRef, ReturnSentinel>
+                    (
+                        builder.prime_argument(arg, source_type, destination_type)
+                    )
+                })
+                .map_while(Result::ok)
+                .collect();
+
+            // Defined args + receiver.
+            let total_args_count = initial_args.len() + closed_variables.len() + 1;
+
+            let mut args: Vec<llvm::prelude::LLVMValueRef> = Vec::with_capacity(total_args_count);
+
+            let (receiver, receiver_type) = ctx.module_scopes.get_from_scope(ctx.current_scope(), source.token_value(receiver_name)).unwrap(/* TODO: remove */);
+            let receiver = builder.deref_if_primitive(*receiver, *receiver_type);
+            args.push(receiver);
+
             args.append(&mut initial_args);
             args.append(&mut closed_variables);
 

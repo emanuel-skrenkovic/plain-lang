@@ -1,49 +1,45 @@
+Inner :: struct
+{
+	a: i32;
+}
+
 Values :: struct
 {
     a: i32;
 	b: i32;
 	c: i32;
+	d: Inner;
 }
 
-GLOBAL_VALUE :: 3;
+Values :: sum :: (self): i32 
+{ 
+	test :: (): i32 
+	{
+		self.a + self.b + self.c
+	};
 
-mul :: (values: Values): i32
+	test()
+}
+
+Values :: mul :: (self): i32
 {
-	test :: (): i32 {
-		if values.a == 0 && values.b == 0 {
-			return 420;
-		}
-
-		return 0;
-	}
-
-	if test() == 420 {
-		return 0
-	}
-
-	return values.a * values.b * values.c;
+	self.a * self.b * self.c
 }
 
 main :: (): i32
 {
 	s := Values { 
-		a: 11,
-		b: 22, 
-		c: 33,
+		a: 1,
+		b: 2, 
+		c: 3,
+		d: Inner {
+		    a: 420,
+		},
 	};
 
-	if { cond := s.a > 10; !cond } {
-		return 0;
-	}
+	result :: s.sum() + s.mul();
 
-	printf("%d |", mul(s));
-
-	s.a = 0;
-	s.b = 0;
-
-	res := mul(s);
-
-	printf(" %d", res);
+	printf("%d", result);
 
 	0
 }

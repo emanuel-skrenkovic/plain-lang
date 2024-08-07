@@ -12,6 +12,8 @@ pub struct Scope<T>
     // Keep name + values in vec in order to preserve order.
     // Using HashMap had the issue of essentially randomizing
     // the parameter order, which is less than ideal in any case.
+
+    // TODO: change to token instead to avoid allocating strings here.
     pub names: Vec<String>,
     pub values: Vec<T>,
 }

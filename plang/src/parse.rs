@@ -502,29 +502,49 @@ impl Parser
             return None
         }
 
-        // Function declaration.
-        // TODO: this needs to happen only in global scope, in other scopes, the function
-        // value is the result of an expression instead of it being a statement.
-        if self.reader.current.kind == scan::TokenKind::LeftParen && self.scope_depth == 0 {
-            // Cannot use match here because this is only for global scope - we could
-            // unintentionally advance.
-            let _ = self.reader.advance();
+        // Only in global scope.
+        if self.scope_depth == 0 {
+            if self.match_token(scan::TokenKind::Identifier) {
+                let function_name = self.reader.previous.clone();
 
-            // Declare self first to allow recursion.
+                self.consume(scan::TokenKind::ColonColon, "Expect '::.");
+                self.consume(scan::TokenKind::LeftParen, "Expect '('.");
 
-            let function = self.function();
-            let body     = function.body.into_iter().map(Box::new).collect();
+                // Declare self first to allow recursion.
 
-            let stmt = ast::Stmt::Function {
-                name,
-                params: function.params,
-                return_type: function.return_type,
-                param_types: function.param_types,
-                body,
-            };
-            return Some(stmt)
+                let function = self.receiver_function(name.clone());
+                let body     = function.body.into_iter().map(Box::new).collect();
+
+                let stmt = ast::Stmt::ReceiverFunction {
+                    receiver_type_name: name,
+                    name: function_name,
+                    params: function.params,
+                    return_type: function.return_type,
+                    param_types: function.param_types,
+                    body,
+                };
+                return Some(stmt)
+            } else if self.match_token(scan::TokenKind::LeftParen) {
+                // Function declaration.
+                // TODO: this needs to happen only in global scope, in other scopes, the function
+                // value is the result of an expression instead of it being a statement.
+
+                // The below is such a shitty comment. I have not clue what this means.
+
+                let function = self.function();
+                let body     = function.body.into_iter().map(Box::new).collect();
+
+                let stmt = ast::Stmt::Function {
+                    name,
+                    params: function.params,
+                    return_type: function.return_type,
+                    param_types: function.param_types,
+                    body,
+                };
+                return Some(stmt)
+            }
         }
-
+        
         let initializer = self.expression(&ParsingContext::Regular);
         let initializer = ast::ExprInfo::new(initializer);
         let initializer = Box::new(initializer);
@@ -605,6 +625,28 @@ impl Parser
 
             let member_name = self.reader.previous.clone();
 
+            if self.match_token(scan::TokenKind::LeftParen) {
+                let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
+
+                if !self.reader.check_token(scan::TokenKind::RightParen) {
+                    loop {
+                        let expr = self.expression(&ParsingContext::Regular);
+                        let expr = ast::ExprInfo::new(expr);
+                        let expr = Box::new(expr);
+                        arguments.push(expr);
+
+                        if !self.match_token(scan::TokenKind::Comma) {
+                            break
+                        }
+                    }
+                }
+                self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
+
+                self.match_token(scan::TokenKind::Semicolon);
+
+                return ast::Expr::ReceiverCall { receiver_name: name, name: member_name, arguments }
+            }
+
             return ast::Expr::MemberAccess { instance_name: name, member_name };
         }
 
@@ -638,6 +680,77 @@ impl Parser
             body,
         }
     }
+
+    fn receiver_function(&mut self, receiver_type_name: scan::Token) -> Function
+    {
+        self.begin_scope();
+
+        let left_paren = self.reader.previous.clone();
+
+        let mut param_types = Vec::with_capacity(64);
+        let mut params      = Vec::with_capacity(64);
+
+        self.consume(scan::TokenKind::Identifier, "Expect 'self' as first parameter.");
+        let self_token = self.reader.previous.clone();
+        if self.reader.reporter.source.token_value(&self_token) != "self" {
+            // TODO
+        }
+
+        params.push(self_token);
+        param_types.push(receiver_type_name);
+
+        self.match_token(scan::TokenKind::Comma);
+
+        if !self.reader.check_token(scan::TokenKind::RightParen) {
+            loop {
+                self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
+
+                let parameter_name_token = self.reader.previous.clone();
+                params.push(parameter_name_token.clone());
+
+                self.consume(scan::TokenKind::Colon, "Expect type definition");
+                self.consume(scan::TokenKind::Identifier, "Expected type identifier");
+
+                let type_name = &self.reader.previous;
+                param_types.push(type_name.clone());
+
+                if !self.match_token(scan::TokenKind::Comma) { break }
+            }
+        }
+
+        self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
+        let right_paren = self.reader.previous.clone();
+
+        let return_type = if self.match_token(scan::TokenKind::Colon) 
+                          && self.match_token(scan::TokenKind::Identifier) {
+            Some(self.reader.previous.clone())
+        } else {
+            None
+        };
+
+        self.consume(scan::TokenKind::LeftBracket, "Expect token '{' after function definition.");
+
+        let mut body = Vec::with_capacity(256);
+
+        while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
+            let statement = self.declaration();
+            body.push(statement);
+        }
+
+        self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
+
+        self.end_scope();
+
+        Function { 
+            left_paren, 
+            right_paren, 
+            params, 
+            param_types, 
+            return_type, 
+            body,
+        }
+    }
+
 
     fn function(&mut self) -> Function
     {

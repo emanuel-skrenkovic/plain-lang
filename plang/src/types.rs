@@ -167,7 +167,7 @@ impl <'a> Typer<'a>
     pub fn match_statement(&mut self, stmt: &mut ast::Stmt) -> Result<ast::Stmt, error::Error>
     {
         match stmt {
-            ast::Stmt::Function { name, params, return_type, param_types, body } => {
+            ast::Stmt::Function { name, params, return_type, param_types, body } | ast::Stmt::ReceiverFunction { name, params, return_type, param_types, body, .. } => {
                 let function_name = self.source.token_value(name);
 
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
@@ -524,6 +524,30 @@ impl <'a> Typer<'a>
                 let Some(TypeKind::Function { value: Function { return_kind, ..  }}) = self.type_info.get(function_name) else {
                     let message = format!("'{function_name}' is not a function.");
                     return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
+                };
+
+                *return_kind.clone()
+            },
+
+            ast::Expr::ReceiverCall { receiver_name, name, arguments } => {
+                for arg in arguments.iter_mut() {
+                    let kind     = self.match_expression(&mut arg.value);
+                    let Ok(kind) = kind else { continue };
+
+                    arg.type_kind = kind; 
+                }
+
+                let function_name = self.source.token_value(name);
+
+                let Some(TypeKind::Function { value: Function { return_kind, ..  }}) = self.type_info.get(function_name) else {
+                    let message = format!("'{function_name}' is not a function.");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, name));
+                };
+
+                let receiver_name_value = self.source.token_value(receiver_name);
+                let Some(TypeKind::Struct { .. }) = self.type_info.get(receiver_name_value) else {
+                    let message = format!("'{receiver_name_value}' is not a valid receiver.");
+                    return Err(self.reporter.error_at(&message, error::Kind::TypeError, receiver_name));
                 };
 
                 *return_kind.clone()

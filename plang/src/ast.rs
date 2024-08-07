@@ -51,6 +51,16 @@ pub enum Stmt
         body: Vec<Box<Stmt>>,
     },
 
+    ReceiverFunction
+    {
+        receiver_type_name: scan::Token,
+        name: scan::Token,
+        params: Vec<scan::Token>,
+        return_type: Option<scan::Token>,
+        param_types: Vec<scan::Token>,
+        body: Vec<Box<Stmt>>,
+    },
+
     Var
     {
         name: scan::Token,
@@ -161,6 +171,13 @@ pub enum Expr
         arguments: Vec<Box<ExprInfo>>,
     },
 
+    ReceiverCall
+    {
+        receiver_name: scan::Token,
+        name: scan::Token,
+        arguments: Vec<Box<ExprInfo>>,
+    },
+
     Function
     {
         left_paren: scan::Token,
@@ -204,20 +221,20 @@ impl GlobalsHoistingTransformer
             // TODO: for now we assume all root level nodes are functions.
             let a_name = match a {
                 Node::Stmt(
-                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
+                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::ReceiverFunction { name, .. } | Stmt::Const { name, .. }
                 ) => source.token_value(name),
                 _ => unreachable!(),
             };
 
             let b_name = match b {
                 Node::Stmt(
-                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
+                    Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::ReceiverFunction { name, .. } | Stmt::Const { name, .. }
                 ) => source.token_value(name),
                 _ => unreachable!(),
             };
 
-            let a_pos= order.iter().position(|n| n == &a_name).expect("Expect defined order.");
-            let b_pos= order.iter().position(|n| n == &b_name).expect("Expect defined order.");
+            let a_pos = order.iter().position(|n| n == &a_name).expect("Expect defined order.");
+            let b_pos = order.iter().position(|n| n == &b_name).expect("Expect defined order.");
 
             a_pos.cmp(&b_pos)
         });
@@ -246,6 +263,24 @@ impl GlobalsHoistingTransformer
                 }
 
                 Node::Stmt(Stmt::Function { name, body, param_types, .. }) => {
+                    let mut deps = Vec::with_capacity(64);
+                    
+                    deps.append
+                    (
+                        &mut param_types
+                                .iter()
+                                .map(|t| source.token_value(t))
+                                .collect()
+                    );
+
+                    Self::match_statements(source, body, &mut deps);
+
+                    declarations.push(source.token_value(name));
+                    dependencies.push(deps);
+                    degrees.push(0);
+                }
+
+                Node::Stmt(Stmt::ReceiverFunction { name, body, param_types, .. }) => {
                     let mut deps = Vec::with_capacity(64);
                     
                     deps.append
