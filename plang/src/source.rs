@@ -12,7 +12,7 @@ impl Source
     pub fn token_value(&self, token: &scan::Token) -> &str
     {
         let length    = self.token_length(token);
-        let starts_at = token.starts_at;
+        let starts_at = token.column;
 
         &self.source[starts_at..starts_at+length]
     }
@@ -79,7 +79,7 @@ impl Source
             scan::TokenKind::Interface => 9, 
 
             scan::TokenKind::Literal => { 
-                let mut index = token.starts_at;
+                let mut index = token.column;
 
                 let mut length = 0;
                 let mut c = self.source.as_bytes()[index] as char;
@@ -108,7 +108,7 @@ impl Source
             }
 
             scan::TokenKind::Identifier => { 
-                let mut index = token.starts_at;
+                let mut index = token.column;
 
                 let mut length = 0;
                 let mut c = self.source.as_bytes()[index] as char;

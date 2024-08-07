@@ -25,7 +25,6 @@ pub enum TokenKind
 pub struct Token
 {
     pub kind: TokenKind,
-    pub starts_at: usize,
     pub line: usize,
     pub column: usize,
 }
@@ -36,7 +35,6 @@ impl Default for Token
     {
         Token { 
             kind: TokenKind::Error, 
-            starts_at: 0,
             line: 0, 
             column: 0,
         }
@@ -359,9 +357,8 @@ impl Scanner
     {
         Token {
             kind,
-            starts_at: self.start,
             line: self.line,
-            column: self.char_index - (self.current - self.start),
+            column: self.start,
         }
     }
 }
