@@ -1370,10 +1370,9 @@ pub unsafe fn binary_expr
 
             scan::TokenKind::Star  => llvm::core::LLVMConstMul(lhs, rhs),
 
-            // TODO: I don't know how to do division :(
-            // scan::TokenKind::Slash => llvm
-            //     ::core
-            //     ::LLVMConstSDiv(lhs, rhs),
+            scan::TokenKind::Slash => llvm
+                ::core
+                ::LLVMBuildSDiv(builder.builder, lhs, rhs, binary_cstr!("_div_result")),
 
             scan::TokenKind::LeftAngle => llvm
                 ::core
@@ -1401,15 +1400,15 @@ pub unsafe fn binary_expr
 
             scan::TokenKind::Ampersand | scan::TokenKind::AmpersandAmpersand => llvm
                 ::core
-                ::LLVMConstAnd(lhs, rhs),
+                ::LLVMBuildAdd(builder.builder, lhs, rhs, binary_cstr!("_and_result")),
 
             scan::TokenKind::Pipe | scan::TokenKind::PipePipe => llvm
                 ::core
-                ::LLVMConstOr(lhs, rhs),
+                ::LLVMBuildOr(builder.builder, lhs, rhs, binary_cstr!("_or_result")),
 
             scan::TokenKind::RightAngleRightAngle => llvm
                 ::core
-                ::LLVMConstAShr(lhs, rhs),
+                ::LLVMBuildAShr(builder.builder, lhs, rhs, binary_cstr!("_shr_result")),
 
             scan::TokenKind::LeftAngleLeftAngle => llvm
                 ::core
