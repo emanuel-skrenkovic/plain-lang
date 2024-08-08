@@ -99,7 +99,7 @@ impl Reporter
             line: token.line,
             column: token.column,
             source_line: self.lines[line_number].clone(),
-            token: self.source.token_value(token).to_owned(),
+            token: self.source.token_value(token.column, token.kind).to_owned(),
             kind,
         };
         self.errors.push(error.clone());

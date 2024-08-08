@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use crate::{scan, source, types};
+use crate::{scan, context, types};
 
 
 #[derive(Debug, Clone)]
@@ -37,47 +37,47 @@ pub enum Stmt
 {
     Struct 
     {
-        name: scan::Token,
-        members: Vec<scan::Token>,
-        member_types: Vec<scan::Token>,
+        name: scan::TokenId,
+        members: Vec<scan::TokenId>,
+        member_types: Vec<scan::TokenId>,
     },
 
     Function
     {
-        name: scan::Token,
-        params: Vec<scan::Token>,
-        return_type: Option<scan::Token>,
-        param_types: Vec<scan::Token>,
+        name: scan::TokenId,
+        params: Vec<scan::TokenId>,
+        return_type: Option<scan::TokenId>,
+        param_types: Vec<scan::TokenId>,
         body: Vec<Box<Stmt>>,
     },
 
     ReceiverFunction
     {
-        receiver_type_name: scan::Token,
-        name: scan::Token,
-        params: Vec<scan::Token>,
-        return_type: Option<scan::Token>,
-        param_types: Vec<scan::Token>,
+        receiver_type_name: scan::TokenId,
+        name: scan::TokenId,
+        params: Vec<scan::TokenId>,
+        return_type: Option<scan::TokenId>,
+        param_types: Vec<scan::TokenId>,
         body: Vec<Box<Stmt>>,
     },
 
     Var
     {
-        name: scan::Token,
-        type_name: Option<scan::Token>,
+        name: scan::TokenId,
+        type_name: Option<scan::TokenId>,
         initializer: Box<ExprInfo>,
     },
 
     Const
     {
-        name: scan::Token,
-        type_name: Option<scan::Token>,
+        name: scan::TokenId,
+        type_name: Option<scan::TokenId>,
         initializer: Box<ExprInfo>,
     },
 
     For 
     {
-        token: scan::Token,
+        token: scan::TokenId,
         initializer: Box<Stmt>,
         condition: Box<ExprInfo>,
         advancement: Box<Stmt>,
@@ -86,7 +86,7 @@ pub enum Stmt
 
     While
     {
-        token: scan::Token,
+        token: scan::TokenId,
         condition: Box<ExprInfo>,
         body: Vec<Box<Stmt>>,
     },
@@ -102,20 +102,20 @@ pub enum Expr
 {
     Bad
     {
-        token: scan::Token,
+        token: scan::TokenId,
     },
 
     Block
     {
-        left_bracket: scan::Token,
-        right_bracket: scan::Token,
+        left_bracket: scan::TokenId,
+        right_bracket: scan::TokenId,
         statements: Vec<Box<Stmt>>,
         value: Option<Box<ExprInfo>>,
     },
 
     If
     {
-        token: scan::Token,
+        token: scan::TokenId,
         conditions: Vec<Box<ExprInfo>>,
         branches: Vec<Box<ExprInfo>>,
     },
@@ -124,23 +124,23 @@ pub enum Expr
     {
         left: Box<ExprInfo>,
         right: Box<ExprInfo>,
-        operator: scan::Token
+        operator: scan::TokenId
     },
 
     Unary 
     {
-        operator: scan::Token,
+        operator: scan::TokenId,
         expr: Box<ExprInfo>,
     },
 
     Literal
     {
-        value: scan::Token,
+        value: scan::TokenId, 
     },
 
     Variable
     {
-        name: scan::Token,
+        name: scan::TokenId,
     },
 
     Assignment
@@ -151,13 +151,13 @@ pub enum Expr
 
     MemberAccess
     {
-        instance_name: scan::Token,
-        member_name: scan::Token,
+        instance_name: scan::TokenId,
+        member_name: scan::TokenId,
     },
 
     Return 
     {
-        token: scan::Token,
+        token: scan::TokenId,
 
         // TODO: this should be Option<T> because return; is viable
         // in functions returning nothing.
@@ -167,31 +167,31 @@ pub enum Expr
 
     Call
     {
-        name: scan::Token,
+        name: scan::TokenId,
         arguments: Vec<Box<ExprInfo>>,
     },
 
     ReceiverCall
     {
-        receiver_name: scan::Token,
-        name: scan::Token,
+        receiver_name: scan::TokenId,
+        name: scan::TokenId,
         arguments: Vec<Box<ExprInfo>>,
     },
 
     Function
     {
-        left_paren: scan::Token,
-        right_paren: scan::Token,
-        params: Vec<scan::Token>,
-        return_type: Option<scan::Token>,
-        param_types: Vec<scan::Token>,
+        left_paren: scan::TokenId,
+        right_paren: scan::TokenId,
+        params: Vec<scan::TokenId>,
+        return_type: Option<scan::TokenId>,
+        param_types: Vec<scan::TokenId>,
         body: Vec<Box<Stmt>>,
     },
 
     Struct 
     {
-        name: scan::Token,
-        members: Vec<scan::Token>,
+        name: scan::TokenId,
+        members: Vec<scan::TokenId>,
         values: Vec<Box<ExprInfo>>,
     }
 }
@@ -208,10 +208,10 @@ pub struct GlobalsHoistingTransformer { }
 
 impl GlobalsHoistingTransformer
 {
-    pub fn transform(source: &source::Source, nodes: &mut [Node])
+    pub fn transform(ctx: &context::Context, nodes: &mut [Node])
     {
         // First we build the dependency graph.
-        let mut graph = Self::build_dependency_graph(source, nodes);
+        let mut graph = Self::build_dependency_graph(ctx, nodes);
 
         // Then we use topological sort to find the correct declaration order.
         let order = Self::topological_sort(&mut graph);
@@ -222,14 +222,14 @@ impl GlobalsHoistingTransformer
             let a_name = match a {
                 Node::Stmt(
                     Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::ReceiverFunction { name, .. } | Stmt::Const { name, .. }
-                ) => source.token_value(name),
+                ) => ctx.token_value(*name),
                 _ => unreachable!(),
             };
 
             let b_name = match b {
                 Node::Stmt(
                     Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::ReceiverFunction { name, .. } | Stmt::Const { name, .. }
-                ) => source.token_value(name),
+                ) => ctx.token_value(*name),
                 _ => unreachable!(),
             };
 
@@ -239,7 +239,7 @@ impl GlobalsHoistingTransformer
             a_pos.cmp(&b_pos)
         });
     }
-    fn build_dependency_graph<'a>(source: &'a source::Source, nodes: &[Node]) -> DependencyGraph<'a>
+    fn build_dependency_graph<'a>(ctx: &'a context::Context, nodes: &[Node]) -> DependencyGraph<'a>
     {
         let nodes_count = nodes.len();
 
@@ -250,11 +250,11 @@ impl GlobalsHoistingTransformer
         for node in nodes {
             match node {
                 Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
-                    declarations.push(source.token_value(name));
+                    declarations.push(ctx.token_value(*name));
 
                     let mut deps: Vec<&'a str> = member_types
                         .iter()
-                        .map(|t| source.token_value(t))
+                        .map(|t| ctx.token_value(*t))
                         .collect();
                     deps.dedup();
 
@@ -269,13 +269,13 @@ impl GlobalsHoistingTransformer
                     (
                         &mut param_types
                                 .iter()
-                                .map(|t| source.token_value(t))
+                                .map(|t| ctx.token_value(*t))
                                 .collect()
                     );
 
-                    Self::match_statements(source, body, &mut deps);
+                    Self::match_statements(ctx, body, &mut deps);
 
-                    declarations.push(source.token_value(name));
+                    declarations.push(ctx.token_value(*name));
                     dependencies.push(deps);
                     degrees.push(0);
                 }
@@ -287,22 +287,22 @@ impl GlobalsHoistingTransformer
                     (
                         &mut param_types
                                 .iter()
-                                .map(|t| source.token_value(t))
+                                .map(|t| ctx.token_value(*t))
                                 .collect()
                     );
 
-                    Self::match_statements(source, body, &mut deps);
+                    Self::match_statements(ctx, body, &mut deps);
 
-                    declarations.push(source.token_value(name));
+                    declarations.push(ctx.token_value(*name));
                     dependencies.push(deps);
                     degrees.push(0);
                 }
 
                 Node::Stmt(Stmt::Const { name, initializer, .. }) => {
                     let mut deps = Vec::with_capacity(64);
-                    Self::match_expression(source, &initializer.value, &mut deps);
+                    Self::match_expression(ctx, &initializer.value, &mut deps);
 
-                    declarations.push(source.token_value(name));
+                    declarations.push(ctx.token_value(*name));
                     dependencies.push(deps);
                     degrees.push(0);
                 }
@@ -369,14 +369,14 @@ impl GlobalsHoistingTransformer
         order
     }
 
-    fn match_statements<'a>(source: &'a source::Source, statements: &[Box<Stmt>], deps: &mut Vec<&'a str>)
+    fn match_statements<'a>(ctx: &'a context::Context, statements: &[Box<Stmt>], deps: &mut Vec<&'a str>)
     {
         for stmt in statements.iter().map(std::convert::AsRef::as_ref) {
             match stmt {
                 Stmt::Struct { member_types, .. } => {
                     let mut type_names = member_types
                         .iter()
-                        .map(|t| source.token_value(t))
+                        .map(|t| ctx.token_value(*t))
                         .collect();
                     deps.append(&mut type_names);
                 }
@@ -388,38 +388,38 @@ impl GlobalsHoistingTransformer
                     (
                         &mut param_types
                             .iter()
-                            .map(|t| source.token_value(t))
+                            .map(|t| ctx.token_value(*t))
                             .collect()
                     );
-                    Self::match_statements(source, body, &mut nested_deps);
+                    Self::match_statements(ctx, body, &mut nested_deps);
 
                     deps.append(&mut nested_deps);
                 }
 
                 Stmt::Var { initializer, .. } | Stmt::Const { initializer, .. } 
-                    => Self::match_expression(source, &initializer.value, deps),
+                    => Self::match_expression(ctx, &initializer.value, deps),
 
-                Stmt::Expr { expr } => Self::match_expression(source, &expr.value, deps),
+                Stmt::Expr { expr } => Self::match_expression(ctx, &expr.value, deps),
 
                 _ => ()
             }
         }
     }
 
-    fn match_expression<'a>(source: &'a source::Source, expr: &Expr, deps: &mut Vec<&'a str>)
+    fn match_expression<'a>(ctx: &'a context::Context, expr: &Expr, deps: &mut Vec<&'a str>)
     {
         match expr {
             Expr::Block { statements, value, .. } => {
-                Self::match_statements(source, statements, deps);
+                Self::match_statements(ctx, statements, deps);
 
                 if let Some(value) = value {
-                    Self::match_expression(source, &value.value, deps);
+                    Self::match_expression(ctx, &value.value, deps);
                 }
             },
 
             Expr::If { conditions, branches, .. } => {
                 for condition in conditions {
-                    Self::match_expression(source, &condition.value, deps);
+                    Self::match_expression(ctx, &condition.value, deps);
                 }
                 
                 for branch in branches {
@@ -427,40 +427,40 @@ impl GlobalsHoistingTransformer
                         panic!()
                     };
 
-                    Self::match_statements(source, statements, deps);
+                    Self::match_statements(ctx, statements, deps);
 
                     if let Some(value) = value {
-                        Self::match_expression(source, &value.value, deps);
+                        Self::match_expression(ctx, &value.value, deps);
                     }
                 }
             },
 
             Expr::Binary { left, right, .. } => {
-                Self::match_expression(source, &left.value, deps);
-                Self::match_expression(source, &right.value, deps);
+                Self::match_expression(ctx, &left.value, deps);
+                Self::match_expression(ctx, &right.value, deps);
             },
 
             // TODO: later
-            Expr::Variable { name, .. } => deps.push(source.token_value(name)),
+            Expr::Variable { name, .. } => deps.push(ctx.token_value(*name)),
 
             Expr::Assignment { left, right } => {
-                Self::match_expression(source, &right.value, deps);
-                Self::match_expression(source, &left.value, deps);
+                Self::match_expression(ctx, &right.value, deps);
+                Self::match_expression(ctx, &left.value, deps);
             }
 
             Expr::Call { name, arguments } => {
                 for arg in arguments {
-                    Self::match_expression(source, &arg.value, deps);
+                    Self::match_expression(ctx, &arg.value, deps);
                 }
-                deps.push(source.token_value(name));
+                deps.push(ctx.token_value(*name));
             },
 
-            Expr::Function { body, .. } => Self::match_statements(source, body, deps),
+            Expr::Function { body, .. } => Self::match_statements(ctx, body, deps),
 
             Expr::Struct { name, values, .. } => {
-                deps.push(source.token_value(name));
+                deps.push(ctx.token_value(*name));
                 for value in values {
-                    Self::match_expression(source, &value.value, deps);
+                    Self::match_expression(ctx, &value.value, deps);
                 }
             }
 

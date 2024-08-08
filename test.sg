@@ -29,9 +29,9 @@ Values :: mul :: (self): i32
 main :: (): i32
 {
 	s := Values { 
-		a: 1,
-		b: 2, 
-		c: 3,
+		a: 11,
+		b: 22, 
+		c: 33,
 		d: Inner {
 		    a: 420,
 		},

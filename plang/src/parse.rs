@@ -1,15 +1,15 @@
-use crate::{ast, scan, error};
+use crate::{ast, context, scan, error};
 
 
 // params, return_type, argument_type_names, body
 
 pub struct Function
 {
-    left_paren: scan::Token,
-    right_paren: scan::Token,
-    params: Vec<scan::Token>, 
-    param_types: Vec<scan::Token>,
-    return_type: Option<scan::Token>, 
+    left_paren: scan::TokenId,
+    right_paren: scan::TokenId,
+    params: Vec<scan::TokenId>, 
+    param_types: Vec<scan::TokenId>,
+    return_type: Option<scan::TokenId>, 
     body: Vec<ast::Stmt>,
 }
 
@@ -138,14 +138,11 @@ pub struct TokenReader
     // Also keep the source in the parser for better error reporting.
     // Feel like this solution is bad, and that I should avoid cloning the source so much.
     // Got no other ideas, just feels that way currently.
-    pub reporter: error::Reporter,
-    pub tokens: Vec<scan::Token>,
-    pub scanned_tokens: Vec<scan::Token>,
+    pub ctx: context::Context,
+    pub scanned_tokens: Vec<scan::TokenId>,
 
-    pub current_index: usize,
-
-    pub current: scan::Token,
-    pub previous: scan::Token,
+    pub current: usize,
+    pub previous: usize,
 
     pub panic: bool,
 }
@@ -153,49 +150,46 @@ pub struct TokenReader
 impl TokenReader
 {
     #[must_use]
-    pub fn new(reporter: error::Reporter, tokens: Vec<scan::Token>) -> Self
+    pub fn new(ctx: context::Context) -> Self
     {
         Self {
-            reporter,
-            tokens,
+            ctx,
             scanned_tokens: Vec::with_capacity(1024 * 8),
-            current_index: 0,
-            current: scan::Token::default(),
-            previous: scan::Token::default(),
+            current: 0,
+            previous: 0,
             panic: false,
         }
     }
 
     fn advance(&mut self) -> Result<(), error::Error>
     {
-        if matches!(self.current.kind, scan::TokenKind::End) {
+        if matches!(self.ctx.token_kind(self.current), scan::TokenKind::End) {
             return Ok(())
         }
 
-        if self.current_index >= self.tokens.len() {
+        if self.current >= self.ctx.tokens.kinds.len() {
             return Ok(())
         }
 
-        std::mem::swap(&mut self.previous, &mut self.current);
-        self.current = self.tokens[self.current_index].clone();
+        self.previous = self.current;
+        self.current += 1;
 
-        if matches!(self.current.kind, scan::TokenKind::End) {
+        if matches!(self.ctx.token_kind(self.current), scan::TokenKind::End) {
             return Ok(())
         }
 
-        self.current_index += 1;
-        self.scanned_tokens.push(self.current.clone());
+        self.scanned_tokens.push(self.current);
 
-        if !matches!(self.current.kind, scan::TokenKind::Error) {
+        if !matches!(self.ctx.token_kind(self.current), scan::TokenKind::Error) {
             return Ok(())
         }
 
-        Err(self.error_at("Scanner error.", &self.current.clone()))
+        Err(self.error_at("Scanner error.", self.current))
     }
 
     fn match_token(&mut self, token_kind: scan::TokenKind) -> Result<bool, error::Error>
     {
-        if self.current.kind != token_kind {
+        if self.ctx.token_kind(self.current) != token_kind {
             return Ok(false)
         }
 
@@ -205,36 +199,36 @@ impl TokenReader
 
     fn check_token(&self, token_kind: scan::TokenKind) -> bool
     {
-        self.current.kind == token_kind
+        self.ctx.token_kind(self.current) == token_kind
     }
 
     fn consume(&mut self, token_kind: scan::TokenKind, error_message: &str) -> Result<(), error::Error>
     {
         match self.match_token(token_kind) {
             Ok(true)  => Ok(()),
-            Ok(false) => Err(self.error_at(error_message, &self.current.clone())),
+            Ok(false) => Err(self.error_at(error_message, self.current)),
             Err(err)  => Err(err),
         }
     }
 
-    fn error_at(&mut self, message: &str, token: &scan::Token) -> error::Error
+    fn error_at(&mut self, message: &str, token: scan::TokenId) -> error::Error
     {
-        self.reporter.error_at(message, error::Kind::ParseError, token)
+        self.ctx.error_at(message, error::Kind::ParseError, token)
     }
 
     // TODO: horrible and I should be publicly shamed, doesn't even work oh my gosh how embarrassing oh my
-    fn peek(&self, diff: i32) -> Option<&scan::Token>
+    fn peek(&self, diff: i32) -> Option<scan::TokenId>
     {
-        let index = self.current_index - 1;
-        let index = i32::try_from(index).unwrap() + diff;
+        let index = i32::try_from(self.current).unwrap();
+        let index = index + diff;
 
-        if index < 0 || index > self.tokens.len().try_into().unwrap() {
+        if index > self.ctx.tokens.len().try_into().unwrap() {
             return None
         }
 
         let index: usize = index.try_into().unwrap();
 
-        Some(&self.tokens[index])
+        Some(index)
     }
 }
 
@@ -256,10 +250,10 @@ pub struct Parser
 impl Parser
 {
     #[must_use]
-    pub fn new(reporter: error::Reporter, tokens: Vec<scan::Token>) -> Self
+    pub fn new(ctx: context::Context) -> Self
     {
         Self {
-            reader: TokenReader::new(reporter, tokens),
+            reader: TokenReader::new(ctx),
             scope_depth: 0,
             stack: Vec::with_capacity(8),
         }
@@ -267,14 +261,10 @@ impl Parser
 
     pub fn parse(&mut self) -> Result<Vec<ast::Node>, Vec<error::Error>>
     {
-        let _ = self.reader.advance();
-
-        // TODO: should probably enclose program itself.
-
         let mut nodes: Vec<ast::Node> = Vec::with_capacity(512 * 8);
 
         loop {
-            if let scan::TokenKind::End = self.reader.current.kind {
+            if let scan::TokenKind::End = self.reader.ctx.token_kind(self.reader.current) {
                 break
             }
 
@@ -287,8 +277,8 @@ impl Parser
             nodes.push(ast::Node::Stmt(decl));
         }
 
-        if self.reader.reporter.error {
-            return Err(self.reader.reporter.errors.clone())
+        if self.reader.ctx.reporter.error {
+            return Err(self.reader.ctx.reporter.errors.clone())
         }
 
         Ok(nodes)
@@ -296,38 +286,46 @@ impl Parser
 
     fn is_at_end(&self) -> bool
     {
-        self.reader.current.kind == scan::TokenKind::End
+        self.reader.ctx.token_kind(self.reader.current) == scan::TokenKind::End
     }
 
     fn parse_precedence(&mut self, prec: Precedence, context: &ParsingContext)
     {
         let _ = self.reader.advance();
 
-        if let Some(prefix) = get_rule(self.reader.previous.kind).prefix {
+        let kind = self.reader.ctx.token_kind(self.reader.previous);
+
+        if let Some(prefix) = get_rule(kind).prefix {
             let prefix_expr = prefix(self, context);
 
             match prefix_expr {
                 ast::Expr::Literal { 
-                    value: scan::Token { kind: scan::TokenKind::Semicolon, .. } 
-                } => (),
+                    value // : scan::Token { kind: scan::TokenKind::Semicolon, .. } 
+                } =>  {
+                    if self.reader.ctx.token_kind(value) != scan::TokenKind::Semicolon {
+                        self.stack.push(prefix_expr);
+                    }
+                },
                 _ => self.stack.push(prefix_expr)
             }
         } else {
             if self.is_at_end() { return }
-            panic!("{}", self.reader.error_at("Expect expression.", &self.reader.current.clone()))
+            panic!("{}", self.reader.error_at("Expect expression.", self.reader.current))
         }
 
-        while prec.discriminator() <= get_rule(self.reader.current.kind).precedence.discriminator() {
+        while prec.discriminator() <= get_rule(self.reader.ctx.token_kind(self.reader.current)).precedence.discriminator() {
             let _ = self.reader.advance();
 
-            let Some(infix_rule) = get_rule(self.reader.previous.kind).infix else {
-                self.error_at("Failed to get infix rule.", &self.reader.previous.clone());
+            let Some(infix_rule) = get_rule(self.reader.ctx.token_kind(self.reader.previous)).infix else {
+                self.error_at("Failed to get infix rule.", self.reader.previous);
                 return
             };
 
             let infix_rule = infix_rule(self, context);
-            if let ast::Expr::Literal { value: scan::Token{ kind: scan::TokenKind::Semicolon, .. } } = infix_rule {
-                continue
+            if let ast::Expr::Literal { value } = infix_rule {
+                if self.reader.ctx.token_kind(value) == scan::TokenKind::Semicolon {
+                    continue
+                }
             } 
 
             self.stack.push(infix_rule);
@@ -373,8 +371,8 @@ impl Parser
 
     fn binary(&mut self, context: &ParsingContext) -> ast::Expr
     {
-        let operator   = self.reader.previous.clone();
-        let parse_rule = get_rule(operator.kind);
+        let operator   = self.reader.previous;
+        let parse_rule = get_rule(self.reader.ctx.token_kind(operator));
 
         let left = self.stack.pop().expect("Expect value in stack.");
 
@@ -389,7 +387,7 @@ impl Parser
         let right = ast::ExprInfo::new(right);
 
         // Assignment is a special case
-        if operator.kind == scan::TokenKind::Equal {
+        if self.reader.ctx.token_kind(operator) == scan::TokenKind::Equal {
             return ast::Expr::Assignment { 
                 left: Box::new(left),
                 right: Box::new(right),
@@ -408,7 +406,7 @@ impl Parser
 
     fn unary(&mut self, _: &ParsingContext) -> ast::Expr
     {
-        let operator = self.reader.previous.clone();
+        let operator = self.reader.previous;
 
         let expr = self.expression(&ParsingContext::Regular);
         let expr = ast::ExprInfo::new(expr);
@@ -422,10 +420,10 @@ impl Parser
 
     fn dot_operator(&mut self, _: &ParsingContext) -> ast::Expr
     {
-        let instance_name = self.reader.peek(-2).unwrap().clone();
+        let instance_name = self.reader.peek(-2).unwrap();
 
         self.consume(scan::TokenKind::Identifier, "Expect identifier.");
-        let member_name = self.reader.previous.clone();
+        let member_name = self.reader.previous;
 
         ast::Expr::MemberAccess { instance_name, member_name }
     }
@@ -433,13 +431,13 @@ impl Parser
     fn literal(&mut self, _: &ParsingContext) -> ast::Expr
     {
         ast::Expr::Literal { 
-            value: self.reader.previous.clone() 
+            value: self.reader.previous 
         }
     }
 
     fn declaration(&mut self) -> ast::Stmt
     {
-        match self.reader.current.kind {
+        match self.reader.ctx.token_kind(self.reader.current) {
             scan::TokenKind::While => {
                 let _ = self.reader.advance();
                 self._while()
@@ -459,8 +457,8 @@ impl Parser
     {
         let next = self.reader.peek(1)?;
 
-        let next_kind        = next.kind;
-        let second_next_kind = self.reader.peek(2)?.kind;
+        let next_kind        = self.reader.ctx.token_kind(next);
+        let second_next_kind = self.reader.ctx.token_kind(self.reader.peek(2)?);
 
         if second_next_kind == scan::TokenKind::Struct {
             return Some(self._struct());
@@ -474,21 +472,21 @@ impl Parser
             return None
         }
 
-        let name = self.reader.current.clone();
+        let name = self.reader.current;
         let _    = self.reader.advance();
 
-        let mut type_name: Option<scan::Token> = None;
+        let mut type_name: Option<scan::TokenId> = None;
         if type_definition {
             let _ = self.match_token(scan::TokenKind::Colon);
             self.consume(scan::TokenKind::Identifier, "Expected identifier");
 
-            type_name = Some(self.reader.previous.clone());
+            type_name = Some(self.reader.previous);
 
             if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
                 let error = self.error_at
                 (
                     "Expected token '=' or token ':' after type definition.",
-                    &self.reader.current.clone()
+                    self.reader.current,
                 );
                 let error = ast::ExprInfo::new(error);
                 let error = Box::new(error);
@@ -505,14 +503,14 @@ impl Parser
         // Only in global scope.
         if self.scope_depth == 0 {
             if self.match_token(scan::TokenKind::Identifier) {
-                let function_name = self.reader.previous.clone();
+                let function_name = self.reader.previous;
 
                 self.consume(scan::TokenKind::ColonColon, "Expect '::.");
                 self.consume(scan::TokenKind::LeftParen, "Expect '('.");
 
                 // Declare self first to allow recursion.
 
-                let function = self.receiver_function(name.clone());
+                let function = self.receiver_function(name);
                 let body     = function.body.into_iter().map(Box::new).collect();
 
                 let stmt = ast::Stmt::ReceiverFunction {
@@ -561,7 +559,7 @@ impl Parser
     {
         let next      = self.reader.peek(1)?;
 
-        let next_kind = next.kind;
+        let next_kind = self.reader.ctx.token_kind(next);
 
         let type_definition = next_kind == scan::TokenKind::Colon;
         let immutable       = next_kind == scan::TokenKind::ColonColon;
@@ -571,19 +569,19 @@ impl Parser
             return None
         }
 
-        let name = self.reader.current.clone();
+        let name = self.reader.current;
         let _    = self.reader.advance();
 
-        let mut type_name: Option<scan::Token> = None;
+        let mut type_name: Option<scan::TokenId> = None;
         match (type_definition, immutable, mutable) {
             (true, _, _) => {
                 let _ = self.match_token(scan::TokenKind::Colon);
                 self.consume(scan::TokenKind::Identifier, "Expect identifier");
 
-                type_name = Some(self.reader.previous.clone());
+                type_name = Some(self.reader.previous);
 
                 if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
-                    let error = self.error_at("Expected token '=' or ':' after type identifier.", &self.reader.current.clone());
+                    let error = self.error_at("Expected token '=' or ':' after type identifier.", self.reader.current);
                     let error = ast::ExprInfo::new(error);
                     return Some(ast::Stmt::Expr { expr: Box::new(error) })
                 }
@@ -616,14 +614,14 @@ impl Parser
     // I can already see problems forming with this inference system. sadface
     fn variable(&mut self, context: &ParsingContext) -> ast::Expr
     {
-        let name = self.reader.previous.clone();
+        let name = self.reader.previous;
 
         if self.match_token(scan::TokenKind::LeftBracket) && context != &ParsingContext::If {
             return self.struct_expression()
         } else if self.match_token(scan::TokenKind::Dot) {
             self.consume(scan::TokenKind::Identifier, "Expect identifier.");
 
-            let member_name = self.reader.previous.clone();
+            let member_name = self.reader.previous;
 
             if self.match_token(scan::TokenKind::LeftParen) {
                 let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
@@ -657,7 +655,7 @@ impl Parser
 
     fn _return(&mut self, _: &ParsingContext) -> ast::Expr
     {
-        let token = self.reader.previous.clone();
+        let token = self.reader.previous;
 
         let value = self.expression(&ParsingContext::Regular);
         let value = ast::ExprInfo::new(value);
@@ -681,20 +679,24 @@ impl Parser
         }
     }
 
-    fn receiver_function(&mut self, receiver_type_name: scan::Token) -> Function
+    fn receiver_function(&mut self, receiver_type_name: scan::TokenId) -> Function
     {
         self.begin_scope();
 
-        let left_paren = self.reader.previous.clone();
+        let left_paren = self.reader.previous;
 
         let mut param_types = Vec::with_capacity(64);
         let mut params      = Vec::with_capacity(64);
 
         self.consume(scan::TokenKind::Identifier, "Expect 'self' as first parameter.");
-        let self_token = self.reader.previous.clone();
+        let self_token = self.reader.previous;
+
+        // TODO
+        /*
         if self.reader.reporter.source.token_value(&self_token) != "self" {
             // TODO
         }
+        */
 
         params.push(self_token);
         param_types.push(receiver_type_name);
@@ -705,25 +707,25 @@ impl Parser
             loop {
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
-                let parameter_name_token = self.reader.previous.clone();
-                params.push(parameter_name_token.clone());
+                let parameter_name_token = self.reader.previous;
+                params.push(parameter_name_token);
 
                 self.consume(scan::TokenKind::Colon, "Expect type definition");
                 self.consume(scan::TokenKind::Identifier, "Expected type identifier");
 
                 let type_name = &self.reader.previous;
-                param_types.push(type_name.clone());
+                param_types.push(*type_name);
 
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
-        let right_paren = self.reader.previous.clone();
+        let right_paren = self.reader.previous;
 
         let return_type = if self.match_token(scan::TokenKind::Colon) 
                           && self.match_token(scan::TokenKind::Identifier) {
-            Some(self.reader.previous.clone())
+            Some(self.reader.previous)
         } else {
             None
         };
@@ -756,7 +758,7 @@ impl Parser
     {
         self.begin_scope();
 
-        let left_paren = self.reader.previous.clone();
+        let left_paren = self.reader.previous;
 
         let mut param_types = Vec::with_capacity(64);
         let mut params      = Vec::with_capacity(64);
@@ -765,25 +767,25 @@ impl Parser
             loop {
                 self.consume(scan::TokenKind::Identifier, "Expect parameter identifier after '('.");
 
-                let parameter_name_token = self.reader.previous.clone();
-                params.push(parameter_name_token.clone());
+                let parameter_name_token = self.reader.previous;
+                params.push(parameter_name_token);
 
                 self.consume(scan::TokenKind::Colon, "Expect type definition");
                 self.consume(scan::TokenKind::Identifier, "Expected type identifier");
 
                 let type_name = &self.reader.previous;
-                param_types.push(type_name.clone());
+                param_types.push(*type_name);
 
                 if !self.match_token(scan::TokenKind::Comma) { break }
             }
         }
 
         self.consume(scan::TokenKind::RightParen, "Expect ')' after end of lambda parameters.");
-        let right_paren = self.reader.previous.clone();
+        let right_paren = self.reader.previous;
 
         let return_type = if self.match_token(scan::TokenKind::Colon) 
                           && self.match_token(scan::TokenKind::Identifier) {
-            Some(self.reader.previous.clone())
+            Some(self.reader.previous)
         } else {
             None
         };
@@ -811,9 +813,9 @@ impl Parser
         }
     }
 
-    fn block(&mut self) -> (scan::Token, scan::Token, Vec<ast::Stmt>, Option<ast::Expr>)
+    fn block(&mut self) -> (scan::TokenId, scan::TokenId, Vec<ast::Stmt>, Option<ast::Expr>)
     {
-        let left_bracket = self.reader.previous.clone();
+        let left_bracket = self.reader.previous;
 
         self.begin_scope();
 
@@ -829,7 +831,7 @@ impl Parser
             // #horribleways
             // If the last token in the block is a semicolon, then the block is of Unit type.
             // This is a horrible way to check for this and I should be shamed. Preferably publicly.
-            let has_value = self.reader.previous.kind != scan::TokenKind::Semicolon;
+            let has_value = self.reader.ctx.token_kind(self.reader.previous) != scan::TokenKind::Semicolon;
 
             has_value || matches!(&last.value, ast::Expr::Return { .. })
         } else {
@@ -847,7 +849,7 @@ impl Parser
         };
 
         self.consume(scan::TokenKind::RightBracket, "Expect '}' at the end of a block expression.");
-        let right_bracket = self.reader.previous.clone();
+        let right_bracket = self.reader.previous;
 
         self.match_token(scan::TokenKind::Semicolon);
 
@@ -857,7 +859,7 @@ impl Parser
 
     fn _if(&mut self, _: &ParsingContext) -> ast::Expr
     {
-        let token = self.reader.previous.clone();
+        let token = self.reader.previous;
 
         // TODO: this is a terrible way to implement this.
         // Would prefer a parameter.
@@ -903,7 +905,7 @@ impl Parser
 
     fn _while(&mut self) -> ast::Stmt
     {
-        let while_token = self.reader.previous.clone();
+        let while_token = self.reader.previous;
         let condition   = self.expression(&ParsingContext::If);
 
         // Body
@@ -934,7 +936,7 @@ impl Parser
     // will make up for everything.
     fn _for(&mut self) -> ast::Stmt
     {
-        let for_token = self.reader.previous.clone();
+        let for_token = self.reader.previous;
          
         // TODO: no unwrap
         let variable = self.variable_statement().unwrap();
@@ -976,10 +978,10 @@ impl Parser
     {
         let Some(token) = self.reader.peek(-2) else {
             return self
-                .error_at("Failed to parse function - no function name found.", &self.reader.previous.clone());
+                .error_at("Failed to parse function - no function name found.", self.reader.previous);
         };
 
-        let function_name_token = token.clone();
+        let function_name_token = token;
 
         let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
 
@@ -1006,10 +1008,10 @@ impl Parser
     {
         let Some(token) = self.reader.peek(-2) else {
             return self
-                .error_at("Failed to parse struct expression - no struct name found.", &self.reader.previous.clone());
+                .error_at("Failed to parse struct expression - no struct name found.", self.reader.previous);
         };
 
-        let name = token.clone();
+        let name = token;
 
         let mut members = Vec::with_capacity(64);
         let mut values  = Vec::with_capacity(64);
@@ -1018,7 +1020,7 @@ impl Parser
             loop {
                 self.consume(scan::TokenKind::Identifier, "Expect member ame.");
 
-                let member_name = self.reader.previous.clone();
+                let member_name = self.reader.previous;
                 members.push(member_name);
 
                 self.consume(scan::TokenKind::Colon, "Expect ':' after member initializer name.");
@@ -1057,7 +1059,7 @@ impl Parser
     fn _struct(&mut self) -> ast::Stmt
     {
         self.consume(scan::TokenKind::Identifier, "Expect struct name identifier.");
-        let struct_name = self.reader.previous.clone();
+        let struct_name = self.reader.previous;
 
         self.consume(scan::TokenKind::ColonColon, "Expect '::' after struct identifier.");
         self.consume(scan::TokenKind::Struct, "Expect 'struct' token.");
@@ -1069,11 +1071,11 @@ impl Parser
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             self.consume(scan::TokenKind::Identifier, "Expect identifier.");
-            let name_token = self.reader.previous.clone();
+            let name_token = self.reader.previous;
 
             if self.match_token(scan::TokenKind::Colon) {
                 self.consume(scan::TokenKind::Identifier, "Expect type identifier after member name.");
-                let type_name = self.reader.previous.clone();
+                let type_name = self.reader.previous;
 
                 members.push(name_token);
                 member_types.push(type_name);
@@ -1097,7 +1099,7 @@ impl Parser
     fn semicolon(&mut self, _: &ParsingContext) -> ast::Expr
     {
         self.match_token(scan::TokenKind::Semicolon);
-        ast::Expr::Literal { value: self.reader.previous.clone() }
+        ast::Expr::Literal { value: self.reader.previous }
     }
 
     fn begin_scope(&mut self)
@@ -1112,7 +1114,7 @@ impl Parser
 
     fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
     {
-        if self.reader.current.kind != token_kind {
+        if self.reader.ctx.token_kind(self.reader.current) != token_kind {
             return false
         }
 
@@ -1125,9 +1127,9 @@ impl Parser
         let _ = self.reader.consume(token_kind, error_message);
     }
 
-    fn error_at(&mut self, msg: &str, token: &scan::Token) -> ast::Expr
+    fn error_at(&mut self, msg: &str, token: scan::TokenId) -> ast::Expr
     {
         self.reader.error_at(msg, token);
-        ast::Expr::Bad { token: token.clone() }
+        ast::Expr::Bad { token }
     }
 }

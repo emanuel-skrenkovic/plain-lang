@@ -41,6 +41,54 @@ impl Default for Token
     }
 }
 
+pub type TokenId = usize;
+
+// Use this, then instead of cloning the tokens,
+// pass around the token id, which is actually just the index.
+#[derive(Debug, Clone)]
+pub struct Tokens
+{
+    pub kinds: Vec<TokenKind>,
+    pub lines: Vec<usize>,
+    pub columns: Vec<usize>,
+}
+
+impl Tokens 
+{
+    pub fn with_capacity(capacity: usize) -> Self
+    {
+        Tokens {
+            kinds: Vec::with_capacity(capacity),
+            lines: Vec::with_capacity(capacity),
+            columns: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub fn kind(&self, id: TokenId) -> TokenKind
+    {
+        self.kinds[id]
+    }
+
+    pub fn token(&self, id: TokenId) -> Token
+    {
+        let kind   = self.kinds[id];
+        let line   = self.lines[id];
+        let column = self.columns[id];
+
+        Token { kind, line, column }
+    }
+
+    pub fn len(&self) -> usize
+    {
+        self.kinds.len()
+    }
+
+    pub fn is_empty(&self) -> bool
+    {
+        self.kinds.is_empty()
+    }
+}
+
 pub struct Scanner
 {
     source: String,
@@ -70,15 +118,17 @@ impl Scanner
         }
     }
 
-    pub fn scan_tokens(&mut self) -> Vec<Token>
+    pub fn scan_tokens(&mut self) -> Tokens
     {
-        let mut tokens: Vec<Token> = Vec::with_capacity(1024);
+        let mut tokens: Tokens = Tokens::with_capacity(1024);
 
         loop {
             let current = self.scan_token();
             let end     = current.kind == TokenKind::End;
 
-            tokens.push(current);
+            tokens.kinds.push(current.kind);
+            tokens.lines.push(current.line);
+            tokens.columns.push(current.column);
 
             if end { break }
         }

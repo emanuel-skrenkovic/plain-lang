@@ -9,17 +9,15 @@ pub struct Source
 
 impl Source
 {
-    pub fn token_value(&self, token: &scan::Token) -> &str
+    pub fn token_value(&self, starts_at: usize, kind: scan::TokenKind) -> &str
     {
-        let length    = self.token_length(token);
-        let starts_at = token.column;
-
+        let length = self.token_length(starts_at, kind);
         &self.source[starts_at..starts_at+length]
     }
 
-    pub fn token_length(&self, token: &scan::Token) -> usize
+    pub fn token_length(&self, starts_at: usize, kind: scan::TokenKind) -> usize
     {
-        match token.kind { 
+        match kind { 
             scan::TokenKind::End => 0,
 
             scan::TokenKind::Error
@@ -79,7 +77,7 @@ impl Source
             scan::TokenKind::Interface => 9, 
 
             scan::TokenKind::Literal => { 
-                let mut index = token.column;
+                let mut index = starts_at;
 
                 let mut length = 0;
                 let mut c = self.source.as_bytes()[index] as char;
@@ -108,7 +106,7 @@ impl Source
             }
 
             scan::TokenKind::Identifier => { 
-                let mut index = token.column;
+                let mut index = starts_at;
 
                 let mut length = 0;
                 let mut c = self.source.as_bytes()[index] as char;
