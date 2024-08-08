@@ -482,6 +482,7 @@ impl Drop for Context
 pub unsafe fn compile(comp_ctx: &context::Context, ctx: &mut Context, program: Vec<ast::Node>) -> *mut llvm::LLVMModule
 {
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
+
     ctx.modules.push(module);
 
     let mut builder = Builder::new(ctx.llvm_ctx, module, None);
@@ -1783,6 +1784,7 @@ pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Res
     let result = llvm
         ::bit_writer
         ::LLVMWriteBitcodeToFile(module, binary_cstr!("bin/a.bc"));
+
     if result != 0 {
         return Err("Failed to output bitcode.".to_string())
     }

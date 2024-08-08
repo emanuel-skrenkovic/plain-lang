@@ -31,7 +31,6 @@ impl Context
             errors: Vec::with_capacity(64),
             error: false,
         }
-
     }
 
     pub fn error_at
