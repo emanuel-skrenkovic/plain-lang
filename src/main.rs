@@ -4,7 +4,6 @@ use plang::ast;
 use plang::scan;
 use plang::parse;
 use plang::types;
-use plang::error;
 use plang::source;
 use plang::context;
 use plang::compiler_llvm;
@@ -20,7 +19,6 @@ fn main()
     let mut scanner = scan::Scanner::new(source.clone());
 
     let s = source::Source { source: source.clone() }; 
-    let reporter = error::Reporter::new(&source);
 
     let now = std::time::Instant::now();
 
@@ -28,41 +26,29 @@ fn main()
     let tokens         = scanner.scan_tokens();
     let after_scanning = now_scan.elapsed();
 
-    let (context, program, after_parsing) = {
-        let context = context::Context {
-            source: s,
-            reporter,
-            tokens,
+    let (context, mut program, after_parsing) = {
+        let context = context::Context::new(s, tokens);
+
+        let parser = parse::Parser::new(context);
+
+        let now_parse          = std::time::Instant::now();
+        let result = parser.parse();
+        let after_parsing = now_parse.elapsed();
+        
+        let (program, context) = match result {
+            Ok((program, context)) => (program, context),
+            Err(errors) => {
+                for err in errors {
+                    writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
+                }
+                stderr().flush().unwrap();
+                std::process::exit(1);
+            }
         };
 
-        let mut parser = parse::Parser::new(context.clone());
-
-        let now_parse     = std::time::Instant::now();
-        let program       = parser.parse();
-
-        if parser.reader.ctx.reporter.error {
-            for err in parser.reader.ctx.reporter.errors {
-                writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
-            }
-            stderr().flush().unwrap();
-            std::process::exit(1);
-        }
-
-        let after_parsing = now_parse.elapsed();
         (context, program, after_parsing)
     };
     
-    let mut program = match program {
-        Ok(program) => program,
-        Err(errors) => {
-            for err in errors {
-                writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
-            }
-            stderr().flush().unwrap();
-            std::process::exit(1);
-        }
-    };
-
     let (mut context, program, after_transformation) = {
         let now_transformation   = std::time::Instant::now();
         ast::GlobalsHoistingTransformer::transform(&context, &mut program);
@@ -70,7 +56,6 @@ fn main()
         (context, program, after_transformation)
     };
 
-    
     let (program, type_info, after_type_analysis) = {
         let now_type_analysis    = std::time::Instant::now();
         let (program, type_info) = types::Typer::new(&mut context).infer_types(program);
@@ -80,8 +65,8 @@ fn main()
     
     println!("{program:#?}");
 
-    if context.reporter.error {
-        for err in context.reporter.errors {
+    if context.error {
+        for err in context.errors {
             writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
         }
         stderr().flush().unwrap();

@@ -1,5 +1,4 @@
 use std::fmt;
-use crate::{scan, source};
 
 #[derive(Clone, Debug)]
 pub enum Kind
@@ -52,59 +51,4 @@ impl fmt::Display for Error
     }
 }
 
-#[derive(Clone)]
-pub struct Reporter
-{
-    pub lines: Vec<String>,
-    pub errors: Vec<Error>,
-    pub error: bool,
-    pub source: source::Source,
-}
-
-impl Reporter
-{
-    #[must_use]
-    pub fn new(code: &str) -> Self
-    {
-        let lines: Vec<String> = code
-            .lines()
-            .map(String::from)
-            .collect();
-
-        let source = source::Source {
-            source: code.to_owned()
-        };
-
-        Self {
-            source,        
-            lines,
-            errors: Vec::with_capacity(64),
-            error: false,
-        }
-    }
-
-    pub fn error_at(&mut self, message: &str, kind: Kind, token: &scan::Token) -> Error
-    {
-        self.error = true;
-
-        // Clamp to the number of lines of source.
-        // Probably indicative of crappy code elsewhere.
-        let line_number = std::cmp::min(
-            token.line - 1, 
-            self.lines.len() - 1
-        );
-
-        let error = Error {
-            msg: message.to_owned(),
-            line: token.line,
-            column: token.column,
-            source_line: self.lines[line_number].clone(),
-            token: self.source.token_value(token.column, token.kind).to_owned(),
-            kind,
-        };
-        self.errors.push(error.clone());
-
-        error
-    }
-}
 

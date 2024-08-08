@@ -259,7 +259,7 @@ impl Parser
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<ast::Node>, Vec<error::Error>>
+    pub fn parse(mut self) -> Result<(Vec<ast::Node>, context::Context), Vec<error::Error>>
     {
         let mut nodes: Vec<ast::Node> = Vec::with_capacity(512 * 8);
 
@@ -277,11 +277,11 @@ impl Parser
             nodes.push(ast::Node::Stmt(decl));
         }
 
-        if self.reader.ctx.reporter.error {
-            return Err(self.reader.ctx.reporter.errors.clone())
+        if self.reader.ctx.error {
+            return Err(self.reader.ctx.errors.clone())
         }
 
-        Ok(nodes)
+        Ok((nodes, self.reader.ctx))
     }
 
     fn is_at_end(&self) -> bool

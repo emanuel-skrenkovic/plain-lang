@@ -10,16 +10,12 @@ fn parse_source(code: &str) -> Result<Vec<ast::Node>, Vec<error::Error>>
 {
 
     let source = source::Source { source: code.to_string() };
-    let reporter = error::Reporter::new(code);
     let tokens   = scan::Scanner::new(code.to_string()).scan_tokens();
 
-    let context = context::Context {
-        source,
-        reporter,
-        tokens,
-    };
+    let context = context::Context::new(source, tokens);
 
-    Parser::new(context).parse()
+    let (nodes, _) = Parser::new(context).parse()?;
+    Ok(nodes)
 }
 
 #[cfg(test)]
