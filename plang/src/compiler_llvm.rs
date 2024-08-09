@@ -580,7 +580,7 @@ pub unsafe fn match_statement(comp_ctx: &context::Context, ctx: &mut Context, bu
                     .get_from_scope(ctx.current_scope(), function_name)
                     .expect("Expected type kind.");
 
-                let function = kind.as_function().unwrap_or_else(|_| panic!("Expected function type kind found {:?}.", kind));
+                let function = kind.as_function().unwrap_or_else(|_| panic!("Expected function type kind found {kind:?}."));
 
                 let param_types: Vec<llvm::prelude::LLVMTypeRef> = function.parameter_kinds
                     .iter()
