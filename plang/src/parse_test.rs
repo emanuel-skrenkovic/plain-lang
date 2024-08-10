@@ -33,13 +33,88 @@ mod dot_operator
                 a: i32;
             }
 
-            test := Test { a: 15 };
-            test.a;
+            main :: (): i32
+            {
+                test := Test { a: 15 };
+                result :: test.a;
+            }
         ";
         let Ok((tree, context)) = parse_source(source) else {
             panic!("Expect parse.")
         };
+
+        let ast::Node::Stmt(ast::Stmt::Function { body, .. }) = &tree[1] else {
+            panic!("Expect function statement.")
+        };
+
+        let ast::Stmt::Const { initializer, .. } = &body[1].as_ref() else {
+            panic!("Expect const statement.");
+        };
+
+        let ast::Expr::MemberAccess { left, right } = &initializer.value else {
+            panic!("Expect member access expression.")
+        };
+
+        assert_eq!(context.token_kind(*right), scan::TokenKind::Identifier);
+
+        let ast::Expr::Variable { name } = &left.value else {
+            panic!("Expect variable expression.")
+        };
+
+        assert_eq!(context.token_kind(*name), scan::TokenKind::Identifier);
     }
+
+    #[test]
+    fn nested_member_access()
+    {
+        let source = "
+            Inner :: struct {
+                x: i32;
+            }
+
+            Test :: struct {
+                nested: Inner;
+            }
+
+            main :: (): i32
+            {
+                test := Test { 
+                    nested: Inner { x: 15 },
+                };
+                result :: test.nested.x;
+            }
+        ";
+        let Ok((tree, context)) = parse_source(source) else {
+            panic!("Expect parse.")
+        };
+
+        let ast::Node::Stmt(ast::Stmt::Function { body, .. }) = &tree[2] else {
+            panic!("Expect function statement.")
+        };
+
+        let ast::Stmt::Const { initializer, .. } = &body[1].as_ref() else {
+            panic!("Expect const statement.");
+        };
+
+        let ast::Expr::MemberAccess { left, right } = &initializer.value else {
+            panic!("Expect member access expression.")
+        };
+
+        assert_eq!(context.token_kind(*right), scan::TokenKind::Identifier);
+
+        let ast::Expr::MemberAccess { left, right } = &left.value else {
+            panic!("Expect variable expression.")
+        };
+
+        assert_eq!(context.token_kind(*right), scan::TokenKind::Identifier);
+
+        let ast::Expr::Variable { name } = &left.value else {
+            panic!("Expect variable expression.")
+        };
+
+        assert_eq!(context.token_kind(*name), scan::TokenKind::Identifier);
+    }
+
 }
 
 #[cfg(test)]

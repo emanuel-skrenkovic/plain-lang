@@ -479,7 +479,7 @@ impl Drop for Context
 
 /// # Safety
 /// TODO
-pub unsafe fn compile(comp_ctx: &context::Context, ctx: &mut Context, program: Vec<ast::Node>) -> *mut llvm::LLVMModule
+pub unsafe fn compile(comp_ctx: &context::Context, ctx: &mut Context, program: &[ast::Node]) -> *mut llvm::LLVMModule
 {
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx.llvm_ctx);
 
@@ -492,7 +492,7 @@ pub unsafe fn compile(comp_ctx: &context::Context, ctx: &mut Context, program: V
 
     declare_native_functions(ctx, &mut builder);
 
-    for stmt in &program {
+    for stmt in program {
         let ast::Node::Stmt(stmt) = stmt else {
             continue
         };

@@ -83,7 +83,7 @@ fn main()
     let after_llvm = unsafe {
         let now_llvm = std::time::Instant::now();
         let mut ctx = compiler_llvm::Context::new(symbol_table, type_info);
-        let module = compiler_llvm::compile(&context, &mut ctx, program);
+        let module = compiler_llvm::compile(&context, &mut ctx, &program);
         let llvm_elapsed = now_llvm.elapsed();
 
         compiler_llvm::output_module_bitcode(module).expect("Failed to output LLVM bitcode.");
