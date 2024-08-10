@@ -151,8 +151,8 @@ pub enum Expr
 
     MemberAccess
     {
-        instance_name: scan::TokenId,
-        member_name: scan::TokenId,
+        left: Box<ExprInfo>,
+        right: scan::TokenId,
     },
 
     Return 
@@ -173,7 +173,7 @@ pub enum Expr
 
     ReceiverCall
     {
-        receiver_name: scan::TokenId,
+        receiver: Box<ExprInfo>,
         name: scan::TokenId,
         arguments: Vec<Box<ExprInfo>>,
     },

@@ -19,6 +19,30 @@ fn parse_source(code: &str) -> Result<(Vec<ast::Node>, context::Context), Vec<er
 }
 
 #[cfg(test)]
+mod dot_operator
+{
+    use super::*;
+    use crate::ast;
+    use crate::scan;
+
+    #[test]
+    fn member_access()
+    {
+        let source = "
+            Test :: struct {
+                a: i32;
+            }
+
+            test := Test { a: 15 };
+            test.a;
+        ";
+        let Ok((tree, context)) = parse_source(source) else {
+            panic!("Expect parse.")
+        };
+    }
+}
+
+#[cfg(test)]
 mod function_expression
 {
     use super::*;

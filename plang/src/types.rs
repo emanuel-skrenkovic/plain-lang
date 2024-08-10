@@ -484,18 +484,26 @@ impl <'a> Typer<'a>
                 TypeKind::Unit
             },
 
-            ast::Expr::MemberAccess { instance_name, member_name } => {
-                let instance = self.ctx.token_value(*instance_name);
-                let Some(instance_type) = self.type_info.get(instance) else {
-                    let message = format!("Failed to get type info for {instance}");
-                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *instance_name))
+            ast::Expr::MemberAccess { left, right } => {
+                let left_kind = self.match_expression(&mut left.value)?;
+                left.type_kind = left_kind.clone();
+
+                let Ok(struct_value) = left.type_kind.as_struct() else {
+                    let message = format!("Instance type is not a struct. Found: {left_kind:?}");
+                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *right));
                 };
 
-                let Ok(struct_value) = instance_type.as_struct() else {
-                    let message = format!("Instance type is not a struct. Found: {instance_type:?}");
-                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *instance_name));
+                let member      = self.ctx.token_value(*right);
+                let index       = struct_value.member_names.iter().position(|n| n == member);
+                let Some(index) = index else {
+                    let message = format!("{member} is not a member of {left:?}");
+                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *right));
                 };
 
+                *struct_value.member_types[index].clone()
+
+                /*
+                
                 let member      = self.ctx.token_value(*member_name);
                 let index       = struct_value.member_names.iter().position(|n| n == member);
                 let Some(index) = index else {
@@ -504,6 +512,7 @@ impl <'a> Typer<'a>
                 };
 
                 *struct_value.member_types[index].clone()
+                */
             }
 
             ast::Expr::Return { value, .. } => {
@@ -531,7 +540,10 @@ impl <'a> Typer<'a>
                 *return_kind.clone()
             },
 
-            ast::Expr::ReceiverCall { receiver_name, name, arguments } => {
+            ast::Expr::ReceiverCall { receiver, name, arguments } => {
+                let receiver_kind = self.match_expression(&mut receiver.value)?;
+                receiver.type_kind = receiver_kind;
+
                 for arg in arguments.iter_mut() {
                     let kind     = self.match_expression(&mut arg.value);
                     let Ok(kind) = kind else { continue };
@@ -546,11 +558,13 @@ impl <'a> Typer<'a>
                     return Err(self.ctx.error_at(&message, error::Kind::TypeError, *name));
                 };
 
+                /*
                 let receiver_name_value = self.ctx.token_value(*receiver_name);
                 let Some(TypeKind::Struct { .. }) = self.type_info.get(receiver_name_value) else {
                     let message = format!("'{receiver_name_value}' is not a valid receiver.");
                     return Err(self.ctx.error_at(&message, error::Kind::TypeError, *receiver_name));
                 };
+                */
 
                 *return_kind.clone()
             },

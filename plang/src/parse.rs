@@ -15,7 +15,7 @@ pub struct Function
 
 
 #[repr(u8)]
-#[derive(Copy, Clone, PartialOrd, PartialEq)]
+#[derive(Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 enum Precedence
 {
     None,
@@ -29,15 +29,8 @@ enum Precedence
     Factor,
     Unary,
     Call,
+    Path,
     Primary
-}
-
-impl Precedence
-{
-    pub fn discriminator(self) -> u8
-    {
-        self as u8
-    }
 }
 
 impl TryFrom<u8> for Precedence
@@ -99,7 +92,7 @@ const RULES: [ParseRule; 51] =
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // MinusEqual
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // RightAngleRightAngle
     ParseRule { prefix: None,                              infix: Some(Parser::binary),              precedence: Precedence::Factor }, // LeftAngleLeftAngle
-    ParseRule { prefix: None,                              infix: Some(Parser::dot_operator),        precedence: Precedence::Call }, // Dot
+    ParseRule { prefix: None,                              infix: Some(Parser::dot_operator),        precedence: Precedence::Path }, // Dot
     ParseRule { prefix: None,                              infix: Some(Parser::pipe),                precedence: Precedence::Call }, // PipeRightAngle
     ParseRule { prefix: None,                              infix: None,                              precedence: Precedence::None }, // Comma
     ParseRule { prefix: Some(Parser::unary),               infix: None,                              precedence: Precedence::None }, // Bang
@@ -313,7 +306,7 @@ impl Parser
             panic!("{}", self.reader.error_at("Expect expression.", self.reader.current))
         }
 
-        while prec.discriminator() <= get_rule(self.reader.ctx.token_kind(self.reader.current)).precedence.discriminator() {
+        while prec <= get_rule(self.reader.ctx.token_kind(self.reader.current)).precedence {
             let _ = self.reader.advance();
 
             let Some(infix_rule) = get_rule(self.reader.ctx.token_kind(self.reader.previous)).infix else {
@@ -377,7 +370,7 @@ impl Parser
         let left = self.stack.pop().expect("Expect value in stack.");
 
         let prec = Precedence
-            ::try_from(parse_rule.precedence.discriminator() + 1)
+            ::try_from(parse_rule.precedence as u8 + 1)
             .unwrap();
         self.parse_precedence(prec, context);
 
@@ -420,12 +413,36 @@ impl Parser
 
     fn dot_operator(&mut self, _: &ParsingContext) -> ast::Expr
     {
-        let instance_name = self.reader.peek(-2).unwrap();
+        let left = self.stack.pop().expect("Expect value in stack.");
+        let left = ast::ExprInfo::new(left);
+        let left = Box::new(left);
 
         self.consume(scan::TokenKind::Identifier, "Expect identifier.");
-        let member_name = self.reader.previous;
+        let right = self.reader.previous;
 
-        ast::Expr::MemberAccess { instance_name, member_name }
+        if self.match_token(scan::TokenKind::LeftParen) {
+            let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
+
+            if !self.reader.check_token(scan::TokenKind::RightParen) {
+                loop {
+                    let expr = self.expression(&ParsingContext::Regular);
+                    let expr = ast::ExprInfo::new(expr);
+                    let expr = Box::new(expr);
+                    arguments.push(expr);
+
+                    if !self.match_token(scan::TokenKind::Comma) {
+                        break
+                    }
+                }
+            }
+
+            self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
+            self.match_token(scan::TokenKind::Semicolon);
+
+            return ast::Expr::ReceiverCall { receiver: left, name: right, arguments }
+        }
+
+        ast::Expr::MemberAccess { left, right }
     }
 
     fn literal(&mut self, _: &ParsingContext) -> ast::Expr
@@ -618,37 +635,8 @@ impl Parser
 
         if self.match_token(scan::TokenKind::LeftBracket) && context != &ParsingContext::If {
             return self.struct_expression()
-        } else if self.match_token(scan::TokenKind::Dot) {
-            self.consume(scan::TokenKind::Identifier, "Expect identifier.");
-
-            let member_name = self.reader.previous;
-
-            if self.match_token(scan::TokenKind::LeftParen) {
-                let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
-
-                if !self.reader.check_token(scan::TokenKind::RightParen) {
-                    loop {
-                        let expr = self.expression(&ParsingContext::Regular);
-                        let expr = ast::ExprInfo::new(expr);
-                        let expr = Box::new(expr);
-                        arguments.push(expr);
-
-                        if !self.match_token(scan::TokenKind::Comma) {
-                            break
-                        }
-                    }
-                }
-                self.consume(scan::TokenKind::RightParen, "Expect ')' after function arguments.");
-
-                self.match_token(scan::TokenKind::Semicolon);
-
-                return ast::Expr::ReceiverCall { receiver_name: name, name: member_name, arguments }
-            }
-
-            return ast::Expr::MemberAccess { instance_name: name, member_name };
         }
 
-        // Handles variable expression here.
         self.match_token(scan::TokenKind::Semicolon);
         ast::Expr::Variable { name }
     }

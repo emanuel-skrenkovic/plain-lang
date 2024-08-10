@@ -3,6 +3,11 @@ Inner :: struct
 	a: i32;
 }
 
+Inner :: test2 :: (self): i32 
+{
+	self.a
+}
+
 Values :: struct
 {
     a: i32;
@@ -13,9 +18,8 @@ Values :: struct
 
 Values :: sum :: (self): i32 
 { 
-	test :: (): i32 
-	{
-		self.a + self.b + self.c
+	test :: (): i32 {
+		self.a + self.b + self.c + self.d.a
 	};
 
 	test()
@@ -37,9 +41,11 @@ main :: (): i32
 		},
 	};
 
-	result :: s.sum() + s.mul();
+	s.d.a = 0;
 
-	printf("%d", result);
+	result := s.d.test2();
+
+	printf("%d", s.mul());
 
 	0
 }
