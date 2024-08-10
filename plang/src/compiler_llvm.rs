@@ -996,27 +996,30 @@ pub unsafe fn match_expression
                     llvm::core::LLVMBuildStore(builder.builder, value, *variable_ref)
                 },
 
-                ast::Expr::MemberAccess { instance_name, member_name } => {
-                    let instance_name = comp_ctx.token_value(*instance_name);
+                ast::Expr::MemberAccess { left: instance, right: member_name } => {
+                    let struct_val = match_expression(comp_ctx, ctx, builder, instance)?;
 
-                    let index = ctx
-                        .type_info
-                        .index_of(ctx.current_scope(), instance_name)
-                        .expect("Expect instance_type");
-
-                    let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
-
-                    let struct_value = instance_type
+                    let struct_value = instance.type_kind
                         .as_struct()
-                        .expect("Instance type is not a struct. Found: {instance_type:?}");
-                    
-                    let struct_type = ctx.get_definition(&struct_value.name).unwrap();
+                        .expect("Expect 'struct' instance type.");
 
-                    let Definition::Struct{ type_ref: struct_type, .. } = struct_type else {
-                        panic!("Expect struct definition.")
+                    // In case the struct is passed in as pointer, get the struct type
+                    // from out definitions, as pointers are opaque.
+                    let struct_type_kind_index = ctx
+                        .definition_names
+                        .iter()
+                        .position(|n| n == &struct_value.name)
+                        .unwrap();
+
+                    let Definition::Struct { type_ref: struct_type, .. } = ctx.definitions[struct_type_kind_index] else {
+                        panic!("Expect struct defintion.")
                     };
 
-                    let struct_type = *struct_type;
+                    let struct_pointer  = if is_pointer(struct_val) { 
+                        struct_val 
+                    } else { 
+                        builder.assign_to_address(struct_val, struct_type, "_alloca") 
+                    };
 
                     let member       = comp_ctx.token_value(*member_name);
                     let member_index = struct_value
@@ -1026,13 +1029,6 @@ pub unsafe fn match_expression
                         .unwrap();
 
                     let value_type = to_llvm_type(ctx, &right.type_kind);
-
-                    let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
-                    let struct_pointer  = if is_pointer(*struct_val) { 
-                        *struct_val 
-                    } else { 
-                        builder.assign_to_address(*struct_val, struct_type, "_alloca") 
-                    };
 
                     let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
                     let value      = builder.deref_if_primitive(value_expr, value_type);
@@ -1046,37 +1042,32 @@ pub unsafe fn match_expression
             value
         },
 
-        ast::Expr::MemberAccess { instance_name, member_name } => {
-            let instance_name = comp_ctx.token_value(*instance_name);
+        ast::Expr::MemberAccess { left, right } => {
+            let struct_val = match_expression(comp_ctx, ctx, builder, left)?;
 
-            let index = ctx
-                .type_info
-                .index_of(ctx.current_scope(), instance_name)
-                .expect("Expect instance type.");
-
-            let instance_type = ctx.type_info.get_at(ctx.current_scope(), index);
-
-            let struct_value = instance_type
+            let struct_value = left.type_kind
                 .as_struct()
                 .expect("Expect 'struct' instance type.");
 
+            // In case the struct is passed in as pointer, get the struct type
+            // from out definitions, as pointers are opaque.
             let struct_type_kind_index = ctx
                 .definition_names
                 .iter()
                 .position(|n| n == &struct_value.name)
                 .unwrap();
+
             let Definition::Struct { type_ref: struct_type, .. } = ctx.definitions[struct_type_kind_index] else {
                 panic!("Expect struct defintion.")
             };
 
-            let (struct_val, _) = ctx.module_scopes.get_at(ctx.current_scope(), index);
-            let struct_pointer  = if is_pointer(*struct_val) { 
-                *struct_val 
+            let struct_pointer  = if is_pointer(struct_val) { 
+                struct_val 
             } else { 
-                builder.assign_to_address(*struct_val, struct_type, "_alloca") 
+                builder.assign_to_address(struct_val, struct_type, "_alloca") 
             };
 
-            let member       = comp_ctx.token_value(*member_name);
+            let member       = comp_ctx.token_value(*right);
             let member_index = struct_value
                 .member_names
                 .iter()
@@ -1193,8 +1184,10 @@ pub unsafe fn match_expression
             else       { builder.deref_if_primitive(result, function_type) }
         },
 
-        ast::Expr::ReceiverCall { receiver_name, name, arguments } => {
+        ast::Expr::ReceiverCall { receiver, name, arguments } => {
             let name = comp_ctx.token_value(*name);
+
+            let receiver_val = match_expression(comp_ctx, ctx, builder, receiver).unwrap(/* TODO: remove unwrap */);
 
             let function = ctx
                 .get_definition(name)
@@ -1261,8 +1254,8 @@ pub unsafe fn match_expression
 
             let mut args: Vec<llvm::prelude::LLVMValueRef> = Vec::with_capacity(total_args_count);
 
-            let (receiver, receiver_type) = ctx.module_scopes.get_from_scope(ctx.current_scope(), comp_ctx.token_value(*receiver_name)).unwrap(/* TODO: remove */);
-            let receiver = builder.deref_if_primitive(*receiver, *receiver_type);
+            let receiver_type = to_llvm_type(ctx, &receiver.type_kind);
+            let receiver = builder.deref_if_primitive(receiver_val, receiver_type);
             args.push(receiver);
 
             args.append(&mut initial_args);
