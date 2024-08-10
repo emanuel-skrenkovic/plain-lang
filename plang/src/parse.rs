@@ -1,8 +1,6 @@
 use crate::{ast, context, scan, error};
 
 
-// params, return_type, argument_type_names, body
-
 pub struct Function
 {
     left_paren: scan::TokenId,
