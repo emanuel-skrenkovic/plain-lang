@@ -1,7 +1,7 @@
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum TokenKind
 {
-    LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle,
+    LeftParen, RightParen, LeftBracket, RightBracket, LeftAngle, RightAngle, LeftSquare, RightSquare,
     Questionmark, Semicolon, Colon, ColonColon, ColonEquals, Plus, Minus, Star, Slash,
     Caret,
     Ampersand, Pipe,
@@ -156,6 +156,8 @@ impl Scanner
             ')' => self.emit(TokenKind::RightParen),
             '{' => self.emit(TokenKind::LeftBracket),
             '}' => self.emit(TokenKind::RightBracket),
+            '[' => self.emit(TokenKind::LeftSquare),
+            ']' => self.emit(TokenKind::RightSquare),
             '<' => {
                 if self.match_char('=') {
                     return self.emit(TokenKind::LessEqual)

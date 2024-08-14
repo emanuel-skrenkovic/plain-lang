@@ -27,6 +27,8 @@ impl Source
             | scan::TokenKind::RightBracket 
             | scan::TokenKind::LeftAngle 
             | scan::TokenKind::RightAngle
+            | scan::TokenKind::LeftSquare
+            | scan::TokenKind::RightSquare
             | scan::TokenKind::Questionmark 
             | scan::TokenKind::Semicolon 
             | scan::TokenKind::Colon 

@@ -1,51 +1,12 @@
-Inner :: struct
-{
-	a: i32;
-}
-
-test2 :: (self: Inner): i32 
-{
-	self.a
-}
-
-Values :: struct
-{
-    a: i32;
-	b: i32;
-	c: i32;
-	d: Inner;
-}
-
-sum :: (self: Values): i32 
-{ 
-	test :: (): i32 {
-		self.a + self.b + self.c + self.d.a
-	};
-
-	test()
-}
-
-mul :: (self: Values): i32
-{
-	self.a * self.b * self.c
-}
-
 main :: (): i32
 {
-	s := Values { 
-		a: 11,
-		b: 22, 
-		c: 33,
-		d: Inner {
-		    a: 420,
-		},
-	};
+	c := []i32{666, 64};
 
-	s.d.a = 0;
+	printf("%d !=", c[0]);
 
-	result := s.d.test2();
+	result := c[1];
 
-	printf("%d", s.sum() + result);
+	printf(" %d", result);
 
 	0
 }

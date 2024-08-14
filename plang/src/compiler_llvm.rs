@@ -72,6 +72,13 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
             llvm::core::LLVMPointerType(function_type, 0)
         }
         types::TypeKind::Closure { .. } => todo!(),
+        types::TypeKind::Array { .. } => todo!(),
+        types::TypeKind::Slice { element_kind, size, .. } => {
+            let element_type = to_llvm_type(ctx, element_kind);
+            let length       = u64::try_from(*size).unwrap();
+
+            llvm::core::LLVMArrayType2(element_type, length)
+        },
         types::TypeKind::Struct { value: types::Struct { name, .. }, .. }  => {
             let definition = ctx.get_definition(name).expect("Expect definition.");
 
@@ -261,6 +268,37 @@ impl Builder
             u32::try_from(member_index).unwrap(),
             member_ref_name.value
         )
+    }
+
+    pub unsafe fn array_index
+    (
+        &self,
+        array_pointer: llvm::prelude::LLVMValueRef,
+        element_type: llvm::prelude::LLVMTypeRef,
+        index: llvm::prelude::LLVMValueRef,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        assert!(is_pointer(array_pointer));
+        assert!(!is_pointer(index));
+
+        // We add two to go across
+        // 1. array pointer
+        // 2. zero index member
+        let index = llvm::core::LLVMConstAdd(
+            index,
+            llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(self.ctx), 2, 0)
+        );
+
+        let result = llvm::core::LLVMBuildGEP2
+        (
+            self.builder, 
+            element_type, 
+            array_pointer, 
+            [index,].as_mut_ptr(), 
+            1, 
+            CStr::from_str("_index_result").value,
+        );
+        result
     }
 
     /// # Safety
@@ -1036,6 +1074,20 @@ pub unsafe fn match_expression
                     llvm::core::LLVMBuildStore(builder.builder, value, member_ref)
                 }
 
+                ast::Expr::Index { container, value } => {
+                    let slice_val = match_expression(comp_ctx, ctx, builder, container)?;
+                    let index     = match_expression(comp_ctx, ctx, builder, value)?;
+
+                    let value_type = to_llvm_type(ctx, &right.type_kind);
+
+                    let arr_type = to_llvm_type(ctx, &container.type_kind);
+
+                    let member_pointer = builder.array_index(slice_val, llvm::core::LLVMTypeOf(slice_val), index);
+
+                    let value = builder.deref_if_primitive(value_expr, value_type);
+                    llvm::core::LLVMBuildStore(builder.builder, value, member_pointer)
+               }
+
                 _ => panic!("Unknown left-hand expression in assignment.")
             };
 
@@ -1075,6 +1127,17 @@ pub unsafe fn match_expression
                 .unwrap();
 
             builder.struct_member_access(struct_pointer, struct_type, member_index, member)
+        }
+
+        ast::Expr::Index { container, value } => {
+            let container_value = match_expression(comp_ctx, ctx, builder, container)?;
+
+            let val_type = to_llvm_type(ctx, &value.type_kind);
+            let val      = match_expression(comp_ctx, ctx, builder, value)?;
+            let val      = builder.deref_if_primitive(val, val_type);
+
+            let result = builder.array_index(container_value, val_type, val);
+            builder.deref_if_primitive(result, val_type)
         }
 
         ast::Expr::Return { value, .. } => {
@@ -1331,7 +1394,63 @@ pub unsafe fn match_expression
 
             aggregate
         }
-    };
+
+        ast::Expr::Slice { initial_values, .. } => {
+            let slice_type = &expr.type_kind;
+
+            let types::TypeKind::Slice { element_kind, size, capacity, .. } = slice_type else {
+                panic!("Expect Slice type kind.")
+            };
+
+            let capacity = u64::try_from(*capacity).unwrap();
+
+            let mut initial_values: Vec<llvm::prelude::LLVMValueRef> = initial_values
+                .iter()
+                .map(|v| match_expression(comp_ctx, ctx, builder, v))
+                .map_while(Result::ok)
+                .collect();
+
+            let element_type = to_llvm_type(ctx, element_kind);
+
+            /*
+            let initial_array = llvm
+                ::core
+                ::LLVMConstArray2(element_type, initial_values.as_mut_ptr(), u64::try_from(*size).unwrap());
+            */
+
+            let capacity_value = llvm
+                ::core
+                ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), capacity, 1);
+
+            let arr_ptr = llvm
+                ::core
+                ::LLVMBuildArrayAlloca(builder.builder, element_type, capacity_value, CStr::from_str("_arr_malloc").value);
+
+            let arr_type = llvm::core::LLVMArrayType2(element_type, u64::try_from(*size).unwrap());
+
+            let zero = llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 1);
+
+            for (i, value) in initial_values.iter().enumerate() {
+                let value = builder.deref_if_ptr(*value, element_type);
+                let index = llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), i.try_into().unwrap(), 1);
+
+
+                let location = llvm::core::LLVMBuildInBoundsGEP2(
+                    builder.builder, 
+                    arr_type, 
+                    arr_ptr, 
+                    [zero, index].as_mut_ptr(), 
+                    2, 
+                    CStr::from_str("_index_gep").value,
+                );
+
+                llvm::core::LLVMBuildStore(builder.builder, value, location);
+            }
+
+            // llvm::core::LLVMBuildStore(builder.builder, initial_array, arr_ptr);
+            arr_ptr
+        },
+   };
 
     Ok(result)
 }
