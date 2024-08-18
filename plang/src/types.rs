@@ -712,6 +712,8 @@ impl <'a> Typer<'a>
             }
 
             ast::Expr::Slice { type_name, initial_values } => {
+                const DEFAULT_CAPACITY: usize = 32;
+
                 let element_type_kind = self.type_from_identifier(*type_name)?;
 
                 for value in initial_values.iter_mut() {
@@ -727,8 +729,6 @@ impl <'a> Typer<'a>
                     } 
                 }
 
-                const DEFAULT_CAPACITY: usize = 32;
-
                 let initial_len = initial_values.len();
 
                 let initial_capacity = if initial_len > DEFAULT_CAPACITY {
@@ -741,7 +741,7 @@ impl <'a> Typer<'a>
                         }
                     }
                 } else {
-                    initial_len
+                    DEFAULT_CAPACITY
                 };
 
                 TypeKind::Slice { 
@@ -765,7 +765,7 @@ impl <'a> Typer<'a>
                 todo!("SLICE")
             }
 
-            token_value if token_value.starts_with("[") => {
+            token_value if token_value.starts_with('[') => {
                 todo!("ARRAY MAYBE")
             }
 

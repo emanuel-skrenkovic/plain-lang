@@ -120,7 +120,7 @@ impl Scanner
 
     pub fn scan_tokens(&mut self) -> Tokens
     {
-        let mut tokens: Tokens = Tokens::with_capacity(1024);
+        let mut tokens = Tokens::with_capacity(1024);
 
         loop {
             let current = self.scan_token();

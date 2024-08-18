@@ -254,7 +254,7 @@ impl Parser
 
     pub fn parse(mut self) -> Result<(Vec<ast::Node>, context::Context), Vec<error::Error>>
     {
-        let mut nodes: Vec<ast::Node> = Vec::with_capacity(512 * 8);
+        let mut nodes: Vec<ast::Node> = Vec::with_capacity(1024 * 8);
 
         loop {
             if let scan::TokenKind::End = self.reader.ctx.token_kind(self.reader.current) {
@@ -941,75 +941,18 @@ impl Parser
         self.consume(scan::TokenKind::RightSquare, "Expect '[.");
         self.consume(scan::TokenKind::Identifier, "Expect identifier.");
 
-        let type_name = self.reader.previous.clone();
+        let type_name = self.reader.previous;
         self.consume(scan::TokenKind::LeftBracket, "Expect '{.");
 
         let mut initial_values = Vec::with_capacity(32);
         loop {
-            let expr = self.expression(context);
-            initial_values.push(expr);
-            self.match_token(scan::TokenKind::Comma);
-
             if self.match_token(scan::TokenKind::RightBracket) || self.is_at_end() {
                 break
             }
-        }
 
-        let initial_values = initial_values
-            .into_iter()
-            .map(|e| Box::new(ast::ExprInfo::new(e)))
-            .collect();
-
-        ast::Expr::Slice {
-            type_name,
-            initial_values,
-        }
-    }
-
-    fn index_expression(&mut self, context: &ParsingContext) -> ast::Expr
-    {
-        let container = self.stack.pop().expect("Expect value in stack.");
-        let container = ast::ExprInfo::new(container);
-        let container = Box::new(container);
-
-        let value = self.expression(context);
-        let value = ast::ExprInfo::new(value);
-        let value = Box::new(value);
-
-        self.consume(scan::TokenKind::RightSquare, "Expect ']'.");
-
-        self.match_token(scan::TokenKind::Semicolon);
-
-        ast::Expr::Index { 
-            container,
-            value,
-        }
-    }
-
-    fn slice_expression(&mut self, context: &ParsingContext) -> ast::Expr
-    {
-        /*
-        if self.match_token(scan::TokenKind::Literal) {
-            panic!();
-            // TODO: array
-        }
-        */
-
-        self.consume(scan::TokenKind::RightSquare, "Expect '[.");
-        self.consume(scan::TokenKind::Identifier, "Expect identifier.");
-
-        let type_name = self.reader.previous.clone();
-        self.consume(scan::TokenKind::LeftBracket, "Expect '{.");
-
-        let mut initial_values = Vec::with_capacity(32);
-        loop {
             let expr = self.expression(context);
             initial_values.push(expr);
             self.match_token(scan::TokenKind::Comma);
-
-            if self.match_token(scan::TokenKind::RightBracket) || self.is_at_end() {
-                break
-            }
         }
 
         let initial_values = initial_values

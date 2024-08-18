@@ -73,9 +73,9 @@ pub unsafe fn to_llvm_type(ctx: &Context, type_kind: &types::TypeKind) -> llvm::
         }
         types::TypeKind::Closure { .. } => todo!(),
         types::TypeKind::Array { .. } => todo!(),
-        types::TypeKind::Slice { element_kind, size, .. } => {
+        types::TypeKind::Slice { element_kind, capacity, .. } => {
             let element_type = to_llvm_type(ctx, element_kind);
-            let length       = u64::try_from(*size).unwrap();
+            let length       = u64::try_from(*capacity).unwrap();
 
             llvm::core::LLVMArrayType2(element_type, length)
         },
@@ -270,6 +270,8 @@ impl Builder
         )
     }
 
+    /// # Safety
+    /// TODO
     pub unsafe fn array_index
     (
         &self,
@@ -281,24 +283,15 @@ impl Builder
         assert!(is_pointer(array_pointer));
         assert!(!is_pointer(index));
 
-        // We add two to go across
-        // 1. array pointer
-        // 2. zero index member
-        let index = llvm::core::LLVMConstAdd(
-            index,
-            llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(self.ctx), 2, 0)
-        );
-
-        let result = llvm::core::LLVMBuildGEP2
+        llvm::core::LLVMBuildInBoundsGEP2
         (
             self.builder, 
             element_type, 
             array_pointer, 
-            [index,].as_mut_ptr(), 
+            [index].as_mut_ptr(), 
             1, 
             CStr::from_str("_index_result").value,
-        );
-        result
+        )
     }
 
     /// # Safety
@@ -506,7 +499,7 @@ impl Drop for Context
     {
         unsafe {
             for module in self.modules.drain(..) {
-                llvm::core::LLVMDumpModule(module);
+                // llvm::core::LLVMDumpModule(module);
                 llvm::core::LLVMDisposeModule(module);
             }
 
@@ -688,7 +681,7 @@ pub unsafe fn match_statement(comp_ctx: &context::Context, ctx: &mut Context, bu
 
             let type_ref = to_llvm_type(ctx, &initializer.type_kind);    
             let value    = match_expression(comp_ctx, ctx, builder, initializer).unwrap(/* TODO: remove */);
-            let variable = builder.assign_to_address(value, type_ref, name);
+            let variable = if is_pointer(value) { value } else { builder.assign_to_address(value, type_ref, name) };
 
             ctx.module_scopes.update_in_current(index, (variable, type_ref));
         },
@@ -1080,9 +1073,7 @@ pub unsafe fn match_expression
 
                     let value_type = to_llvm_type(ctx, &right.type_kind);
 
-                    let arr_type = to_llvm_type(ctx, &container.type_kind);
-
-                    let member_pointer = builder.array_index(slice_val, llvm::core::LLVMTypeOf(slice_val), index);
+                    let member_pointer = builder.array_index(slice_val, value_type, index);
 
                     let value = builder.deref_if_primitive(value_expr, value_type);
                     llvm::core::LLVMBuildStore(builder.builder, value, member_pointer)
@@ -1398,13 +1389,13 @@ pub unsafe fn match_expression
         ast::Expr::Slice { initial_values, .. } => {
             let slice_type = &expr.type_kind;
 
-            let types::TypeKind::Slice { element_kind, size, capacity, .. } = slice_type else {
+            let types::TypeKind::Slice { element_kind, capacity, .. } = slice_type else {
                 panic!("Expect Slice type kind.")
             };
 
             let capacity = u64::try_from(*capacity).unwrap();
 
-            let mut initial_values: Vec<llvm::prelude::LLVMValueRef> = initial_values
+            let initial_values: Vec<llvm::prelude::LLVMValueRef> = initial_values
                 .iter()
                 .map(|v| match_expression(comp_ctx, ctx, builder, v))
                 .map_while(Result::ok)
@@ -1412,42 +1403,31 @@ pub unsafe fn match_expression
 
             let element_type = to_llvm_type(ctx, element_kind);
 
-            /*
-            let initial_array = llvm
-                ::core
-                ::LLVMConstArray2(element_type, initial_values.as_mut_ptr(), u64::try_from(*size).unwrap());
-            */
-
             let capacity_value = llvm
                 ::core
                 ::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), capacity, 1);
 
-            let arr_ptr = llvm
-                ::core
-                ::LLVMBuildArrayAlloca(builder.builder, element_type, capacity_value, CStr::from_str("_arr_malloc").value);
+            let arr_ptr = llvm::core::LLVMBuildArrayMalloc
+            (
+                builder.builder, 
+                element_type, 
+                capacity_value, 
+                CStr::new(ctx.name.take().unwrap()).value
+            );
 
-            let arr_type = llvm::core::LLVMArrayType2(element_type, u64::try_from(*size).unwrap());
-
-            let zero = llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), 0, 1);
+            let i32_type = llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx);
 
             for (i, value) in initial_values.iter().enumerate() {
-                let value = builder.deref_if_ptr(*value, element_type);
-                let index = llvm::core::LLVMConstInt(llvm::core::LLVMInt32TypeInContext(ctx.llvm_ctx), i.try_into().unwrap(), 1);
-
-
-                let location = llvm::core::LLVMBuildInBoundsGEP2(
-                    builder.builder, 
-                    arr_type, 
-                    arr_ptr, 
-                    [zero, index].as_mut_ptr(), 
-                    2, 
-                    CStr::from_str("_index_gep").value,
-                );
+                let index    = llvm::core::LLVMConstInt(i32_type, u64::try_from(i).unwrap(), 1);
+                let location = builder.array_index(arr_ptr, element_type, index);
+                let value    = builder.deref_if_ptr(*value, element_type);
 
                 llvm::core::LLVMBuildStore(builder.builder, value, location);
             }
 
-            // llvm::core::LLVMBuildStore(builder.builder, initial_array, arr_ptr);
+            // This is supposed to be a struct containing size, capacity and the pointer
+            // to the element.
+            // Instead of just being a pointer.
             arr_ptr
         },
    };

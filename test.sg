@@ -1,10 +1,10 @@
 main :: (): i32
 {
-	c := []i32{666, 64};
+	c := []i32{13};
 
 	printf("%d !=", c[0]);
 
-	result := c[1];
+	result := c[0];
 
 	printf(" %d", result);
 
