@@ -165,7 +165,7 @@ impl <'a> Typer<'a>
     pub fn match_statement(&mut self, stmt: &mut ast::Stmt) -> Result<ast::Stmt, error::Error>
     {
         match stmt {
-            ast::Stmt::Function { name, params, return_type, param_types, body } | ast::Stmt::ReceiverFunction { name, params, return_type, param_types, body, .. } => {
+            ast::Stmt::Function { name, params, return_type, param_types, body } => {
                 let function_name = self.ctx.token_value(*name).to_owned();
 
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types

@@ -569,7 +569,7 @@ pub unsafe fn match_statement(comp_ctx: &context::Context, ctx: &mut Context, bu
             ctx.module_scopes.add_to_current(name, (std::ptr::null_mut(), type_ref));
         }
 
-        ast::Stmt::Function { name, params, body, .. } | ast::Stmt::ReceiverFunction { name, params, body, .. } => {
+        ast::Stmt::Function { name, params, body, .. } => {
             let function_name = comp_ctx.token_value(*name);
 
             let function_call = if let Some(function_call) = ctx.get_definition(function_name) { 
