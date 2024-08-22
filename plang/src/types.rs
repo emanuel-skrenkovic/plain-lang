@@ -165,7 +165,7 @@ impl <'a> Typer<'a>
     pub fn match_statement(&mut self, stmt: &mut ast::Stmt) -> Result<ast::Stmt, error::Error>
     {
         match stmt {
-            ast::Stmt::Function { name, params, return_type, param_types, body } | ast::Stmt::ReceiverFunction { name, params, return_type, param_types, body, .. } => {
+            ast::Stmt::Function { name, params, return_type, param_types, body } => {
                 let function_name = self.ctx.token_value(*name).to_owned();
 
                 let parameter_kinds: Vec<Box<TypeKind>> = param_types
@@ -553,10 +553,29 @@ impl <'a> Typer<'a>
 
                 let function_name = self.ctx.token_value(*name);
 
-                let Some(TypeKind::Function { value: Function { return_kind, ..  }}) = self.type_info.get(function_name) else {
+                let Some(TypeKind::Function { value: Function { variadic, return_kind, parameter_kinds, ..  }}) = self.type_info.get(function_name) else {
                     let message = format!("'{function_name}' is not a function.");
                     return Err(self.ctx.error_at(&message, error::Kind::TypeError, *name));
                 };
+
+                if &receiver.type_kind != parameter_kinds[0].as_ref() {
+                    let message = format!("Function '{function_name}' does not receive '{:?}'. Expect '{:?}'", receiver.type_kind, parameter_kinds[0].as_ref());
+                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *name));
+                }
+
+                if !variadic && arguments.len() + 1 != parameter_kinds.len() {
+                    let message = format!("Invalid number of arguments. Expected {} found {}.", parameter_kinds.len(), arguments.len());
+                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *name));
+                }
+
+                for i in 0..arguments.len() {
+                    let arg_type_kind   = &arguments[i].type_kind;
+                    let param_type_kind = parameter_kinds[i].as_ref();
+
+                    if arg_type_kind != param_type_kind {
+                        todo!()
+                    }
+                }
 
                 /*
                 let receiver_name_value = self.ctx.token_value(*receiver_name);
