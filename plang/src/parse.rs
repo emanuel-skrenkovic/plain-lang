@@ -515,14 +515,11 @@ impl Parser
             return None
         }
 
-        // Only in global scope.
+        // Function declaration.
+        // This needs to happen only in global scope, in other scopes, the function
+        // value is the result of an expression instead of it being a statement.
         if self.scope_depth == 0 && self.match_token(scan::TokenKind::LeftParen) {
-            // Function declaration.
-            // TODO: this needs to happen only in global scope, in other scopes, the function
-            // value is the result of an expression instead of it being a statement.
-
-            // The below is such a shitty comment. I have not clue what this means.
-
+            
             let function = self.function();
             let body     = function.body.into_iter().map(Box::new).collect();
 
@@ -930,18 +927,6 @@ impl Parser
         ast::Expr::Struct { name, members, values }
     }
 
-    // TODO: So far, piping into a function is only supported with functions
-    // with arity of 1.
-    // Because of the different order of operations when using the pipe operator as opposed to
-    // regular function invocation, I've had to change the way functions are being called.
-    // Previously, the function was pulled back into the stack using Op::GetLocal/Op::GetUpvalue,
-    // and after that the arguments were pulled onto the stack. Now, the Op::GetLocal/Op::GetUpvalue
-    // functionality is baked into Op::Call. This way, the runtime operations regarding function calls
-    // do not depend on that order of values on the stack, instead they reach into the exact stack
-    // position to get the function value.
-    // Again, this makes things way easier when working with different execution orders, such as
-    // when piping things into functions (as arguments are parsed in a different order from regular function
-    // calls, again again).
     fn pipe(&mut self, _: &ParsingContext) -> ast::Expr
     {
         todo!()
@@ -972,10 +957,8 @@ impl Parser
                 member_types.push(type_name);
 
                 self.match_token(scan::TokenKind::Semicolon);
-            } else if self.match_token(scan::TokenKind::ColonColon) {
-                // TODO: method
             } else {
-                panic!("Invalid token.");
+                self.error_at("Invalid token.", self.reader.current);
             }
         }
 

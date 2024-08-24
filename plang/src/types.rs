@@ -201,7 +201,6 @@ impl <'a> Typer<'a>
 
                     if let Ok(kind) = kind {
                         self.type_info.add_to_current(param_name, kind);
-
                         continue
                     };
 
@@ -501,18 +500,6 @@ impl <'a> Typer<'a>
                 };
 
                 *struct_value.member_types[index].clone()
-
-                /*
-                
-                let member      = self.ctx.token_value(*member_name);
-                let index       = struct_value.member_names.iter().position(|n| n == member);
-                let Some(index) = index else {
-                    let message = format!("{member} is not a member of {instance}");
-                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *member_name));
-                };
-
-                *struct_value.member_types[index].clone()
-                */
             }
 
             ast::Expr::Return { value, .. } => {
@@ -576,14 +563,6 @@ impl <'a> Typer<'a>
                         todo!()
                     }
                 }
-
-                /*
-                let receiver_name_value = self.ctx.token_value(*receiver_name);
-                let Some(TypeKind::Struct { .. }) = self.type_info.get(receiver_name_value) else {
-                    let message = format!("'{receiver_name_value}' is not a valid receiver.");
-                    return Err(self.ctx.error_at(&message, error::Kind::TypeError, *receiver_name));
-                };
-                */
 
                 *return_kind.clone()
             },
