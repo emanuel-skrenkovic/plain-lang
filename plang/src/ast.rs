@@ -145,6 +145,12 @@ pub enum Expr
         right: scan::TokenId,
     },
 
+    Index
+    {
+        container: Box<ExprInfo>,
+        value: Box<ExprInfo>,
+    },
+
     Return 
     {
         token: scan::TokenId,
@@ -183,7 +189,13 @@ pub enum Expr
         name: scan::TokenId,
         members: Vec<scan::TokenId>,
         values: Vec<Box<ExprInfo>>,
-    }
+    },
+
+    Slice
+    {
+        type_name: scan::TokenId,
+        initial_values: Vec<Box<ExprInfo>>,
+    },
 }
 
 #[derive(Debug)]

@@ -22,11 +22,12 @@ impl fmt::Display for Error
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
     {
-        let token_len             = self.token.len();
-        let token_underline_range = self.column..=(self.column + token_len);
-        let mut underline         = " ".repeat(self.source_line.len() + token_len);
+        // TODO: Fix this.
+        // let token_len             = self.token.len();
+        // let token_underline_range = self.column..self.column + token_len;
+        // let mut underline         = " ".repeat(self.source_line.len() + token_len);
 
-        underline.replace_range(token_underline_range, &"^".repeat(token_len));
+        // underline.replace_range(token_underline_range, &"^".repeat(token_len));
 
         let line1 = format!
         (
@@ -34,19 +35,21 @@ impl fmt::Display for Error
             line_text=self.source_line, 
             width=6,
         );
+        /*
         let line2 = format!
         (
             "{line:<width$} {line_text}", line="", 
             line_text=underline, 
             width=6,
         );
+        */
 
         write!(
             f,
-            "Error: {}\n\n{}\n{}",
+            "Error: {}\n\n{}\n",
             self.msg,
             line1,
-            line2,
+            // line2,
         )
     }
 }

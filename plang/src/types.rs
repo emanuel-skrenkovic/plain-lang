@@ -30,6 +30,19 @@ pub enum TypeKind
         return_kind: Box<TypeKind>,
     },
 
+    Array
+    {
+        len: usize,
+    },
+
+    Slice
+    {
+        len: usize,
+        size: usize,
+        capacity: usize,
+        element_kind: Box<TypeKind>
+    },
+
     Struct 
     {
         value: Struct,
@@ -502,6 +515,15 @@ impl <'a> Typer<'a>
                 *struct_value.member_types[index].clone()
             }
 
+            ast::Expr::Index { container, value } => {
+                let container_kind = self.match_expression(&mut container.value)?;
+                container.type_kind = container_kind;
+
+                let value_kind = self.match_expression(&mut value.value)?;
+                value.type_kind = value_kind.clone();
+                value_kind
+            }
+
             ast::Expr::Return { value, .. } => {
                 let value_kind = self.match_expression(&mut value.value)?;
                 value.type_kind = value_kind;
@@ -688,6 +710,47 @@ impl <'a> Typer<'a>
 
                 kind.clone()
             }
+
+            ast::Expr::Slice { type_name, initial_values } => {
+                const DEFAULT_CAPACITY: usize = 32;
+
+                let element_type_kind = self.type_from_identifier(*type_name)?;
+
+                for value in initial_values.iter_mut() {
+                    let type_result = self.match_expression(&mut value.value);
+
+                    if let Ok(type_result) = type_result {
+                        if type_result != element_type_kind {
+                            let message = format!("Expected value type {element_type_kind:?}, found {type_result:?}.'");
+                            return Err(self.ctx.error_at(&message, error::Kind::TypeError, *type_name))
+                        }
+
+                        value.type_kind = type_result;
+                    } 
+                }
+
+                let initial_len = initial_values.len();
+
+                let initial_capacity = if initial_len > DEFAULT_CAPACITY {
+                    let mut capacity = DEFAULT_CAPACITY;
+                    loop {
+                        capacity *= 2;
+
+                        if capacity > initial_len {
+                            break capacity
+                        }
+                    }
+                } else {
+                    DEFAULT_CAPACITY
+                };
+
+                TypeKind::Slice { 
+                    len: initial_len,
+                    size: initial_len, 
+                    capacity: initial_capacity, 
+                    element_kind: Box::new(element_type_kind),
+                }
+            },
         };
 
         Ok(kind)
@@ -698,8 +761,16 @@ impl <'a> Typer<'a>
         let token_value = self.ctx.token_value(token);
 
         let kind = match token_value {
+            token_value if token_value.starts_with("[]") => {
+                todo!("SLICE")
+            }
+
+            token_value if token_value.starts_with('[') => {
+                todo!("ARRAY MAYBE")
+            }
+
             "i32"    => TypeKind::I32,
-            "string" => TypeKind::String { len: token_value.len() },
+            "string" => TypeKind::String { len: token_value.len() + 1 },
             "bool"   => TypeKind::Bool,
             _        => {
                 let kind = self.type_info.get(token_value);
