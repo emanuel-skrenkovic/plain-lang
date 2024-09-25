@@ -238,6 +238,9 @@ pub struct Parser
 
     pub scope_depth: usize,
     pub stack: Vec<ast::Expr>,
+
+    pub nodes: Vec<ast::Node>,
+    pub global_nodes: Vec<ast::NodeId>,
 }
 
 impl Parser
@@ -249,13 +252,20 @@ impl Parser
             reader: TokenReader::new(ctx),
             scope_depth: 0,
             stack: Vec::with_capacity(8),
+            nodes: Vec::with_capacity(1024 * 8),
+            global_nodes: Vec::with_capacity(1024),
         }
     }
 
-    pub fn parse(mut self) -> Result<(Vec<ast::Node>, context::Context), Vec<error::Error>>
+    pub fn push_node(&mut self, node: ast::Node) -> ast::NodeId
     {
-        let mut nodes: Vec<ast::Node> = Vec::with_capacity(1024 * 8);
+        let id = self.nodes.len();
+        self.nodes.push(node);
+        id
+    }
 
+    pub fn parse(mut self) -> Result<(Vec<ast::Node>, Vec<ast::NodeId>, context::Context), Vec<error::Error>>
+    {
         loop {
             if let scan::TokenKind::End = self.reader.ctx.token_kind(self.reader.current) {
                 break
@@ -263,18 +273,22 @@ impl Parser
 
             let decl = self.declaration();
             if let ast::Stmt::Expr { ref expr } = decl {
-                if let ast::ExprInfo { value: ast::Expr::Bad { token }, .. } = expr.as_ref() {
+                let expr = &self.nodes[*expr].as_expr().unwrap();
+                if let ast::Expr::Bad { token } = expr {
+                // if let ast::ExprInfo { value: ast::Expr::Bad { token }, .. } = expr.as_ref() {
                     panic!("{token:?}");
                 }
             }
-            nodes.push(ast::Node::Stmt(decl));
+
+            let node_id = self.push_node(ast::Node::stmt_node(decl));
+            self.global_nodes.push(node_id);
         }
 
         if self.reader.ctx.error {
             return Err(self.reader.ctx.errors.clone())
         }
 
-        Ok((nodes, self.reader.ctx))
+        Ok((self.nodes, self.global_nodes, self.reader.ctx))
     }
 
     fn is_at_end(&self) -> bool
@@ -328,10 +342,12 @@ impl Parser
     fn expression_statement(&mut self) -> ast::Stmt
     {
         let expr = self.expression(&ParsingContext::Regular);
-        let expr = ast::ExprInfo::new(expr);
-        let expr = Box::new(expr);
+        // let expr = ast::ExprInfo::new(expr);
+        // let expr = Box::new(expr);
 
-        ast::Stmt::Expr { expr }
+        let id = self.push_node(ast::Node::expr_node(expr));
+
+        ast::Stmt::Expr { expr: id }
     }
 
     fn expression(&mut self, context: &ParsingContext) -> ast::Expr
@@ -344,11 +360,15 @@ impl Parser
     {
         let (left_bracket, right_bracket, statements, value) = self.block();
 
-        let statements = statements.into_iter().map(Box::new).collect();
+        let statements = statements
+            .into_iter()
+            .map(|s| self.push_node(ast::Node::stmt_node(s)))
+            .collect();
 
         let value = if let Some(value)= value {
-            let value = ast::ExprInfo::new(value);
-            let value = Box::new(value);
+            // let value = ast::ExprInfo::new(value);
+            // let value = Box::new(value);
+            let value = self.push_node(ast::Node::expr_node(value));
             Some(value)
         } else {
             None
@@ -376,20 +396,20 @@ impl Parser
 
         let right = self.stack.pop().expect("Expect value in stack.");
 
-        let left  = ast::ExprInfo::new(left);
-        let right = ast::ExprInfo::new(right);
-
         // Assignment is a special case
         if self.reader.ctx.token_kind(operator) == scan::TokenKind::Equal {
-            return ast::Expr::Assignment { 
-                left: Box::new(left),
-                right: Box::new(right),
-            }
+            let left  = self.push_node(ast::Node::expr_node(left));
+            let right = self.push_node(ast::Node::expr_node(right));
+
+            return ast::Expr::Assignment { left, right }
         }
 
+        let left  = self.push_node(ast::Node::expr_node(left));
+        let right = self.push_node(ast::Node::expr_node(right));
+
         let expr = ast::Expr::Binary {
-            left: Box::new(left),
-            right: Box::new(right),
+            left,
+            right,
             operator,
         };
 
@@ -402,8 +422,9 @@ impl Parser
         let operator = self.reader.previous;
 
         let expr = self.expression(&ParsingContext::Regular);
-        let expr = ast::ExprInfo::new(expr);
-        let expr = Box::new(expr);
+        let expr = self.push_node(ast::Node::expr_node(expr));
+        // let expr = ast::ExprInfo::new(expr);
+        // let expr = Box::new(expr);
 
         ast::Expr::Unary {
             operator,
@@ -414,20 +435,22 @@ impl Parser
     fn dot_operator(&mut self, _: &ParsingContext) -> ast::Expr
     {
         let left = self.stack.pop().expect("Expect value in stack.");
-        let left = ast::ExprInfo::new(left);
-        let left = Box::new(left);
+        // let left = ast::ExprInfo::new(left);
+        // let left = Box::new(left);
+        let left = self.push_node(ast::Node::expr_node(left));
 
         self.consume(scan::TokenKind::Identifier, "Expect identifier.");
         let right = self.reader.previous;
 
         if self.match_token(scan::TokenKind::LeftParen) {
-            let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
+            let mut arguments: Vec<ast::NodeId> = Vec::with_capacity(256);
 
             if !self.reader.check_token(scan::TokenKind::RightParen) {
                 loop {
                     let expr = self.expression(&ParsingContext::Regular);
-                    let expr = ast::ExprInfo::new(expr);
-                    let expr = Box::new(expr);
+                    // let expr = ast::ExprInfo::new(expr);
+                    // let expr = Box::new(expr);
+                    let expr = self.push_node(ast::Node::expr_node(expr));
                     arguments.push(expr);
 
                     if !self.match_token(scan::TokenKind::Comma) {
@@ -505,8 +528,9 @@ impl Parser
                     "Expected token '=' or token ':' after type definition.",
                     self.reader.current,
                 );
-                let error = ast::ExprInfo::new(error);
-                let error = Box::new(error);
+                // let error = ast::ExprInfo::new(error);
+                // let error = Box::new(error);
+                let error = self.push_node(ast::Node::expr_node(error));
 
                 return Some(ast::Stmt::Expr { expr: error })
             }
@@ -523,7 +547,11 @@ impl Parser
         if self.scope_depth == 0 && self.match_token(scan::TokenKind::LeftParen) {
             
             let function = self.function();
-            let body     = function.body.into_iter().map(Box::new).collect();
+            let body     = function
+                .body
+                .into_iter()
+                .map(|s| self.push_node(ast::Node::stmt_node(s)))
+                .collect();
 
             return Some
             (
@@ -538,8 +566,9 @@ impl Parser
         }
         
         let initializer = self.expression(&ParsingContext::Regular);
-        let initializer = ast::ExprInfo::new(initializer);
-        let initializer = Box::new(initializer);
+        let initializer = self.push_node(ast::Node::expr_node(initializer));
+        // let initializer = ast::ExprInfo::new(initializer);
+        // let initializer = Box::new(initializer);
 
         self.match_token(scan::TokenKind::Semicolon);
 
@@ -576,8 +605,9 @@ impl Parser
 
                 if !self.match_token(scan::TokenKind::Equal) && !self.match_token(scan::TokenKind::Colon) {
                     let error = self.error_at("Expected token '=' or ':' after type identifier.", self.reader.current);
-                    let error = ast::ExprInfo::new(error);
-                    return Some(ast::Stmt::Expr { expr: Box::new(error) })
+                    // let error = ast::ExprInfo::new(error);
+                    let error = self.push_node(ast::Node::expr_node(error));
+                    return Some(ast::Stmt::Expr { expr: error })
                 }
             }
 
@@ -591,8 +621,9 @@ impl Parser
         }
 
         let initializer = self.expression(&ParsingContext::Regular);
-        let initializer = ast::ExprInfo::new(initializer);
-        let initializer = Box::new(initializer);
+        // let initializer = ast::ExprInfo::new(initializer);
+        // let initializer = Box::new(initializer);
+        let initializer = self.push_node(ast::Node::expr_node(initializer));
 
         self.match_token(scan::TokenKind::Semicolon);
         
@@ -623,8 +654,9 @@ impl Parser
         let token = self.reader.previous;
 
         let value = self.expression(&ParsingContext::Regular);
-        let value = ast::ExprInfo::new(value);
-        let value = Box::new(value);
+        let value = self.push_node(ast::Node::expr_node(value));
+        // let value = ast::ExprInfo::new(value);
+        // let value = Box::new(value);
 
         ast::Expr::Return { token, value }
     }
@@ -632,7 +664,11 @@ impl Parser
     fn function_expression(&mut self, _: &ParsingContext) -> ast::Expr
     {
         let function = self.function();
-        let body     = function.body.into_iter().map(Box::new).collect();
+        let body     = function
+            .body
+            .into_iter()
+            .map(|s| self.push_node(ast::Node::stmt_node(s)))
+            .collect();
 
         ast::Expr::Function { 
             left_paren: function.left_paren,
@@ -722,8 +758,9 @@ impl Parser
             // If the last token in the block is a semicolon, then the block is of Unit type.
             // This is a horrible way to check for this and I should be shamed. Preferably publicly.
             let has_value = self.reader.ctx.token_kind(self.reader.previous) != scan::TokenKind::Semicolon;
+            let last = &self.nodes[*last].as_expr().unwrap();
 
-            has_value || matches!(&last.value, ast::Expr::Return { .. })
+            has_value || matches!(last, ast::Expr::Return { .. })
         } else {
             false
         };
@@ -732,8 +769,10 @@ impl Parser
             let ast::Stmt::Expr { expr } = statements.pop().unwrap() else {
                 panic!("Expect expression statement.")
             };
+
+            let expr = self.nodes[expr].as_expr().unwrap().clone();
             
-            Some(expr.value) 
+            Some(expr) 
         } else { 
             None 
         };
@@ -754,16 +793,18 @@ impl Parser
         // TODO: this is a terrible way to implement this.
         // Would prefer a parameter.
         let condition = self.expression(&ParsingContext::If);
+        let condition = self.push_node(ast::Node::expr_node(condition));
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{");
 
         let branch = self.block_expression(&ParsingContext::Regular);
+        let branch = self.push_node(ast::Node::expr_node(branch));
 
-        let mut conditions: Vec<ast::ExprInfo> = Vec::with_capacity(32);
-        let mut branches: Vec<ast::ExprInfo>   = Vec::with_capacity(32);
+        let mut conditions: Vec<ast::NodeId> = Vec::with_capacity(32);
+        let mut branches: Vec<ast::NodeId>   = Vec::with_capacity(32);
 
-        conditions.push(ast::ExprInfo::new(condition));
-        branches.push(ast::ExprInfo::new(branch));
+        conditions.push(condition);
+        branches.push(branch);
 
         loop {
             if !self.match_token(scan::TokenKind::Else) {
@@ -772,19 +813,21 @@ impl Parser
 
             if self.match_token(scan::TokenKind::If) {
                 let condition = self.expression(&ParsingContext::If);
-                let condition = ast::ExprInfo::new(condition);
+                // let condition = ast::ExprInfo::new(condition);
+                let condition = self.push_node(ast::Node::expr_node(condition));
                 conditions.push(condition);
             }
 
             self.consume(scan::TokenKind::LeftBracket, "Expect '{.");
             
             let branch = self.block_expression(&ParsingContext::Regular);
-            let branch = ast::ExprInfo::new(branch);
+            // let branch = ast::ExprInfo::new(branch);
+            let branch = self.push_node(ast::Node::expr_node(branch));
             branches.push(branch);
         }
 
-        let conditions = conditions.into_iter().map(Box::new).collect();
-        let branches   = branches.into_iter().map(Box::new).collect();
+        // let conditions = conditions.into_iter().map(Box::new).collect();
+        // let branches   = branches.into_iter().map(Box::new).collect();
 
         ast::Expr::If {
             token,
@@ -805,14 +848,16 @@ impl Parser
 
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let stmt = self.declaration();
-            let stmt = Box::new(stmt);
-            body.push(stmt);
+            // let stmt = Box::new(stmt);
+            let id = self.push_node(ast::Node::stmt_node(stmt));
+            body.push(id);
         }
 
         self.match_token(scan::TokenKind::RightBracket);
 
-        let condition = ast::ExprInfo::new(condition);
-        let condition = Box::new(condition);
+        // let condition = ast::ExprInfo::new(condition);
+        let condition = self.push_node(ast::Node::expr_node(condition));
+        // let condition = Box::new(condition);
 
         ast::Stmt::While {
             token: while_token,
@@ -830,24 +875,28 @@ impl Parser
          
         // TODO: no unwrap
         let variable = self.variable_statement().unwrap();
-        let variable = Box::new(variable);
+        let variable = self.push_node(ast::Node::stmt_node(variable));
+        // let variable = Box::new(variable);
 
         let condition = self.expression(&ParsingContext::If);
-        let condition = ast::ExprInfo::new(condition);
-        let condition = Box::new(condition);
+        let condition = self.push_node(ast::Node::expr_node(condition));
+        // let condition = ast::ExprInfo::new(condition);
+        // let condition = Box::new(condition);
 
         // TODO: needs to be just unary statement.
         let advancement = self.declaration();
-        let advancement = Box::new(advancement);
+        let advancement = self.push_node(ast::Node::stmt_node(advancement));
+        // let advancement = Box::new(advancement);
 
         self.consume(scan::TokenKind::LeftBracket, "Expect '{' at the start of the 'for' block.");
 
-        let mut body: Vec<Box<ast::Stmt>> = Vec::with_capacity(512);
+        let mut body: Vec<ast::NodeId> = Vec::with_capacity(512);
 
         // Compile code until the end of the block or the end of the program is reached.
         while !self.reader.check_token(scan::TokenKind::RightBracket) && !self.reader.check_token(scan::TokenKind::End) {
             let declaration = self.declaration();
-            let declaration = Box::new(declaration);
+            // let declaration = Box::new(declaration);
+            let declaration = self.push_node(ast::Node::stmt_node(declaration));
             body.push(declaration);
         }
 
@@ -873,13 +922,14 @@ impl Parser
 
         let function_name_token = token;
 
-        let mut arguments: Vec<Box<ast::ExprInfo>> = Vec::with_capacity(256);
+        let mut arguments: Vec<ast::NodeId> = Vec::with_capacity(256);
 
         if !self.reader.check_token(scan::TokenKind::RightParen) {
             loop {
                 let expr = self.expression(&ParsingContext::Regular);
-                let expr = ast::ExprInfo::new(expr);
-                let expr = Box::new(expr);
+                // let expr = ast::ExprInfo::new(expr);
+                // let expr = Box::new(expr);
+                let expr = self.push_node(ast::Node::expr_node(expr));
                 arguments.push(expr);
 
                 if !self.match_token(scan::TokenKind::Comma) {
@@ -916,8 +966,9 @@ impl Parser
                 self.consume(scan::TokenKind::Colon, "Expect ':' after member initializer name.");
 
                 let expr = self.expression(&ParsingContext::Regular);
-                let expr = ast::ExprInfo::new(expr);
-                let expr = Box::new(expr);
+                // let expr = ast::ExprInfo::new(expr);
+                // let expr = Box::new(expr);
+                let expr = self.push_node(ast::Node::expr_node(expr));
                 values.push(expr);
 
                 self.match_token(scan::TokenKind::Comma);
@@ -951,14 +1002,17 @@ impl Parser
             }
 
             let expr = self.expression(context);
+            let expr = self.push_node(ast::Node::expr_node(expr));
             initial_values.push(expr);
             self.match_token(scan::TokenKind::Comma);
         }
 
+        /*
         let initial_values = initial_values
             .into_iter()
             .map(|e| Box::new(ast::ExprInfo::new(e)))
             .collect();
+        */
 
         ast::Expr::Slice {
             type_name,
@@ -969,12 +1023,14 @@ impl Parser
     fn index_expression(&mut self, context: &ParsingContext) -> ast::Expr
     {
         let container = self.stack.pop().expect("Expect value in stack.");
-        let container = ast::ExprInfo::new(container);
-        let container = Box::new(container);
+        // let container = ast::ExprInfo::new(container);
+        // let container = Box::new(container);
+        let container = self.push_node(ast::Node::expr_node(container));
 
         let value = self.expression(context);
-        let value = ast::ExprInfo::new(value);
-        let value = Box::new(value);
+        // let value = ast::ExprInfo::new(value);
+        // let value = Box::new(value);
+        let value = self.push_node(ast::Node::expr_node(value));
 
         self.consume(scan::TokenKind::RightSquare, "Expect ']'.");
 
@@ -1047,7 +1103,8 @@ impl Parser
 
     fn match_token(&mut self, token_kind: scan::TokenKind) -> bool
     {
-        if self.reader.ctx.token_kind(self.reader.current) != token_kind {
+        let current = self.reader.ctx.token_kind(self.reader.current);
+        if current != token_kind {
             return false
         }
 

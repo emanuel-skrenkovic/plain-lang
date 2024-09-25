@@ -26,7 +26,7 @@ fn main()
     let tokens         = scanner.scan_tokens();
     let after_scanning = now_scan.elapsed();
 
-    let (context, mut program, after_parsing) = {
+    let (context, mut program, global_nodes, after_parsing) = {
         let context = context::Context::new(s, tokens);
 
         let parser = parse::Parser::new(context);
@@ -35,8 +35,8 @@ fn main()
         let result = parser.parse();
         let after_parsing = now_parse.elapsed();
         
-        let (program, context) = match result {
-            Ok((program, context)) => (program, context),
+        let (program, global_nodes, context) = match result {
+            Ok((program, global_nodes, context)) => (program, global_nodes, context),
             Err(errors) => {
                 for err in errors {
                     writeln!(stderr(), "{err}").expect("Failed to write to stderr.");
@@ -46,7 +46,7 @@ fn main()
             }
         };
 
-        (context, program, after_parsing)
+        (context, program, global_nodes, after_parsing)
     };
     
     let (mut context, program, after_transformation) = {
@@ -56,14 +56,12 @@ fn main()
         (context, program, after_transformation)
     };
 
-    let (program, type_info, after_type_analysis) = {
+    let (program, type_info, types, after_type_analysis) = {
         let now_type_analysis    = std::time::Instant::now();
-        let (program, type_info) = types::Typer::new(&mut context).infer_types(program);
+        let (type_info, types) = types::Typer::new(&mut context).infer_types(&program, &global_nodes);
         let after_type_analysis  = now_type_analysis.elapsed();
-        (program, type_info, after_type_analysis)
+        (program, type_info, types, after_type_analysis)
     };
-    
-    println!("{program:#?}");
 
     if context.error {
         for err in context.errors {
@@ -80,18 +78,24 @@ fn main()
         (program, symbol_table, after_semantic_analysis)
     };
 
-    let after_llvm = unsafe {
-        let now_llvm = std::time::Instant::now();
-        let mut ctx = compiler_llvm::Context::new(symbol_table, type_info);
-        let module = compiler_llvm::compile(&context, &mut ctx, &program);
+    // println!("{program:#?}");
+
+    let (after_llvm, after_module_output) = unsafe {
+        let mut ctx      = compiler_llvm::Context::new(symbol_table, type_info, types);
+        let now_llvm     = std::time::Instant::now();
+        let module       = compiler_llvm::compile(&context, &mut ctx, &program, &global_nodes);
         let llvm_elapsed = now_llvm.elapsed();
 
+        let now_module_output = std::time::Instant::now();
         compiler_llvm::output_module_bitcode(module).expect("Failed to output LLVM bitcode.");
+        let after_module_output = now_module_output.elapsed();
 
-        llvm_elapsed
+        (llvm_elapsed, after_module_output)
     };
 
     let now_compile_bytecode = std::time::Instant::now();
+    
+    // println!("{types:#?}");
 
     let _ = std::process::Command::new("clang")
         .args(["-o", "bin/a", "bin/a.bc", "-O0"])
@@ -112,10 +116,10 @@ fn main()
      Type analysis: {after_type_analysis:?}
      Semantic analysis: {after_semantic_analysis:?}
      LLVM backend: {after_llvm:?}.
+     LLVM module output: {after_module_output:?}.
      Compiling bytecode: {after_compiling_bytecode:?}
 
      Total time: {total:?}.
 ");
-
     std::process::exit(0);
 }

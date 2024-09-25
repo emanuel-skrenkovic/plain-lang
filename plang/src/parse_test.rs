@@ -14,7 +14,7 @@ fn parse_source(code: &str) -> Result<(Vec<ast::Node>, context::Context), Vec<er
 
     let context = context::Context::new(source, tokens);
 
-    let (nodes, _) = Parser::new(context.clone()).parse()?;
+    let (nodes, _, _) = Parser::new(context.clone()).parse()?;
     Ok((nodes, context))
 }
 
