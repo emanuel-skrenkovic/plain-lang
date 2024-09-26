@@ -99,7 +99,7 @@ pub fn forward_declarations(ctx: &context::Context, program: &[ast::Node], symbo
                     }
                     Some(i) 
                 }
-                _ => None
+                ast::Node::Expr(_) => None
             }
         })
         .collect();

@@ -55,7 +55,7 @@ pub enum TypeKind
 }
 
 #[derive(Debug)]
-pub struct InvalidKindError(());
+pub struct InvalidKindError();
 
 impl TypeKind 
 {
@@ -66,13 +66,13 @@ impl TypeKind
 
             TypeKind::Reference { underlying } => {
                 let TypeKind::Struct { value } = underlying.as_ref() else {
-                    return Err(InvalidKindError(()))
+                    return Err(InvalidKindError())
                 };
 
                 Ok(value)
             }
 
-            _ => Err(InvalidKindError(()))
+            _ => Err(InvalidKindError())
         }
     }
 
@@ -92,13 +92,13 @@ impl TypeKind
 
             TypeKind::Reference { underlying } => {
                 let TypeKind::Function { value } = underlying.as_ref() else {
-                    return Err(InvalidKindError(()))
+                    return Err(InvalidKindError())
                 };
 
                 Ok(value)
             }
 
-            _ => Err(InvalidKindError(()))
+            _ => Err(InvalidKindError())
         }
     }
 }
@@ -182,12 +182,11 @@ impl <'a> Typer<'a>
     (
         &mut self, 
         nodes: &[ast::Node], 
-        // stmt: &mut ast::Stmt, 
         stmt: ast::NodeId,
         types: &mut Vec<TypeKind>,
     ) -> Result<(), error::Error>
     {
-        let stmt = &mut nodes[stmt].as_stmt().unwrap().clone();
+        let stmt = &mut nodes[stmt].as_stmt().unwrap();
         match stmt {
             ast::Stmt::Function { name, params, return_type, param_types, body } => {
                 let function_name = self.ctx.token_value(*name).to_owned();
@@ -232,7 +231,7 @@ impl <'a> Typer<'a>
                     let _ = self.ctx.error_at(&message, error::Kind::TypeError, *param);
                 }
 
-                for statement in body.iter_mut() {
+                for statement in body {
                     let _ = self.match_statement(nodes, *statement, types);
                 }
 
@@ -286,9 +285,7 @@ impl <'a> Typer<'a>
                     }
                 }
 
-                // let initializer_expr = &mut nodes[*initializer].as_expr().unwrap();
                 types[*initializer] = kind.clone();
-                // initializer.type_kind = kind.clone();
                 self.type_info.update_in_current(index, kind);
             }
 
@@ -307,7 +304,6 @@ impl <'a> Typer<'a>
                     }
                 }
 
-                // initializer.type_kind = kind.clone();
                 types[*initializer] = kind.clone();
                 self.type_info.update_in_current(index, kind);
             }
@@ -322,7 +318,6 @@ impl <'a> Typer<'a>
                 }
 
                 types[*condition] = condition_type;
-                // condition.type_kind = condition_type;
 
                 let _ = self.match_statement(nodes, *advancement, types);
 
@@ -339,21 +334,16 @@ impl <'a> Typer<'a>
                 }
 
                 types[*condition] = condition_type;
-                // condition.type_kind = condition_type;
 
                 for stmt in body {
                     let _ = self.match_statement(nodes, *stmt, types);
                 }
             }
 
-            ast::Stmt::Expr { expr } => {
-                // expr.type_kind = self.match_expression(&mut expr.value, types)?;
-                types[*expr] = self.match_expression(nodes, *expr, types)?;
-            }
+            ast::Stmt::Expr { expr } => types[*expr] = self.match_expression(nodes, *expr, types)?
         }
 
         Ok(())
-        // Ok(stmt.to_owned())
     }
 
     pub fn match_expression(&mut self, nodes: &[ast::Node], expr: ast::NodeId, types: &mut Vec<TypeKind>) -> Result<TypeKind, error::Error>
@@ -373,7 +363,6 @@ impl <'a> Typer<'a>
                     let kind = self.match_expression(nodes, *value, types)?;
 
                     types[*value] = kind.clone();
-                    // value.type_kind = kind.clone();
                     kind
                 } else {
                     TypeKind::Unit
@@ -399,7 +388,6 @@ impl <'a> Typer<'a>
                     }
 
                     types[*condition] = condition_type;
-                    // condition.type_kind = condition_type;
                 }
 
                 for branch in branches {
@@ -410,20 +398,15 @@ impl <'a> Typer<'a>
                     };
 
                    types[*branch] = branch_type;
-                   // 0branch.type_kind = branch_type;
                 }
 
-                // let first = branches[0].type_kind.clone();
-                // let first = &types[branches[0]];
-                /*
-                let same  = branches.iter().map(|b| &b.type_kind).all(|t| t == &first);
+                let first = &types[branches[0]];
+                let same = branches.iter().map(|b| &types[*b]).all(|t| t == first);
                 if !same {
                     return Err(self.ctx.error_at("If block types diverge.", error::Kind::TypeError, *token))
                 }
-                */
 
-                types[branches[0]].clone()
-                // first
+                first.clone()
             },
 
             ast::Expr::Binary { left, right, operator } => {
@@ -473,8 +456,6 @@ impl <'a> Typer<'a>
 
                 types[*left]  = left_type;
                 types[*right] = right_type;
-                // left.type_kind  = left_type;
-                // right.type_kind = right_type;
 
                 kind
             },
@@ -483,22 +464,18 @@ impl <'a> Typer<'a>
                 let kind = self.match_expression(nodes, *expr, types)?;
 
                 types[*expr] = kind.clone();
-                // expr.type_kind = kind;
 
                 match self.ctx.token_kind(*operator) {
                     scan::TokenKind::Minus => {
-                        // if expr.type_kind != TypeKind::I32 {
                         if kind != TypeKind::I32 {
                             let message = format!("'-' operand type must be a number. Found type: {kind:?}");
                             self.ctx.error_at(&message, error::Kind::TypeError, *operator);
                         }
 
                         kind
-                        // expr.type_kind.clone()
                     }
                     scan::TokenKind::Bang => {
                         if kind != TypeKind::Bool {
-                        // if expr.type_kind != TypeKind::Bool {
                             let message = format!("Negation operand type must be a boolean. Found type: {kind:?}");
                             self.ctx.error_at(&message, error::Kind::TypeError, *operator);
                         }
@@ -526,11 +503,9 @@ impl <'a> Typer<'a>
             ast::Expr::Assignment { left, right } => {
                 let right_kind  = self.match_expression(nodes, *right, types)?;
                 types[*right] = right_kind.clone();
-                // right.type_kind = right_kind.clone();
 
                 let left_kind = self.match_expression(nodes, *left, types)?;
                 types[*left] = left_kind.clone();
-                // left.type_kind = left_kind.clone();
 
                 TypeKind::Unit
             },
@@ -538,7 +513,6 @@ impl <'a> Typer<'a>
             ast::Expr::MemberAccess { left, right } => {
                 let left_kind = self.match_expression(nodes, *left, types)?;
                 types[*left] = left_kind.clone();
-                // left.type_kind = left_kind.clone();
 
                 let Ok(struct_value) = types[*left].as_struct() else {
                     let message = format!("Instance type is not a struct. Found: {left_kind:?}");
@@ -557,19 +531,17 @@ impl <'a> Typer<'a>
 
             ast::Expr::Index { container, value } => {
                 let container_kind = self.match_expression(nodes, *container, types)?;
-                types[*container] = container_kind;
-                // container.type_kind = container_kind;
+                types[*container]  = container_kind;
 
                 let value_kind = self.match_expression(nodes, *value, types)?;
-                types[*value] = value_kind.clone();
-                // value.type_kind = value_kind.clone();
+                types[*value]  = value_kind.clone();
+
                 value_kind
             }
 
             ast::Expr::Return { value, .. } => {
                 let value_kind = self.match_expression(nodes, *value, types)?;
                 types[*value] = value_kind;
-                // value.type_kind = value_kind;
 
                 TypeKind::Unit
             }
@@ -579,7 +551,6 @@ impl <'a> Typer<'a>
                     let kind     = self.match_expression(nodes, *arg, types);
                     let Ok(kind) = kind else { continue };
 
-                    // arg.type_kind = kind; 
                     types[*arg] = kind;
                 }
 
@@ -596,14 +567,12 @@ impl <'a> Typer<'a>
             ast::Expr::ReceiverCall { receiver, name, arguments } => {
                 let receiver_kind = self.match_expression(nodes, *receiver, types)?;
                 types[*receiver] = receiver_kind;
-                // receiver.type_kind = receiver_kind;
 
                 for arg in arguments {
                     let kind     = self.match_expression(nodes, *arg, types);
                     let Ok(kind) = kind else { continue };
 
                     types[*arg] = kind;
-                    // arg.type_kind = kind; 
                 }
 
                 let function_name = self.ctx.token_value(*name);
@@ -624,7 +593,6 @@ impl <'a> Typer<'a>
                 }
 
                 for i in 0..arguments.len() {
-                    // let arg_type_kind   = &arguments[i].type_kind;
                     let arg_type_kind   = &types[arguments[i]];
                     let param_type_kind = parameter_kinds[i].as_ref();
 
@@ -746,7 +714,6 @@ impl <'a> Typer<'a>
                         continue
                     }
 
-                    // value.type_kind = kind;
                     types[*value] = kind;
                 }
 
@@ -773,7 +740,6 @@ impl <'a> Typer<'a>
                             return Err(self.ctx.error_at(&message, error::Kind::TypeError, *type_name))
                         }
 
-                        // value.type_kind = type_result;
                         types[*value] = type_result;
                     } 
                 }
@@ -905,22 +871,17 @@ pub fn return_type_analysis
         return_kinds.push(kind);
     }
 
-    // let last = function_body.last().map(|s| s.as_ref().clone());
     let last = function_body.last();
     let last = nodes[*last.unwrap()].as_stmt().unwrap();
     let last = match *last {
-        // Some(ast::Stmt::Expr { expr }) => {
         ast::Stmt::Expr { expr } => {
             // TODO: remove as_expr().
             let expr_value = &nodes[expr].as_expr().unwrap();
 
-            // let value = if let ast::Expr::Return { value, .. } = &expr.value {
             let value = if let ast::Expr::Return { value, .. } = expr_value {
                 types[*value].clone()
-                // value.type_kind.clone()
             } else {
                 types[expr].clone()
-                // expr.type_kind.clone()
             };
 
             Some(value)
@@ -950,6 +911,5 @@ fn return_type_kind(nodes: &[ast::Node], types: &[TypeKind], statement: &ast::St
     };
 
     Some(types[*value].clone())
-    // Some(value.type_kind.clone())
 }
 

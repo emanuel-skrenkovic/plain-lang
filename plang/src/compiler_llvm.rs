@@ -588,7 +588,14 @@ unsafe fn declare_native_functions(ctx: &mut Context, builder: &mut Builder)
 
 /// # Safety
 /// TODO
-pub unsafe fn match_statement(nodes: &[ast::Node], comp_ctx: &context::Context, ctx: &mut Context, builder: &mut Builder, stmt: ast::NodeId)
+pub unsafe fn match_statement
+(
+    nodes: &[ast::Node], 
+    comp_ctx: &context::Context, 
+    ctx: &mut Context, 
+    builder: &mut Builder, 
+    stmt: ast::NodeId,
+)
 {
     let stmt = &nodes[stmt].as_stmt().unwrap();
     match stmt {
@@ -626,7 +633,6 @@ pub unsafe fn match_statement(nodes: &[ast::Node], comp_ctx: &context::Context, 
                     .collect();
 
                 let return_type = to_llvm_type(ctx, &function.return_kind);
-                // let body        = body.iter().map(|s| *s.clone()).collect();
 
                 let function_call = builder
                     .build_function(function_name, param_types, return_type, body.clone(), false, function.variadic);
@@ -675,16 +681,6 @@ pub unsafe fn match_statement(nodes: &[ast::Node], comp_ctx: &context::Context, 
                     };
                 }
             }
-            /*
-            if let Some(ast::Stmt::Expr { expr }) = body.last().map(std::convert::AsRef::as_ref) {
-                let result = match_expression(nodes, comp_ctx, ctx, &mut builder, *expr);
-
-                if let Ok(result) = result {
-                    let result = builder.deref_if_primitive(result, return_type);
-                    llvm::core::LLVMBuildRet(builder.builder, result);
-                };
-            }
-            */
 
             ctx.module_scopes.end_scope();
             ctx.end_function(&mut builder);
@@ -1003,6 +999,7 @@ pub unsafe fn match_expression
         }
 
         ast::Expr::Literal { value } => {
+            #[allow(clippy::match_on_vec_items)]
             match ctx.types[expr] {
                 types::TypeKind::Unit =>
                     llvm
@@ -1806,15 +1803,6 @@ unsafe fn closure
                 };
             }
         }
-        /*
-        if let Some(ast::Stmt::Expr { expr }) = body.last() {
-            let result = match_expression(nodes, comp_ctx, ctx, &mut builder, *expr);
-
-            if let Ok(result) = result {
-                llvm::core::LLVMBuildRet(builder.builder, result);
-            };
-        }
-        */
     };
     
     ctx.module_scopes.end_scope();

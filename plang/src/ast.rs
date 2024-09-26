@@ -2,6 +2,9 @@ use std::collections::VecDeque;
 use crate::{scan, context};
 
 
+#[derive(Debug)]
+pub struct InvalidNodeKindError();
+
 pub type NodeId = usize;
 
 #[derive(Debug, Clone)]
@@ -23,22 +26,22 @@ impl Node
         Node::Stmt(value)
     }
 
-    pub fn as_expr(&self) -> Result<&Expr, ()>
+    pub fn as_expr(&self) -> Result<&Expr, InvalidNodeKindError>
     {
         if let Node::Expr(value) = self {
             return  Ok(value)
         };
 
-        Err(())
+        Err(InvalidNodeKindError())
     }
 
-    pub fn as_stmt(&self) -> Result<&Stmt, ()>
+    pub fn as_stmt(&self) -> Result<&Stmt, InvalidNodeKindError>
     {
         if let Node::Stmt(stmt) = self {
             return  Ok(stmt)
         };
 
-        Err(())
+        Err(InvalidNodeKindError())
     }
 }
 
@@ -281,9 +284,9 @@ impl GlobalsHoistingTransformer
                     deps.append
                     (
                         &mut param_types
-                                .iter()
-                                .map(|t| ctx.token_value(*t))
-                                .collect()
+                            .iter()
+                            .map(|t| ctx.token_value(*t))
+                            .collect()
                     );
 
                     Self::match_statements(ctx, nodes, body, &mut deps);
