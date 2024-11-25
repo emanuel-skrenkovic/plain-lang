@@ -4,7 +4,7 @@ use crate::{ast, scan, scope, context};
 pub struct Function
 {
     pub params: Vec<scan::TokenId>,
-    pub body: Vec<Box::<ast::Stmt>>,
+    pub body: Vec<ast::NodeId>,
 }
 
 #[derive(Clone, Debug)]
@@ -40,7 +40,7 @@ pub enum DeclarationKind
         member_types: Vec<String>,
     },
 
-    Const { initializer: Box<ast::ExprInfo> },
+    Const { initializer: ast::NodeId },
 
     Var,
 }
@@ -88,17 +88,37 @@ pub fn handle_native_functions(symbol_table: &mut SymbolTable)
 
 pub fn forward_declarations(ctx: &context::Context, program: &[ast::Node], symbol_table: &mut SymbolTable)
 {
-    for stmt in program {
-        let ast::Node::Stmt(stmt) = stmt else {
-            continue
-        };
+    let statements_indices: Vec<usize> = program
+        .iter()
+        .enumerate()
+        .filter_map(|(i, n)| {
+            match n {
+                ast::Node::Stmt(stmt) => {
+                    if matches!(stmt, ast::Stmt::Expr { .. }) {
+                        return None
+                    }
+                    Some(i) 
+                }
+                ast::Node::Expr(_) => None
+            }
+        })
+        .collect();
 
-        match_statement(ctx, symbol_table, stmt);
+    for i in statements_indices {
+        match_statement(program, i, ctx, symbol_table);
     }
 }
 
-pub fn match_statement(ctx: &context::Context, symbol_table: &mut SymbolTable, stmt: &ast::Stmt)
+pub fn match_statement
+(
+    nodes: &[ast::Node], 
+    node_id: ast::NodeId, 
+    ctx: &context::Context, 
+    symbol_table: &mut SymbolTable,
+)
 {
+    let stmt = nodes[node_id].as_stmt().unwrap();
+
     match stmt {
         ast::Stmt::Function { name, params, body, .. } => {
             let kind = DeclarationKind::Function { 
@@ -113,7 +133,7 @@ pub fn match_statement(ctx: &context::Context, symbol_table: &mut SymbolTable, s
             symbol_table.module.begin_scope();
 
             for stmt in &body[..body.len()-1] {
-                match_statement(ctx, symbol_table, stmt);
+                match_statement(nodes, *stmt, ctx, symbol_table);
             }
 
             symbol_table.module.end_scope();
@@ -135,7 +155,8 @@ pub fn match_statement(ctx: &context::Context, symbol_table: &mut SymbolTable, s
         }
 
         ast::Stmt::Var { name, initializer, .. } => {
-            if let ast::Expr::Function { params, body, .. } = &initializer.value {
+            let initializer_expr = &nodes[*initializer].as_expr().unwrap();
+            if let ast::Expr::Function { params, body, .. } = &initializer_expr {
                 let kind = DeclarationKind::Function {
                     function: Function {
                         params: params.clone(),
@@ -149,7 +170,7 @@ pub fn match_statement(ctx: &context::Context, symbol_table: &mut SymbolTable, s
 
                 if !body.is_empty() {
                     for stmt in &body[..body.len()-1] {
-                        match_statement(ctx, symbol_table, stmt);
+                        match_statement(nodes, *stmt, ctx, symbol_table);
                     }
                 }
 
@@ -166,7 +187,8 @@ pub fn match_statement(ctx: &context::Context, symbol_table: &mut SymbolTable, s
         }
 
         ast::Stmt::Const { name, initializer, .. } => {
-            if let ast::Expr::Function { params, body, .. } = &initializer.value {
+            let initializer_expr = &nodes[*initializer].as_expr().unwrap();
+            if let ast::Expr::Function { params, body, .. } = &initializer_expr {
                 let function = Function {
                     params: params.clone(),
                     body: body.clone(),
@@ -189,14 +211,14 @@ pub fn match_statement(ctx: &context::Context, symbol_table: &mut SymbolTable, s
 
                 if !body.is_empty() {
                     for stmt in &body[..body.len()-1] {
-                        match_statement(ctx, symbol_table, stmt);
+                        match_statement(nodes, *stmt, ctx, symbol_table);
                     }
                 }
 
                 symbol_table.module.end_scope();
             } else {
                 let declaration = Declaration {
-                    kind: DeclarationKind::Const { initializer: initializer.clone() },
+                    kind: DeclarationKind::Const { initializer: *initializer },
                 };
 
                 symbol_table.module.add_to_current(ctx.token_value(*name), declaration);

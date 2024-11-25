@@ -1,34 +1,47 @@
 use std::collections::VecDeque;
-use crate::{scan, context, types};
+use crate::{scan, context};
 
+
+#[derive(Debug)]
+pub struct InvalidNodeKindError();
+
+pub type NodeId = usize;
 
 #[derive(Debug, Clone)]
 pub enum Node
 {
     Stmt(Stmt),
-
-    Expr
-    {
-        value: Expr,
-        type_kind: types::TypeKind,
-    },
+    Expr(Expr),
 }
 
-#[derive(Debug, Clone)]
-pub struct ExprInfo
+impl Node
 {
-    pub value: Expr,
-    pub type_kind: types::TypeKind,
-}
-
-impl ExprInfo
-{
-    pub fn new(value: Expr) -> Self
+    pub fn expr_node(value: Expr) -> Node
     {
-        Self {
-            value,
-            type_kind: types::TypeKind::Unknown,
-        }
+        Node::Expr(value)
+    }
+
+    pub fn stmt_node(value: Stmt) -> Node
+    {
+        Node::Stmt(value)
+    }
+
+    pub fn as_expr(&self) -> Result<&Expr, InvalidNodeKindError>
+    {
+        if let Node::Expr(value) = self {
+            return  Ok(value)
+        };
+
+        Err(InvalidNodeKindError())
+    }
+
+    pub fn as_stmt(&self) -> Result<&Stmt, InvalidNodeKindError>
+    {
+        if let Node::Stmt(stmt) = self {
+            return  Ok(stmt)
+        };
+
+        Err(InvalidNodeKindError())
     }
 }
 
@@ -48,42 +61,42 @@ pub enum Stmt
         params: Vec<scan::TokenId>,
         return_type: Option<scan::TokenId>,
         param_types: Vec<scan::TokenId>,
-        body: Vec<Box<Stmt>>,
+        body: Vec<NodeId>,
     },
 
     Var
     {
         name: scan::TokenId,
         type_name: Option<scan::TokenId>,
-        initializer: Box<ExprInfo>,
+        initializer: NodeId,
     },
 
     Const
     {
         name: scan::TokenId,
         type_name: Option<scan::TokenId>,
-        initializer: Box<ExprInfo>,
+        initializer: NodeId,
     },
 
     For 
     {
         token: scan::TokenId,
-        initializer: Box<Stmt>,
-        condition: Box<ExprInfo>,
-        advancement: Box<Stmt>,
-        body: Vec<Box<Stmt>>,
+        initializer: NodeId,
+        condition: NodeId,
+        advancement: NodeId,
+        body: Vec<NodeId>,
     },
 
     While
     {
         token: scan::TokenId,
-        condition: Box<ExprInfo>,
-        body: Vec<Box<Stmt>>,
+        condition: NodeId,
+        body: Vec<NodeId>,
     },
 
     Expr
     {
-        expr: Box<ExprInfo>,
+        expr: NodeId,
     }
 }
 
@@ -99,28 +112,28 @@ pub enum Expr
     {
         left_bracket: scan::TokenId,
         right_bracket: scan::TokenId,
-        statements: Vec<Box<Stmt>>,
-        value: Option<Box<ExprInfo>>,
+        statements: Vec<NodeId>,
+        value: Option<NodeId>,
     },
 
     If
     {
         token: scan::TokenId,
-        conditions: Vec<Box<ExprInfo>>,
-        branches: Vec<Box<ExprInfo>>,
+        conditions: Vec<NodeId>,
+        branches: Vec<NodeId>,
     },
 
     Binary
     {
-        left: Box<ExprInfo>,
-        right: Box<ExprInfo>,
+        left: NodeId,
+        right: NodeId,
         operator: scan::TokenId
     },
 
     Unary 
     {
         operator: scan::TokenId,
-        expr: Box<ExprInfo>,
+        expr: NodeId,
     },
 
     Literal
@@ -135,20 +148,20 @@ pub enum Expr
 
     Assignment
     {
-        left: Box<ExprInfo>,
-        right: Box<ExprInfo>,
+        left: NodeId,
+        right: NodeId,
     },
 
     MemberAccess
     {
-        left: Box<ExprInfo>,
+        left: NodeId,
         right: scan::TokenId,
     },
 
     Index
     {
-        container: Box<ExprInfo>,
-        value: Box<ExprInfo>,
+        container: NodeId,
+        value: NodeId,
     },
 
     Return 
@@ -158,20 +171,20 @@ pub enum Expr
         // TODO: this should be Option<T> because return; is viable
         // in functions returning nothing.
         // Time to decide on Unit vs Void.
-        value: Box<ExprInfo>,
+        value: NodeId,
     },
 
     Call
     {
         name: scan::TokenId,
-        arguments: Vec<Box<ExprInfo>>,
+        arguments: Vec<NodeId>,
     },
 
     ReceiverCall
     {
-        receiver: Box<ExprInfo>,
+        receiver: NodeId,
         name: scan::TokenId,
-        arguments: Vec<Box<ExprInfo>>,
+        arguments: Vec<NodeId>,
     },
 
     Function
@@ -181,20 +194,20 @@ pub enum Expr
         params: Vec<scan::TokenId>,
         return_type: Option<scan::TokenId>,
         param_types: Vec<scan::TokenId>,
-        body: Vec<Box<Stmt>>,
+        body: Vec<NodeId>,
     },
 
     Struct 
     {
         name: scan::TokenId,
         members: Vec<scan::TokenId>,
-        values: Vec<Box<ExprInfo>>,
+        values: Vec<NodeId>,
     },
 
     Slice
     {
         type_name: scan::TokenId,
-        initial_values: Vec<Box<ExprInfo>>,
+        initial_values: Vec<NodeId>,
     },
 }
 
@@ -225,14 +238,14 @@ impl GlobalsHoistingTransformer
                 Node::Stmt(
                     Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
                 ) => ctx.token_value(*name),
-                _ => unreachable!(),
+                _ => return std::cmp::Ordering::Equal,
             };
 
             let b_name = match b {
                 Node::Stmt(
                     Stmt::Struct { name, .. } | Stmt::Function { name, .. } | Stmt::Const { name, .. }
                 ) => ctx.token_value(*name),
-                _ => unreachable!(),
+                _ => return std::cmp::Ordering::Equal,
             };
 
             let a_pos = order.iter().position(|n| n == &a_name).expect("Expect defined order.");
@@ -249,7 +262,8 @@ impl GlobalsHoistingTransformer
         let mut dependencies: Vec<Vec<&'a str>> = Vec::with_capacity(nodes_count);
         let mut degrees: Vec<usize>             = Vec::with_capacity(nodes_count);
 
-        for node in nodes {
+        for i in 0..nodes.len() {
+            let node = &nodes[i];
             match node {
                 Node::Stmt(Stmt::Struct { name, member_types, .. }) => {
                     declarations.push(ctx.token_value(*name));
@@ -270,12 +284,12 @@ impl GlobalsHoistingTransformer
                     deps.append
                     (
                         &mut param_types
-                                .iter()
-                                .map(|t| ctx.token_value(*t))
-                                .collect()
+                            .iter()
+                            .map(|t| ctx.token_value(*t))
+                            .collect()
                     );
 
-                    Self::match_statements(ctx, body, &mut deps);
+                    Self::match_statements(ctx, nodes, body, &mut deps);
 
                     declarations.push(ctx.token_value(*name));
                     dependencies.push(deps);
@@ -284,7 +298,8 @@ impl GlobalsHoistingTransformer
 
                 Node::Stmt(Stmt::Const { name, initializer, .. }) => {
                     let mut deps = Vec::with_capacity(64);
-                    Self::match_expression(ctx, &initializer.value, &mut deps);
+                    let initializer_expr = &nodes[*initializer];
+                    Self::match_expression(ctx, nodes, initializer_expr.as_expr().unwrap(), &mut deps);
 
                     declarations.push(ctx.token_value(*name));
                     dependencies.push(deps);
@@ -353,10 +368,12 @@ impl GlobalsHoistingTransformer
         order
     }
 
-    fn match_statements<'a>(ctx: &'a context::Context, statements: &[Box<Stmt>], deps: &mut Vec<&'a str>)
+    fn match_statements<'a>(ctx: &'a context::Context, nodes: &[Node], indices: &[usize], deps: &mut Vec<&'a str>)
     {
-        for stmt in statements.iter().map(std::convert::AsRef::as_ref) {
-            match stmt {
+        for i in indices {
+            let stmt = &nodes[*i];
+        // for stmt in statements.iter().map(std::convert::AsRef::as_ref) {
+            match stmt.as_stmt().unwrap() {
                 Stmt::Struct { member_types, .. } => {
                     let mut type_names = member_types
                         .iter()
@@ -375,76 +392,94 @@ impl GlobalsHoistingTransformer
                             .map(|t| ctx.token_value(*t))
                             .collect()
                     );
-                    Self::match_statements(ctx, body, &mut nested_deps);
+                    Self::match_statements(ctx, nodes, body, &mut nested_deps);
 
                     deps.append(&mut nested_deps);
                 }
 
                 Stmt::Var { initializer, .. } | Stmt::Const { initializer, .. } 
-                    => Self::match_expression(ctx, &initializer.value, deps),
+                    => {
+                    let initializer_expr = &nodes[*initializer];
+                    Self::match_expression(ctx, nodes, initializer_expr.as_expr().unwrap(), deps);
+                }
 
-                Stmt::Expr { expr } => Self::match_expression(ctx, &expr.value, deps),
+                Stmt::Expr { expr } => {
+                    let expr = &nodes[*expr];
+                    Self::match_expression(ctx, nodes, expr.as_expr().unwrap(), deps);
+                }
 
                 _ => ()
             }
         }
     }
 
-    fn match_expression<'a>(ctx: &'a context::Context, expr: &Expr, deps: &mut Vec<&'a str>)
+    fn match_expression<'a>(ctx: &'a context::Context, nodes: &[Node], expr: &Expr, deps: &mut Vec<&'a str>)
     {
         match expr {
             Expr::Block { statements, value, .. } => {
-                Self::match_statements(ctx, statements, deps);
+                Self::match_statements(ctx, nodes, statements, deps);
 
                 if let Some(value) = value {
-                    Self::match_expression(ctx, &value.value, deps);
+                    let expr = &nodes[*value].as_expr().unwrap();
+                    Self::match_expression(ctx, nodes, expr, deps);
                 }
             },
 
             Expr::If { conditions, branches, .. } => {
                 for condition in conditions {
-                    Self::match_expression(ctx, &condition.value, deps);
+                    let expr = &nodes[*condition].as_expr().unwrap();
+                    Self::match_expression(ctx, nodes, expr, deps);
                 }
                 
                 for branch in branches {
-                    let Expr::Block { statements, value, .. } = &branch.value else {
+                    let branch = &nodes[*branch].as_expr().unwrap();
+                    let Expr::Block { statements, value, .. } = branch else {
                         panic!()
                     };
 
-                    Self::match_statements(ctx, statements, deps);
+                    Self::match_statements(ctx, nodes, statements, deps);
 
                     if let Some(value) = value {
-                        Self::match_expression(ctx, &value.value, deps);
+                        let expr = &nodes[*value].as_expr().unwrap();
+                        Self::match_expression(ctx, nodes, expr, deps);
                     }
                 }
             },
 
             Expr::Binary { left, right, .. } => {
-                Self::match_expression(ctx, &left.value, deps);
-                Self::match_expression(ctx, &right.value, deps);
+                let left  = &nodes[*left].as_expr().unwrap();
+                let right = &nodes[*right].as_expr().unwrap();
+
+                Self::match_expression(ctx, nodes, left, deps);
+                Self::match_expression(ctx, nodes, right, deps);
             },
 
             // TODO: later
             Expr::Variable { name, .. } => deps.push(ctx.token_value(*name)),
 
             Expr::Assignment { left, right } => {
-                Self::match_expression(ctx, &right.value, deps);
-                Self::match_expression(ctx, &left.value, deps);
+                let left  = &nodes[*left].as_expr().unwrap();
+                let right = &nodes[*right].as_expr().unwrap();
+
+                Self::match_expression(ctx, nodes, right, deps);
+                Self::match_expression(ctx, nodes, left, deps);
             }
 
             Expr::Call { name, arguments } => {
                 for arg in arguments {
-                    Self::match_expression(ctx, &arg.value, deps);
+                    let arg_expr = &nodes[*arg].as_expr().unwrap();
+                    Self::match_expression(ctx, nodes, arg_expr, deps);
                 }
                 deps.push(ctx.token_value(*name));
             },
 
-            Expr::Function { body, .. } => Self::match_statements(ctx, body, deps),
+            Expr::Function { body, .. } => Self::match_statements(ctx, nodes, body, deps),
 
             Expr::Struct { name, values, .. } => {
                 deps.push(ctx.token_value(*name));
                 for value in values {
-                    Self::match_expression(ctx, &value.value, deps);
+                    let val_expr = &nodes[*value].as_expr().unwrap();
+                    Self::match_expression(ctx, nodes, val_expr, deps);
                 }
             }
 
