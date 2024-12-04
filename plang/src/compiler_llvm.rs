@@ -346,9 +346,7 @@ impl Builder
             }
         }
 
-        if is_pointer {
-            return value
-        }
+        if is_pointer { return value }
 
         // Take pointer of if passing pointer type as value.
         self.assign_to_address(value, source_type, "_alloc")
@@ -1024,7 +1022,7 @@ pub unsafe fn match_expression
                     let val     = CStr::new(trimmed);
                     llvm
                         ::core
-                        ::LLVMConstStringInContext(ctx.llvm_ctx, val.value, value.len().try_into().unwrap(), 0)
+                        ::LLVMConstStringInContext2(ctx.llvm_ctx, val.value, value.len().try_into().unwrap(), 0)
                 }
 
                 _ => panic!("Unrecognized literal type {expr:#?}"),
@@ -1492,27 +1490,27 @@ pub unsafe fn binary_expr
 
             scan::TokenKind::LeftAngle => llvm
                 ::core
-                ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLT, lhs, rhs, binary_cstr!("_lt_result")),
 
             scan::TokenKind::RightAngle => llvm
                 ::core
-                ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGT, lhs, rhs, binary_cstr!("_gt_result")),
 
             scan::TokenKind::EqualEqual => llvm
                 ::core
-                ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntEQ, lhs, rhs, binary_cstr!("_eq_result")),
 
             scan::TokenKind::BangEqual => llvm
                 ::core
-                ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntNE, lhs, rhs, binary_cstr!("_ne_result")),
 
             scan::TokenKind::GreaterEqual => llvm
                 ::core
-                ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSGE, lhs, rhs, binary_cstr!("_ge_result")),
 
             scan::TokenKind::LessEqual => llvm
                 ::core
-                ::LLVMConstICmp(llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs),
+                ::LLVMBuildICmp(builder.builder, llvm::LLVMIntPredicate::LLVMIntSLE, lhs, rhs, binary_cstr!("_le_result")),
 
             scan::TokenKind::Ampersand | scan::TokenKind::AmpersandAmpersand => llvm
                 ::core
@@ -1528,7 +1526,7 @@ pub unsafe fn binary_expr
 
             scan::TokenKind::LeftAngleLeftAngle => llvm
                 ::core
-                ::LLVMConstShl(lhs, rhs),
+                ::LLVMBuildShl(builder.builder, lhs, rhs, binary_cstr!("_shl_result")),
 
             scan::TokenKind::Caret => llvm
                 ::core
