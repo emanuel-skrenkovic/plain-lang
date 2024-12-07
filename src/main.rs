@@ -81,9 +81,20 @@ fn main()
     // println!("{program:#?}");
 
     let (after_llvm, after_module_output) = unsafe {
-        let mut ctx      = compiler_llvm::Context::new(symbol_table, type_info, types);
         let now_llvm     = std::time::Instant::now();
-        let module       = compiler_llvm::compile(&context, &mut ctx, &program, &global_nodes);
+
+        let module = compiler_llvm::compile
+        (
+            &compiler_llvm::QueryData {
+                source: context,
+                nodes: program,
+                global_nodes,
+                symbol_table,
+                type_info,
+                types,
+            }
+        );
+
         let llvm_elapsed = now_llvm.elapsed();
 
         let now_module_output = std::time::Instant::now();

@@ -467,11 +467,11 @@ impl Parser
         match self.reader.ctx.token_kind(self.reader.current) {
             scan::TokenKind::While => {
                 let _ = self.reader.advance();
-                self._while()
+                self.while_statement()
             },
             scan::TokenKind::For => {
                 let _ = self.reader.advance();
-                self._for()
+                self.for_statement()
             }
             scan::TokenKind::Identifier => {
                 self.declaration_statement().unwrap_or_else(|| self.expression_statement())
@@ -488,7 +488,7 @@ impl Parser
         let second_next_kind = self.reader.ctx.token_kind(self.reader.peek(2)?);
 
         if second_next_kind == scan::TokenKind::Struct {
-            return Some(self._struct());
+            return Some(self.struct_definition());
         }
 
         let type_definition = next_kind == scan::TokenKind::Colon;
@@ -809,7 +809,7 @@ impl Parser
         }
     }
 
-    fn _while(&mut self) -> ast::Stmt
+    fn while_statement(&mut self) -> ast::Stmt
     {
         let while_token = self.reader.previous;
         let condition   = self.expression(&ParsingContext::If);
@@ -839,7 +839,7 @@ impl Parser
     // In this implementation, all the parts of a for
     // loop declaration are required. While and iterators (when I get to that)
     // will make up for everything.
-    fn _for(&mut self) -> ast::Stmt
+    fn for_statement(&mut self) -> ast::Stmt
     {
         let for_token = self.reader.previous;
          
@@ -1003,7 +1003,7 @@ impl Parser
         todo!()
     }
 
-    fn _struct(&mut self) -> ast::Stmt
+    fn struct_definition(&mut self) -> ast::Stmt
     {
         self.consume(scan::TokenKind::Identifier, "Expect struct name identifier.");
         let struct_name = self.reader.previous;
