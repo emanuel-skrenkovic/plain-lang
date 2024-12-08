@@ -98,24 +98,24 @@ fn main()
         let llvm_elapsed = now_llvm.elapsed();
 
         let now_module_output = std::time::Instant::now();
-        compiler_llvm::output_module_bitcode(module).expect("Failed to output LLVM bitcode.");
+        module.output_module_bitcode();
         let after_module_output = now_module_output.elapsed();
 
         (llvm_elapsed, after_module_output)
     };
 
-    let now_compile_bytecode = std::time::Instant::now();
+    let now_linking_bytecode = std::time::Instant::now();
     
     // println!("{types:#?}");
 
     let _ = std::process::Command::new("clang")
-        .args(["-o", "bin/a", "bin/a.bc", "-O0"])
+        .args(["-o", "bin/a", "bin/a.o", "-O0"])
         .spawn()
         .unwrap()
         .wait_with_output()
         .expect("Failed to compile LLVM bytecode");
 
-    let after_compiling_bytecode = now_compile_bytecode.elapsed();
+    let after_linking_bytecode = now_linking_bytecode.elapsed();
 
     let total = now.elapsed();
     println!
@@ -128,7 +128,7 @@ fn main()
      Semantic analysis: {after_semantic_analysis:?}
      LLVM backend: {after_llvm:?}.
      LLVM module output: {after_module_output:?}.
-     Compiling bytecode: {after_compiling_bytecode:?}
+     Linking bytecode: {after_linking_bytecode:?}
 
      Total time: {total:?}.
 ");

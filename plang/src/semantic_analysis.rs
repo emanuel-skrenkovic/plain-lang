@@ -91,16 +91,14 @@ pub fn forward_declarations(ctx: &context::Context, program: &[ast::Node], symbo
     let statements_indices: Vec<usize> = program
         .iter()
         .enumerate()
-        .filter_map(|(i, n)| {
-            match n {
-                ast::Node::Stmt(stmt) => {
-                    if matches!(stmt, ast::Stmt::Expr { .. }) {
-                        return None
-                    }
-                    Some(i) 
+        .filter_map(|(i, n)| match n {
+            ast::Node::Stmt(stmt) => {
+                if matches!(stmt, ast::Stmt::Expr { .. }) {
+                    return None
                 }
-                ast::Node::Expr(_) => None
+                Some(i) 
             }
+            ast::Node::Expr(_) => None
         })
         .collect();
 

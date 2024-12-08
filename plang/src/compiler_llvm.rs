@@ -6,6 +6,48 @@ use macros::binary_cstr;
 use crate::{ast, context, scope, scan, semantic_analysis, types};
 
 
+struct CStr
+{
+    value: *mut i8,
+    len: usize,
+}
+
+impl CStr
+{
+    pub fn new(value: String) -> Self
+    {
+        use std::ffi;
+
+        let len   = value.len();
+        let value = ffi::CString::new(value).unwrap();
+        let value = value.into_raw();
+
+        Self { value, len }
+    }
+
+    pub fn from_str(value: &str) -> Self
+    {
+        use std::ffi;
+
+        let len   = value.len();
+        let value = ffi::CString::new(value).unwrap();
+        let value = value.into_raw();
+
+        Self { value, len }
+    }
+}
+
+impl Drop for CStr
+{
+    fn drop(&mut self)
+    {
+        unsafe {
+            use std::ffi;
+            let _ = ffi::CString::from_raw(self.value);
+        }
+    }
+}
+
 const PRIMITIVE_TYPES: [llvm::LLVMTypeKind; 3] = [
     llvm::LLVMTypeKind::LLVMIntegerTypeKind,
     llvm::LLVMTypeKind::LLVMVoidTypeKind,
@@ -497,21 +539,66 @@ impl Builder
             types::TypeKind::Reference { .. } => llvm::core::LLVMPointerTypeInContext(self.ctx, 0)
         }
     }
+
+    /// # Safety
+    /// TODO: remove - this is just for janky testing.
+    pub unsafe fn output_module_bitcode(&self)
+    {
+        let triple     = llvm::target_machine::LLVMGetDefaultTargetTriple();
+        let mut error  = CStr::from_str("");
+        let mut target = std::ptr::null_mut();
+
+        let success = llvm::target_machine::LLVMGetTargetFromTriple(triple, &mut target, &mut error.value);
+        assert!
+        (
+            success == 0,
+            "Error creating target triple: {}", 
+            std::ffi::CStr::from_ptr(error.value).to_string_lossy(),
+        );
+
+        let cpu      = CStr::from_str("generic");
+        let features = CStr::from_str("");
+
+        let target_machine = llvm::target_machine::LLVMCreateTargetMachine
+        (
+            target, 
+            triple, 
+            cpu.value, 
+            features.value, 
+            llvm::target_machine::LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault, 
+            llvm::target_machine::LLVMRelocMode::LLVMRelocDefault, 
+            llvm::target_machine::LLVMCodeModel::LLVMCodeModelDefault,
+        );
+
+        let output_path      = CStr::from_str("bin/a.o");
+        let mut output_error = CStr::from_str("");
+
+        let success = llvm::target_machine::LLVMTargetMachineEmitToFile(
+            target_machine, 
+            self.module, 
+            output_path.value, 
+            llvm::target_machine::LLVMCodeGenFileType::LLVMObjectFile, 
+            &mut output_error.value,
+        );
+        assert!
+        (
+            success == 0, 
+            "Error emitting to file: {}", 
+            std::ffi::CStr::from_ptr(output_error.value).to_string_lossy(),
+        );
+    }
 }
 
 impl Drop for Builder
 {
     fn drop(&mut self)
     {
-        // FIXME: module and context dispose need to happen at a later point.
-        // Here is before the module is output, so explosions happen.
         unsafe {
             for module in self.modules.drain(..) {
                 llvm::core::LLVMDumpModule(module);
-                // llvm::core::LLVMDisposeModule(module);
+                llvm::core::LLVMDisposeModule(module);
             }
-
-            // llvm::core::LLVMContextDispose(self.ctx);
+            llvm::core::LLVMContextDispose(self.ctx);
         }
     }
 }
@@ -530,11 +617,19 @@ pub struct QueryData
 
 /// # Safety
 /// TODO
-pub unsafe fn compile
-(
-    query: &QueryData,
-) -> *mut llvm::LLVMModule
+pub unsafe fn init_llvm()
 {
+    llvm::target::LLVM_InitializeNativeTarget();
+    llvm::target::LLVM_InitializeNativeAsmPrinter();
+    llvm::target::LLVM_InitializeNativeAsmParser();
+}
+
+/// # Safety
+/// TODO
+pub unsafe fn compile(query: &QueryData) -> Builder
+{
+    init_llvm();
+
     let ctx = llvm::core::LLVMContextCreate();
     let module = llvm::core::LLVMModuleCreateWithNameInContext(binary_cstr!("main"), ctx);
 
@@ -554,7 +649,7 @@ pub unsafe fn compile
     builder.module_scopes.end_scope();
 
     verify_module(module);
-    module
+    builder
 }
 
 unsafe fn declare_native_functions(query: &QueryData, builder: &mut Builder)
@@ -1892,59 +1987,5 @@ fn print_module(module: llvm::prelude::LLVMModuleRef)
     }
 }
 
-/// # Safety
-/// TODO: remove - this is just for janky testing.
-pub unsafe fn output_module_bitcode(module: llvm::prelude::LLVMModuleRef) -> Result<(), String>
-{
-    let result = llvm
-        ::bit_writer
-        ::LLVMWriteBitcodeToFile(module, binary_cstr!("bin/a.bc"));
 
-    if result != 0 {
-        return Err("Failed to output bitcode.".to_string())
-    }
 
-    Ok(())
-}
-
-struct CStr
-{
-    value: *mut i8,
-    len: usize,
-}
-
-impl CStr
-{
-    pub fn new(value: String) -> Self
-    {
-        use std::ffi;
-
-        let len   = value.len();
-        let value = ffi::CString::new(value).unwrap();
-        let value = value.into_raw();
-
-        Self { value, len }
-    }
-
-    pub fn from_str(value: &str) -> Self
-    {
-        use std::ffi;
-
-        let len   = value.len();
-        let value = ffi::CString::new(value).unwrap();
-        let value = value.into_raw();
-
-        Self { value, len }
-    }
-}
-
-impl Drop for CStr
-{
-    fn drop(&mut self)
-    {
-        unsafe {
-            use std::ffi;
-            let _ = ffi::CString::from_raw(self.value);
-        }
-    }
-}
