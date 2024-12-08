@@ -217,21 +217,12 @@ impl Builder
 
     /// # Safety
     /// TODO
-    pub unsafe fn build_struct_definition(&self, query: &QueryData, name: &str) -> Definition
+    pub unsafe fn build_struct_definition(&self, kind: &types::Struct) -> Definition
     {
-        let struct_type_kind = query
-            .type_info
-            .get_from_scope(self.current_scope(), name)
-            .expect("Failed to find struct type.");
+        let struct_type = llvm::core::LLVMStructCreateNamed(self.ctx, CStr::from_str(&kind.name).value);
 
-        let struct_definition_name = CStr::from_str(name);
-        let struct_type            = llvm::core::LLVMStructCreateNamed(self.ctx, struct_definition_name.value);
-
-        let struct_value = struct_type_kind
-            .as_struct()
-            .expect("Expect 'struct' type.");
-
-        let mut member_types: Vec<llvm::prelude::LLVMTypeRef> = struct_value.member_types
+        let mut member_types: Vec<llvm::prelude::LLVMTypeRef> = kind
+            .member_types
             .iter()
             .map(|t| self.to_llvm_type(t))
             .collect();
@@ -239,13 +230,13 @@ impl Builder
         llvm::core::LLVMStructSetBody(
             struct_type, 
             member_types.as_mut_ptr(), 
-            struct_value.member_names.len().try_into().unwrap(), 
+            kind.member_names.len().try_into().unwrap(), 
             0,
         );
 
         Definition::Struct {
-            name: name.to_owned(),
-            member_names: struct_value.member_names.clone(),
+            name: kind.name.clone(),
+            member_names: kind.member_names.clone(),
             member_types: member_types.clone(),
             type_ref: struct_type,
         }
@@ -528,13 +519,13 @@ impl Drop for Builder
 pub struct QueryData
 {
     pub source: context::Context,
+
     pub nodes: Vec<ast::Node>,
     pub global_nodes: Vec<ast::NodeId>,
+    pub types: Vec<types::TypeKind>,
 
     pub symbol_table: semantic_analysis::SymbolTable,
     pub type_info: scope::Module<types::TypeKind>,
-
-    pub types: Vec<types::TypeKind>,
 }
 
 /// # Safety
@@ -611,14 +602,23 @@ unsafe fn declare_native_functions(query: &QueryData, builder: &mut Builder)
 
 /// # Safety
 /// TODO
-pub unsafe fn match_statement(query: &QueryData, builder: &mut Builder, stmt: ast::NodeId)
+pub unsafe fn match_statement(query: &QueryData, builder: &mut Builder, stmt_id: ast::NodeId)
 {
-    let stmt = &query.nodes[stmt].as_stmt().unwrap();
+    let stmt = &query.nodes[stmt_id].as_stmt().expect("Expect statement.");
     match stmt {
         ast::Stmt::Struct { name, .. } => {
             let name = query.source.token_value(*name);
 
-            let definition = builder.build_struct_definition(query, name);
+            let struct_type_kind = query
+                .type_info
+                .get_from_scope(builder.current_scope(), name)
+                .expect("Failed to find struct type.");
+
+            let struct_value = struct_type_kind
+                .as_struct()
+                .unwrap_or_else(|_| panic!("Expect 'struct' type, found {struct_type_kind:?}."));
+
+            let definition = builder.build_struct_definition(struct_value);
 
             let Definition::Struct { type_ref, .. } = definition else { 
                 panic!("Expect struct definition.") 
@@ -1372,27 +1372,17 @@ pub unsafe fn match_expression
 
         ast::Expr::Function { params, body, .. } => {
             let name = builder.name.take().unwrap();
-            closure(query, builder, &name, params, body)
+            closure(query, builder, expr, &name, params, body)
         }
 
-        ast::Expr::Struct { name, values, .. } => {
-            let type_kind = query
-                .type_info
-                .get_from_scope(builder.current_scope(), query.source.token_value(*name))
-                .unwrap(/*TODO: remove unwrap*/);
-
-            let struct_value = type_kind
+        ast::Expr::Struct { values, .. } => {
+            let struct_value = &query.types[expr];
+            let struct_value = struct_value
                 .as_struct()
-                .expect("Expected struct type kind.");
-
-            let struct_type_name = &struct_value.name;
-            let definition = builder.build_struct_definition(query, struct_type_name);
-
-            builder.definition_names.push(struct_type_name.to_owned());
-            builder.definitions.push(definition);
+                .unwrap_or_else(|_| panic!("Expect 'struct' type kind, found {struct_value:#?}."));
 
             let struct_definition = builder
-                .get_definition(struct_type_name)
+                .get_definition(&struct_value.name)
                 .expect("Expect struct definition.")
                 .clone();
 
@@ -1723,6 +1713,7 @@ unsafe fn closure
 (
     query: &QueryData,
     builder: &mut Builder,
+    closure_node_id: ast::NodeId,
     name: &str,
     params: &[scan::TokenId],
     body: &[ast::NodeId],
@@ -1747,12 +1738,10 @@ unsafe fn closure
     closed_params.append(&mut params);
     closed_params.append(&mut closed_variables);
 
-    let kind = &query
-        .type_info
-        .get_from_scope(builder.current_scope(), name)
-        .expect("Expected type kind.");
-
-    let function = kind.as_function().expect("Expected function type kind, found {kind:?}.");
+    let function = query
+        .types[closure_node_id]
+        .as_function()
+        .expect("Expect function type kind.");
 
     let mut parameter_types: Vec<llvm::prelude::LLVMTypeRef> = function.parameter_kinds
         .iter()

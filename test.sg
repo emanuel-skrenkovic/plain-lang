@@ -34,7 +34,7 @@ main :: (): i32
 {
 	c := []i32{666, 64};
 
-	printf("%d !=", c[0]);
+	printf("%d != ", c[0]);
 
 	result := c[1];
 
@@ -47,7 +47,16 @@ main :: (): i32
 		}
 	};
 
-	printf("%d", s.sum());
+	s2 := Values {
+		a: 0,
+		b: 0,
+		c: 0,
+		d: Inner {
+			a: 13,
+		}
+	};
+
+	printf("%d", s.sum() + s.d.test2());
 
 	0
 }
