@@ -641,7 +641,6 @@ pub unsafe fn compile(query: &QueryData) -> Builder
 
     declare_native_functions(query, &mut builder);
 
-    // TODO: remove clone
     for i in &query.global_nodes {
         match_statement(query, &mut builder, *i);
     }
@@ -682,13 +681,13 @@ unsafe fn declare_native_functions(query: &QueryData, builder: &mut Builder)
             let function_call = builder
                 .build_function(name, param_types, return_type, vec![], false, function.variadic);
 
-            let name = *name;
-            builder.definition_names.push(name.to_owned());
-            builder.definitions.push(function_call.clone());
-
             let Definition::Function { function, function_type, .. } = function_call else {
                 panic!("Expect function definition.")
             };
+
+            let name = *name;
+            builder.definition_names.push(name.to_owned());
+            builder.definitions.push(function_call);
 
             builder.module_scopes.add_to_current(name, (function, function_type));
         }
