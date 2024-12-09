@@ -1128,10 +1128,11 @@ pub unsafe fn match_expression
                 types::TypeKind::String { .. } => {
                     let value   = query.source.token_value(*value);
                     let trimmed = value[1..value.len()-1].to_owned(); // Strip away '"' from start and end.
+                    let length  = trimmed.len();
                     let val     = CStr::new(trimmed);
                     llvm
                         ::core
-                        ::LLVMConstStringInContext2(builder.ctx, val.value, value.len(), 0)
+                        ::LLVMConstStringInContext2(builder.ctx, val.value, length, 0)
                 }
 
                 _ => panic!("Unrecognized literal type {expr:#?}"),
