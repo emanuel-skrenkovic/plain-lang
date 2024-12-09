@@ -18,6 +18,12 @@ pub struct Scope<T>
     pub values: Vec<T>,
 }
 
+/// Module is a sort of a "spaghetti stack", where the
+/// data is flattened.
+/// Each scope contains the names/values of all parent scopes
+/// up to the point of creation of itself.
+/// This makes searching the scope simple, as only the 
+/// scope itself needs to be searched (at the cost of memory).
 #[derive(Clone, Debug)]
 pub struct Module<T>
     where T : Debug + Clone,
