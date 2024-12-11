@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use crate::{ast, context, error, scan, scope};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +121,8 @@ pub struct Typer<'a>
 {
     ctx: &'a mut context::Context,
     type_info: scope::Module<TypeKind>,
+
+    name: Option<scan::TokenId>,
 }
 
 impl <'a> Typer<'a>
@@ -132,6 +132,7 @@ impl <'a> Typer<'a>
         Self {
             ctx,
             type_info: scope::Module::new(),
+            name: None,
         }
     }
 
@@ -273,6 +274,8 @@ impl <'a> Typer<'a>
             }
 
             ast::Stmt::Var { name, initializer, type_name } => {
+                self.name = Some(*name);
+
                 let index = self.type_info.add_to_current(self.ctx.token_value(*name), TypeKind::Unknown);
                 let kind  = self.match_expression(nodes, *initializer, types)?;
 
@@ -290,8 +293,11 @@ impl <'a> Typer<'a>
             }
 
             ast::Stmt::Const { name, initializer, type_name } => {
+                self.name = Some(*name);
+
                 let name  = self.ctx.token_value(*name);
                 let index = self.type_info.add_to_current(name, TypeKind::Unknown);
+
 
                 let kind = self.match_expression(nodes, *initializer, types)?;
 
@@ -607,14 +613,14 @@ impl <'a> Typer<'a>
             ast::Expr::Function { right_paren, params, param_types, body, return_type, .. } => {
                 self.type_info.begin_scope();
 
-                let closed_variables     = self.captured_variables();
-                // Remove self (which is the last captured variable).
-                let closed_variables     = closed_variables[..closed_variables.len()-1].to_vec();
+                let name             = self.ctx.token_value(self.name.take().unwrap());
+                let closed_variables = self.type_info.captures(name);
+
                 let mut closed_variables = closed_variables
                     .into_iter()
                     .map(|(n, t)| {
                         let type_kind = TypeKind::Reference { underlying: Box::new(t.clone()) };
-                        (n, type_kind)
+                        (n.to_string(), type_kind.clone())
                     })
                     .collect::<Vec<(String, TypeKind)>>();
 
@@ -829,30 +835,6 @@ impl <'a> Typer<'a>
                 }
             }
         }
-    }
-
-    pub fn captured_variables(&self) -> Vec<(String, TypeKind)>
-    {
-        let scope = self.type_info.current_scope();
-
-        let global_scope = &self.type_info.scopes[0];
-        let globals      = global_scope.names.iter().map(std::string::String::as_str).collect::<Vec<&str>>();
-        let to_remove    = BTreeSet::<&str>::from_iter(globals);
-
-        let capacity = scope.names.len() - global_scope.names.len();
-
-        let mut vars: Vec<(String, TypeKind)> = Vec::with_capacity(capacity);
-
-        for i in 0..scope.names.len() {
-            let name = &scope.names[i];
-            if to_remove.contains(name.as_str()) { continue }
-
-            let value = &scope.values[i];
-
-            vars.push((name.clone(), value.clone()));
-        }
-
-        vars
     }
 }
 
