@@ -1,5 +1,4 @@
 extern crate llvm_sys as llvm;
-use std::collections::BTreeSet;
 
 use macros::binary_cstr;
 
@@ -1303,9 +1302,11 @@ pub unsafe fn match_expression
             };
 
             let mut closed_variables = if closure {
-                captured_variables(builder, name)
+                builder
+                    .module_scopes
+                    .captures(name)
                     .iter()
-                    .map(|(_, var)| {
+                    .map(|(_, (var, _))| {
                         let var_type  = llvm::core::LLVMTypeOf(*var);
                         let type_kind = llvm::core::LLVMGetTypeKind(var_type);
 
@@ -1393,9 +1394,11 @@ pub unsafe fn match_expression
             };
 
             let mut closed_variables = if closure {
-                captured_variables(builder, name)
+                builder
+                    .module_scopes
+                    .captures(name)
                     .iter()
-                    .map(|(_, var)| {
+                    .map(|(_, (var, _))| {
                         let var_type  = llvm::core::LLVMTypeOf(*var);
                         let type_kind = llvm::core::LLVMGetTypeKind(var_type);
 
@@ -1814,7 +1817,9 @@ unsafe fn closure
     body: &[ast::NodeId],
 ) -> llvm::prelude::LLVMValueRef
 {
-    let mut closed_variables: Vec<String> = captured_variables(builder, name)
+    let mut closed_variables: Vec<String> = builder
+        .module_scopes
+        .captures(name)
         .into_iter()
         .map(|(name, _)| name.to_owned())
         .collect();
@@ -1922,44 +1927,6 @@ unsafe fn is_pointer(var: llvm::prelude::LLVMValueRef) -> bool
 pub unsafe fn is_void(type_ref: llvm::prelude::LLVMTypeRef) -> bool
 {
     llvm::core::LLVMGetTypeKind(type_ref) == llvm::LLVMTypeKind::LLVMVoidTypeKind
-}
-
-/// # Safety
-/// TODO
-pub unsafe fn captured_variables<'a>
-(
-    builder: &'a Builder, 
-    self_name: &str,
-) -> Vec<(&'a str, llvm::prelude::LLVMValueRef)>
-{
-    let scope = builder.module_scopes.current_scope();
-
-    let global_scope = &builder.module_scopes.scopes[0];
-    let globals      = global_scope.names.iter().map(std::string::String::as_str).collect::<Vec<&str>>();
-    let to_remove    = BTreeSet::<&str>::from_iter(globals);
-
-    let capacity = scope.names.len() - global_scope.names.len();
-
-    let mut vars: Vec<(&str, llvm::prelude::LLVMValueRef)> = Vec::with_capacity(capacity);
-
-    // Walk front to back in the scope until the closure.
-    for i in 0..scope.names.len() {
-        let name = &scope.names[i];
-
-        // Once the scope reaches self, exit early. Everything in the 
-        // loop after that is going to be out of scope for our closure.
-        if name == self_name { 
-            break 
-        }
-
-        if to_remove.contains(name.as_str()) { continue }
-
-        let (value, _) = scope.values[i];
-
-        vars.push((name.as_str(), value));
-    }
-
-    vars
 }
 
 /// # Safety
