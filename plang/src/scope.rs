@@ -142,7 +142,7 @@ impl <T> Module<T>
         scope.values[index] = value;
     }
 
-    pub fn captures(&self) -> Vec<String>
+    pub fn captures(&self, self_name: &str) -> Vec<(&str, &T)>
     {
         let scope = self.current_scope();
 
@@ -151,10 +151,26 @@ impl <T> Module<T>
         let to_remove    = BTreeSet::<&str>::from_iter(globals);
 
         let capacity              = scope.names.len() - global_scope.names.len();
-        let mut vars: Vec<String> = Vec::with_capacity(capacity);
+        let mut vars: Vec<(&str, &T)> = Vec::with_capacity(capacity);
 
-        vars.append(&mut scope.names.clone());
-        vars.retain(|n| !to_remove.contains(n.as_str()));
+        for i in 0..scope.names.len() {
+            let name = &scope.names[i];
+
+            // Once the scope reaches self, exit early. Everything in the 
+            // loop after that is going to be out of scope for our closure.
+            if name == self_name { 
+                break 
+            }
+
+            if to_remove.contains(name.as_str()) { continue }
+
+            let val = &scope.values[i];
+
+            vars.push((name, val));
+        }
+
+        // vars.append(&mut scope.names.clone());
+        // vars.retain(|n| !to_remove.contains(n.as_str()));
         
         vars
     }

@@ -192,9 +192,13 @@ pub fn match_statement
                     body: body.clone(),
                 };
 
+                let name     = ctx.token_value(*name);
                 let captures = symbol_table
                     .module
-                    .captures();
+                    .captures(name)
+                    .iter()
+                    .map(|(n, _)| (*n).to_string())
+                    .collect();
 
                 let declaration = Declaration {
                     kind: DeclarationKind::Closure {
@@ -203,7 +207,7 @@ pub fn match_statement
                     },
                 };
 
-                symbol_table.module.add_to_current(ctx.token_value(*name), declaration);
+                symbol_table.module.add_to_current(name, declaration);
 
                 symbol_table.module.begin_scope();
 
