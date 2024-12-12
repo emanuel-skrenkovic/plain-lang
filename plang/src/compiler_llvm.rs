@@ -81,6 +81,12 @@ pub enum Definition
     },
 }
 
+#[derive(Debug)]
+pub struct ReturnSentinel 
+{
+    pub value: Option<llvm::prelude::LLVMValueRef>
+}
+
 #[derive(Clone, Debug)]
 pub struct FunctionContext
 {
@@ -734,7 +740,9 @@ pub unsafe fn match_statement(query: &QueryData, builder: &mut Builder, stmt_id:
                     .get_from_scope(builder.current_scope(), function_name)
                     .expect("Expected type kind.");
 
-                let function = kind.as_function().unwrap_or_else(|_| panic!("Expected function type kind found {kind:?}."));
+                let function = kind
+                    .as_function()
+                    .unwrap_or_else(|_| panic!("Expected function type kind found {kind:?}."));
 
                 let param_types: Vec<llvm::prelude::LLVMTypeRef> = function.parameter_kinds
                     .iter()
@@ -911,12 +919,6 @@ pub unsafe fn match_statement(query: &QueryData, builder: &mut Builder, stmt_id:
 
         ast::Stmt::Expr { expr } => { let _ = match_expression(query, builder, *expr); },
     }
-}
-
-#[derive(Debug)]
-pub struct ReturnSentinel 
-{
-    pub value: Option<llvm::prelude::LLVMValueRef>
 }
 
 /// # Safety
