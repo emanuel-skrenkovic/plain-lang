@@ -109,10 +109,8 @@ fn main()
     // println!("{types:#?}");
 
     let _ = std::process::Command::new("clang")
-        .args(["-o", "bin/a", "bin/a.o", "-O0"])
-        .spawn()
-        .unwrap()
-        .wait_with_output()
+        .args(["-o", "bin/a", "bin/a.o", "-O0", "-fuse-ld=lld"])
+        .status()
         .expect("Failed to compile LLVM bytecode");
 
     let after_linking_bytecode = now_linking_bytecode.elapsed();
