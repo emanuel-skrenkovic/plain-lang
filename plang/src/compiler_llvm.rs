@@ -593,6 +593,17 @@ impl Builder
             std::ffi::CStr::from_ptr(output_error.value).to_string_lossy(),
         );
     }
+
+    pub unsafe fn store_value(
+        &self, 
+        value_ref: llvm::prelude::LLVMValueRef, 
+        type_ref: llvm::prelude::LLVMTypeRef,
+        destination_ref: llvm::prelude::LLVMValueRef,
+    ) -> llvm::prelude::LLVMValueRef
+    {
+        let value = self.deref_if_primitive(value_ref, type_ref);
+        llvm::core::LLVMBuildStore(self.builder(), value, destination_ref)
+    }
 }
 
 impl Drop for Builder
@@ -1154,9 +1165,7 @@ pub unsafe fn match_expression
             let value = match &left_expr {
                 ast::Expr::Variable { name } =>  {
                     let (variable_ref, _) = builder.module_scopes.get(query.source.token_value(*name)).unwrap();
-
-                    let value = builder.deref_if_primitive(value_expr, builder.to_llvm_type(&query.types[*right]));
-                    llvm::core::LLVMBuildStore(builder.builder(), value, *variable_ref)
+                    builder.store_value(value_expr, builder.to_llvm_type(&query.types[*right]), *variable_ref)
                 },
 
                 ast::Expr::MemberAccess { left: instance, right: member_name } => {
@@ -1194,9 +1203,7 @@ pub unsafe fn match_expression
                     let value_type = builder.to_llvm_type(&query.types[*right]);
 
                     let member_ref = builder.struct_member_access(struct_pointer, struct_type, member_index, member);
-                    let value      = builder.deref_if_primitive(value_expr, value_type);
-
-                    llvm::core::LLVMBuildStore(builder.builder(), value, member_ref)
+                    builder.store_value(value_expr, value_type, member_ref)
                 }
 
                 ast::Expr::Index { container, value } => {
@@ -1207,8 +1214,7 @@ pub unsafe fn match_expression
 
                     let member_pointer = builder.array_index(slice_val, value_type, index);
 
-                    let value = builder.deref_if_primitive(value_expr, value_type);
-                    llvm::core::LLVMBuildStore(builder.builder(), value, member_pointer)
+                    builder.store_value(value_expr, value_type, member_pointer)
                }
 
                 _ => panic!("Unknown left-hand expression in assignment.")
@@ -1546,9 +1552,7 @@ pub unsafe fn match_expression
             for (i, value) in initial_values.iter().enumerate() {
                 let index    = llvm::core::LLVMConstInt(i32_type, u64::try_from(i).unwrap(), 1);
                 let location = builder.array_index(arr_ptr, element_type, index);
-                let value    = builder.deref_if_ptr(*value, element_type);
-
-                llvm::core::LLVMBuildStore(builder.builder(), value, location);
+                builder.store_value(*value, element_type, location);
             }
 
             // This is supposed to be a struct containing size, capacity and the pointer
