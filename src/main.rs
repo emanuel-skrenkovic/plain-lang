@@ -98,7 +98,7 @@ fn main()
         let llvm_elapsed = now_llvm.elapsed();
 
         let now_module_output = std::time::Instant::now();
-        module.output_module_bitcode();
+        module.output_module_bitcode(std::path::Path::new("bin/a.o"));
         let after_module_output = now_module_output.elapsed();
 
         (llvm_elapsed, after_module_output)

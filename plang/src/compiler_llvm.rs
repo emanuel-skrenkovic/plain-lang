@@ -98,6 +98,7 @@ pub struct FunctionContext
     pub builder: llvm::prelude::LLVMBuilderRef,
 }
 
+// TODO: abstract away builder into a trait to support different backends?
 #[derive(Debug)]
 pub struct Builder
 {
@@ -547,7 +548,7 @@ impl Builder
 
     /// # Safety
     /// TODO: remove - this is just for janky testing.
-    pub unsafe fn output_module_bitcode(&self)
+    pub unsafe fn output_module_bitcode(&self, path: &std::path::Path)
     {
         let triple     = llvm::target_machine::LLVMGetDefaultTargetTriple();
         let mut error  = CStr::from_str("");
@@ -575,7 +576,7 @@ impl Builder
             llvm::target_machine::LLVMCodeModel::LLVMCodeModelDefault,
         );
 
-        let output_path      = CStr::from_str("bin/a.o");
+        let output_path      = CStr::from_str(path.to_str().expect("Expect path."));
         let mut output_error = CStr::from_str("");
 
         let success = llvm::target_machine::LLVMTargetMachineEmitToFile(
