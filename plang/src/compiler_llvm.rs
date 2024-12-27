@@ -594,6 +594,8 @@ impl Builder
         );
     }
 
+    /// # Safety
+    /// TODO
     pub unsafe fn store_value(
         &self, 
         value_ref: llvm::prelude::LLVMValueRef, 
