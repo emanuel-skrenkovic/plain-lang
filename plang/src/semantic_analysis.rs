@@ -59,7 +59,7 @@ pub struct SymbolTable
 // TODO: build symbol table to forward-declare
 // all declarations.
 // Walking the AST later is problematic if we don't have this.
-pub fn analyse(ctx: &context::Context, program: Vec<ast::Node>) -> Result<(Vec<ast::Node>, SymbolTable), String>
+pub fn analyse(ctx: &context::Context, nodes: Vec<ast::Node>) -> Result<(Vec<ast::Node>, SymbolTable), String>
 {
     let mut symbol_table = SymbolTable {
         module: scope::Module::new(),
@@ -68,11 +68,11 @@ pub fn analyse(ctx: &context::Context, program: Vec<ast::Node>) -> Result<(Vec<a
     symbol_table.module.begin_scope();
 
     handle_native_functions(&mut symbol_table);
-    forward_declarations(ctx, &program, &mut symbol_table);
+    forward_declarations(ctx, &nodes, &mut symbol_table);
 
     symbol_table.module.end_scope();
 
-    Ok((program, symbol_table))
+    Ok((nodes, symbol_table))
 }
 
 pub fn handle_native_functions(symbol_table: &mut SymbolTable)
@@ -86,9 +86,9 @@ pub fn handle_native_functions(symbol_table: &mut SymbolTable)
     }
 }
 
-pub fn forward_declarations(ctx: &context::Context, program: &[ast::Node], symbol_table: &mut SymbolTable)
+pub fn forward_declarations(ctx: &context::Context, nodes: &[ast::Node], symbol_table: &mut SymbolTable)
 {
-    let statements_indices: Vec<usize> = program
+    let statements_indices: Vec<usize> = nodes
         .iter()
         .enumerate()
         .filter_map(|(i, n)| match n {
@@ -103,7 +103,7 @@ pub fn forward_declarations(ctx: &context::Context, program: &[ast::Node], symbo
         .collect();
 
     for i in statements_indices {
-        match_statement(program, i, ctx, symbol_table);
+        match_statement(nodes, i, ctx, symbol_table);
     }
 }
 
