@@ -1,13 +1,12 @@
 use std::fmt::Debug;
 use std::collections::BTreeSet;
 
-
 #[derive(Clone, Debug)]
 pub struct Scope<T>
     where T : Debug + Clone
 {
     pub index: usize,
-    pub path: Vec<usize>,
+    pub parent: Option<usize>,
 
     // Keep name + values in vec in order to preserve order.
     // Using HashMap had the issue of essentially randomizing
@@ -58,32 +57,17 @@ impl <T> Module<T>
         let parent_scope = if self.scopes.is_empty() { None }
                            else                      { Some(&self.scopes[self.current_scope_index]) };
 
-        // New scope path will contain the parent as well, so extending with the
-        // index of the parent.
-        let new_scope_path = match parent_scope {
-            Some(parent_scope) => {
-                let mut new_scope_path = Vec::with_capacity(parent_scope.path.len() + 1);
-                new_scope_path.extend_from_slice(&parent_scope.path);
-                new_scope_path.push(parent_scope.index);
-                new_scope_path
-            }
-            _ => Vec::with_capacity(128)
-        };
-
         let mut new_scope_names  = Vec::with_capacity(128);
         let mut new_scope_values = Vec::with_capacity(128);
 
         if let Some(parent_scope) = parent_scope {
-            let parent_scope       = &self.scopes[parent_scope.index];
-
-            // TODO: clone + append? chained? extend_from_slice? Something else?
             new_scope_names.extend_from_slice(&parent_scope.names);
             new_scope_values.extend_from_slice(&parent_scope.values);
         }
 
         let new_scope = Scope {
             index: self.scopes.len(),
-            path: new_scope_path,
+            parent: parent_scope.map(|s| s.index),
             names: new_scope_names,
             values: new_scope_values,
         };
@@ -95,9 +79,9 @@ impl <T> Module<T>
     pub fn end_scope(&mut self)
     {
         let scope = &self.scopes[self.current_scope_index];
-        if scope.path.is_empty() { return }
+        if scope.parent.is_none() { return }
 
-        self.current_scope_index = *scope.path.last().unwrap();
+        self.current_scope_index = scope.parent.unwrap();
     }
 
     pub fn get(&self, name: &str) -> Option<&T>
@@ -158,19 +142,13 @@ impl <T> Module<T>
 
             // Once the scope reaches self, exit early. Everything in the 
             // loop after that is going to be out of scope for our closure.
-            if name == self_name { 
-                break 
-            }
-
+            if name == self_name                 { break }
             if to_remove.contains(name.as_str()) { continue }
 
             let val = &scope.values[i];
 
             vars.push((name, val));
         }
-
-        // vars.append(&mut scope.names.clone());
-        // vars.retain(|n| !to_remove.contains(n.as_str()));
         
         vars
     }
@@ -184,3 +162,4 @@ impl<T> Default for Module<T>
         Self::new()
     }
 }
+
